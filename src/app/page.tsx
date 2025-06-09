@@ -121,13 +121,12 @@ export default function HomePage() {
   // 로그인한 상태
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* 헤더 */}
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <h1 className="text-xl font-bold text-gray-900">AI 팀 빌더</h1>
+            <h1 className="text-xl font-bold text-gray-900">AI Team Builder</h1>
             <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-600">
+              <span className="text-sm font-semibold text-gray-800">
                 {session.user?.name || session.user?.email}
               </span>
               <Button variant="ghost" size="sm" onClick={() => signOut()}>
@@ -290,28 +289,79 @@ export default function HomePage() {
             )}
 
             {/* 에이전트 목록 */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
               {agents.map((agent) => (
                 <Card
                   key={agent.id}
-                  className="hover:shadow-md transition-shadow"
+                  className="group relative overflow-hidden border-0 bg-white/80 backdrop-blur-sm shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02] rounded-2xl"
                 >
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="w-12 h-12 bg-gray-300 rounded-full flex items-center justify-center">
-                        <User className="h-6 w-6 text-gray-600" />
+                  <CardContent className="p-6">
+                    <div className="flex flex-col items-center text-center space-y-4">
+                      {/* 아바타 */}
+                      <div className="relative">
+                        <div className="w-20 h-20 bg-gradient-to-br from-blue-400 via-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-lg group-hover:shadow-xl transition-shadow duration-300">
+                          <User className="h-10 w-10 text-white" />
+                        </div>
                       </div>
-                      <div>
-                        <h3 className="font-semibold text-gray-900">
-                          팀원 {agent.name}
+
+                      {/* 정보 */}
+                      <div className="w-full space-y-3">
+                        <h3 className="text-lg font-bold text-gray-900 tracking-tight">
+                          {agent.name}
                         </h3>
-                        <p className="text-sm text-gray-600">
-                          나이: {agent.age}
-                        </p>
-                        <p className="text-sm text-gray-600">
-                          성별: {agent.gender}
-                        </p>
+
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-500">나이</span>
+                            <span className="font-medium text-gray-900">
+                              {agent.age}세
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-500">성별</span>
+                            <span className="font-medium text-gray-900">
+                              {agent.gender}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* 추가 정보 (있을 때만 표시) */}
+                        {(agent.personality || agent.designStyle) && (
+                          <div className="pt-3 border-t border-gray-100 space-y-3">
+                            {agent.personality && (
+                              <div>
+                                <p className="text-xs font-semibold text-gray-800 mb-1">
+                                  💭 성격
+                                </p>
+                                <p className="text-xs text-gray-600 line-clamp-2 pl-4">
+                                  {agent.personality}
+                                </p>
+                              </div>
+                            )}
+                            {agent.designStyle && (
+                              <div>
+                                <p className="text-xs font-semibold text-gray-800 mb-1">
+                                  🎨 추구하는 디자인
+                                </p>
+                                <p className="text-xs text-gray-600 line-clamp-2 pl-4">
+                                  {agent.designStyle}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
+                    </div>
+
+                    {/* 호버 시 표시되는 액션 버튼 */}
+                    <div className="absolute bottom-4 left-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full bg-white/90 backdrop-blur-sm border-gray-200 hover:bg-gray-50 text-gray-700"
+                      >
+                        상세 보기
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -319,13 +369,22 @@ export default function HomePage() {
 
               {/* + 버튼 카드 */}
               <Card
-                className="border-2 border-dashed border-gray-300 hover:border-gray-400 cursor-pointer transition-colors"
+                className="group border-2 border-dashed border-gray-300 hover:border-blue-400 cursor-pointer transition-all duration-300 hover:scale-[1.02] rounded-2xl bg-gray-50/50 hover:bg-blue-50/50"
                 onClick={() => setShowCreateForm(true)}
               >
-                <CardContent className="p-4 flex items-center justify-center min-h-[120px]">
-                  <div className="text-center">
-                    <Plus className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                    <p className="text-sm text-gray-600">새 팀원 추가</p>
+                <CardContent className="p-6 flex items-center justify-center min-h-[240px]">
+                  <div className="text-center space-y-3">
+                    <div className="w-12 h-12 bg-gradient-to-br from-gray-400 to-gray-500 group-hover:from-blue-400 group-hover:to-blue-500 rounded-xl flex items-center justify-center mx-auto transition-all duration-300">
+                      <Plus className="h-6 w-6 text-white" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-700 group-hover:text-blue-700 transition-colors">
+                        새 팀원 추가
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        AI 에이전트 생성하기
+                      </p>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
