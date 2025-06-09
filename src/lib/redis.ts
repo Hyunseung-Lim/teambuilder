@@ -100,8 +100,11 @@ export async function createTeam(
   };
 
   await redis.hset(keys.team(team.id), {
-    ...team,
+    id: team.id,
+    teamName: team.teamName,
+    ownerId: team.ownerId,
     members: JSON.stringify(team.members),
+    createdAt: team.createdAt.toISOString(),
   });
   await redis.sadd(keys.userTeams(team.ownerId), team.id);
 
@@ -112,11 +115,25 @@ export async function getTeamById(id: string): Promise<Team | null> {
   const teamData = await redis.hgetall(keys.team(id));
   if (!teamData || Object.keys(teamData).length === 0) return null;
 
-  return {
-    ...teamData,
-    members: JSON.parse(teamData.members as string),
-    createdAt: new Date(teamData.createdAt as string),
-  } as Team;
+  try {
+    let members;
+    if (typeof teamData.members === "string") {
+      members = JSON.parse(teamData.members);
+    } else {
+      members = teamData.members; // 이미 배열인 경우
+    }
+
+    return {
+      id: teamData.id as string,
+      teamName: teamData.teamName as string,
+      ownerId: teamData.ownerId as string,
+      members: members,
+      createdAt: new Date(teamData.createdAt as string),
+    } as Team;
+  } catch (error) {
+    console.error("팀 데이터 파싱 오류:", error, teamData);
+    return null;
+  }
 }
 
 export async function getUserTeams(userId: string): Promise<Team[]> {

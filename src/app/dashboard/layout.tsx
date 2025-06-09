@@ -1,16 +1,20 @@
-import { auth } from "@/lib/auth";
+import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { signOut } from "next-auth/react";
 import { User, Users, Plus, LogOut } from "lucide-react";
+
+async function signOutAction() {
+  "use server";
+  redirect("/api/auth/signout");
+}
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth();
+  const session = await getServerSession();
 
   if (!session?.user) {
     redirect("/login");
@@ -47,12 +51,7 @@ export default async function DashboardLayout({
               <span className="text-sm text-gray-600">
                 {session.user.name || session.user.email}
               </span>
-              <form
-                action={async () => {
-                  "use server";
-                  await signOut({ redirectTo: "/login" });
-                }}
-              >
+              <form action={signOutAction}>
                 <Button variant="ghost" size="sm" type="submit">
                   <LogOut className="h-4 w-4" />
                   로그아웃

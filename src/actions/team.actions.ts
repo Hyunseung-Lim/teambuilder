@@ -35,7 +35,12 @@ export async function createTeamAction(formData: FormData) {
     });
 
     revalidatePath("/");
+    redirect("/");
   } catch (error) {
+    // Next.js redirect는 정상 동작이므로 다시 throw
+    if (error instanceof Error && error.message === "NEXT_REDIRECT") {
+      throw error;
+    }
     console.error("팀 생성 오류:", error);
     throw new Error("팀 생성에 실패했습니다.");
   }

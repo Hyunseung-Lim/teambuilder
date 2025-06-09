@@ -88,10 +88,11 @@ export default function NewTeamPage() {
     setError(null);
 
     try {
-      await createTeamAction({
-        teamName: teamName.trim(),
-        members: selectedMembers,
-      });
+      const formData = new FormData();
+      formData.append("teamName", teamName.trim());
+      formData.append("selectedAgents", JSON.stringify(selectedMembers));
+
+      await createTeamAction(formData);
     } catch (error) {
       setError(
         error instanceof Error ? error.message : "팀 생성에 실패했습니다."
