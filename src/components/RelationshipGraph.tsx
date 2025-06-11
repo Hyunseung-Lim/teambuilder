@@ -152,9 +152,14 @@ export function RelationshipGraph({
                 {connectionCandidate
                   ? "어떤 관계인가요?"
                   : connectingFrom
-                  ? `${
-                      members.find((m) => m.id === connectingFrom)?.id
-                    }와 연결할 팀원을 선택하세요.`
+                  ? `${(() => {
+                      const member = members.find(
+                        (m) => m.id === connectingFrom
+                      );
+                      return member?.isUser
+                        ? "나"
+                        : member?.agent?.name || `팀원 ${member?.id}`;
+                    })()}와 연결할 팀원을 선택하세요.`
                   : "관계를 시작할 팀원을 선택하세요."}
               </p>
               <Button variant="ghost" size="sm" onClick={cancelConnecting}>
@@ -209,8 +214,23 @@ export function RelationshipGraph({
 
         {/* 관계 엣지 */}
         {relationships.map((rel, index) => {
-          const fromNode = nodes[rel.from];
-          const toNode = nodes[rel.to];
+          // 이름으로 멤버를 찾아서 member.id로 노드 위치 가져오기
+          const fromMember = members.find(
+            (m) =>
+              (m.isUser && rel.from === "나") ||
+              (!m.isUser && m.agent?.name === rel.from)
+          );
+          const toMember = members.find(
+            (m) =>
+              (m.isUser && rel.to === "나") ||
+              (!m.isUser && m.agent?.name === rel.to)
+          );
+
+          if (!fromMember || !toMember) return null;
+
+          const fromNode = nodes[fromMember.id];
+          const toNode = nodes[toMember.id];
+
           if (!fromNode || !toNode) return null;
 
           const relType = RELATIONSHIP_TYPES[rel.type];
@@ -239,7 +259,7 @@ export function RelationshipGraph({
                 stroke="transparent"
                 strokeWidth="20"
                 className="cursor-pointer"
-                onClick={() => onRemoveRelationship(rel.from, rel.to)}
+                onClick={() => onRemoveRelationship(fromMember.id, toMember.id)}
               />
               <line
                 x1={startX}
@@ -265,7 +285,7 @@ export function RelationshipGraph({
               {/* 관계 제거 버튼 */}
               <g
                 className="cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={() => onRemoveRelationship(rel.from, rel.to)}
+                onClick={() => onRemoveRelationship(fromMember.id, toMember.id)}
               >
                 <rect
                   x={(startX + endX) / 2 - 12}
@@ -374,21 +394,14 @@ export function RelationshipGraph({
                 fontWeight="600"
                 className="pointer-events-none select-none fill-gray-700"
               >
-                {member.isUser ? "나" : `팀원 ${member.id}`}
+                {member.isUser
+                  ? "나"
+                  : member.agent?.name || `팀원 ${member.id}`}
               </text>
             </g>
           );
         })}
       </svg>
-      <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
-        <p className="font-medium">💡 사용법</p>
-        <ul className="list-disc list-inside text-xs text-blue-700 mt-1">
-          <li>"관계 연결하기" 버튼을 눌러 관계 설정을 시작하세요.</li>
-          <li>노드를 클릭하여 관계를 만들고, 관계 종류를 선택하세요.</li>
-          <li>생성된 관계선을 클릭하면 해당 관계가 삭제됩니다.</li>
-          <li>노드를 드래그하여 위치를 자유롭게 바꿀 수 있습니다.</li>
-        </ul>
-      </div>
     </div>
   );
 }

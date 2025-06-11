@@ -76,27 +76,45 @@ export default function NewTeamPage() {
 
   // 팀 사이즈가 변경될 때 멤버 슬롯 업데이트
   useEffect(() => {
-    const slots: TeamMemberSlot[] = [];
-    const letters = ["A", "B", "C", "D", "E"];
+    setMemberSlots((prevSlots) => {
+      const newSlots: TeamMemberSlot[] = [];
+      const letters = ["A", "B", "C", "D", "E"];
 
-    // 첫 번째는 항상 사용자 본인
-    slots.push({
-      id: "나",
-      roles: [],
-      isLeader: false, // 기본적으로 리더 없음
-      isUser: true,
-    });
-
-    // 나머지는 AI 팀원들
-    for (let i = 1; i < teamSize; i++) {
-      slots.push({
-        id: letters[i - 1],
+      // 1. 사용자 슬롯은 항상 존재하며 정보 유지
+      const userSlot = prevSlots.find((s) => s.isUser) || {
+        id: "나",
         roles: [],
         isLeader: false,
-        isUser: false,
-      });
-    }
-    setMemberSlots(slots);
+        isUser: true,
+      };
+      newSlots.push(userSlot);
+
+      // 2. AI 팀원 슬롯 조절
+      for (let i = 1; i < teamSize; i++) {
+        const id = letters[i - 1];
+        const existingSlot = prevSlots.find((s) => s.id === id);
+        if (existingSlot) {
+          // 기존 정보 유지
+          newSlots.push(existingSlot);
+        } else {
+          // 새 슬롯 추가
+          newSlots.push({
+            id,
+            roles: [],
+            isLeader: false,
+            isUser: false,
+          });
+        }
+      }
+
+      // 3. 리더가 팀 크기 밖으로 벗어난 경우 리더 초기화
+      const leaderExistsInNewSlots = newSlots.some((s) => s.isLeader);
+      if (!leaderExistsInNewSlots) {
+        return newSlots.map((s) => ({ ...s, isLeader: false }));
+      }
+
+      return newSlots;
+    });
   }, [teamSize]);
 
   const updateMemberRole = (memberId: string, role: AgentRole) => {
@@ -127,11 +145,14 @@ export default function NewTeamPage() {
 
   const updateMemberAgent = (
     memberId: string,
-    agentData: TeamMemberSlot["agent"]
+    agentData: TeamMemberSlot["agent"],
+    agentId?: string | null
   ) => {
     setMemberSlots((prev) =>
       prev.map((member) =>
-        member.id === memberId ? { ...member, agent: agentData } : member
+        member.id === memberId
+          ? { ...member, agent: agentData, agentId: agentId || null }
+          : member
       )
     );
   };
@@ -176,59 +197,64 @@ export default function NewTeamPage() {
     setError(null);
 
     try {
-      // AI 팀원들만 실제 에이전트로 생성 (사용자 제외)
-      const createdAgents: AIAgent[] = [];
+      // 1. 새로 생성해야 할 AI 에이전트들을 먼저 생성
+      const newAgentPromises = memberSlots
+        .filter((member) => !member.isUser && !member.agentId && member.agent)
+        .map((member) => {
+          const formData = new FormData();
+          // member.agent의 모든 속성을 formData에 추가
+          Object.entries(member.agent!).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== "") {
+              formData.append(key, String(value));
+            }
+          });
+          return createAgentAction(formData).then((newAgent) => ({
+            slotId: member.id,
+            agentId: newAgent.id,
+          }));
+        });
 
-      for (const member of memberSlots) {
-        if (member.isUser || !member.agent) continue;
+      const newlyCreatedAgents = await Promise.all(newAgentPromises);
 
-        const formData = new FormData();
-        formData.append("name", member.agent.name);
-        formData.append("age", member.agent.age.toString());
-        formData.append("gender", member.agent.gender);
-        formData.append("professional", member.agent.professional);
-        formData.append("skills", member.agent.skills);
-        formData.append("autonomy", member.agent.autonomy.toString());
-        formData.append("personality", member.agent.personality);
-        formData.append("value", member.agent.value);
-        formData.append("designStyle", member.agent.designStyle);
-
-        const createdAgent = await createAgentAction(formData);
-        createdAgents.push(createdAgent);
-      }
-
-      // 팀 생성 (사용자는 agentId 없이, AI 팀원들만 agentId 포함)
-      let agentIndex = 0;
-      const teamMembers = memberSlots.map((member) => {
-        if (member.isUser) {
-          return {
-            agentId: null, // 사용자는 agentId 없음
-            roles: member.roles,
-            isLeader: member.isLeader,
-            isUser: true,
-          };
-        } else {
-          return {
-            agentId: createdAgents[agentIndex++].id,
-            roles: member.roles,
-            isLeader: member.isLeader,
-            isUser: false,
-          };
+      // 2. 생성된 ID를 memberSlots에 다시 매핑
+      const finalMemberSlots = memberSlots.map((slot) => {
+        const newlyCreated = newlyCreatedAgents.find(
+          (a) => a.slotId === slot.id
+        );
+        if (newlyCreated) {
+          return { ...slot, agentId: newlyCreated.agentId };
         }
+        return slot;
       });
 
+      // 3. 최종 팀 멤버 데이터 구성 - 모든 슬롯 포함 (중복 허용)
+      const teamMembers = finalMemberSlots.map((member) => ({
+        agentId: member.isUser ? null : member.agentId,
+        roles: member.roles,
+        isLeader: member.isLeader,
+        isUser: member.isUser,
+      }));
+
+      // 4. 팀 생성 액션 호출
       const teamFormData = new FormData();
       teamFormData.append("teamName", teamName.trim());
       teamFormData.append("selectedAgents", JSON.stringify(teamMembers));
       teamFormData.append("relationships", JSON.stringify(relationships));
 
       await createTeamAction(teamFormData);
+
+      // 성공 시 리디렉션은 createTeamAction 내부에서 처리됨
     } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "팀 생성에 실패했습니다."
-      );
-    } finally {
-      setIsLoading(false);
+      // createTeamAction에서 redirect()가 호출되면 특정 에러가 발생합니다.
+      // 이 에러는 무시해야 정상적으로 리디렉션됩니다.
+      if (error instanceof Error && error.message.includes("NEXT_REDIRECT")) {
+        // 정상적인 리디렉션이므로 아무것도 하지 않음
+      } else {
+        setError(
+          error instanceof Error ? error.message : "팀 생성에 실패했습니다."
+        );
+        setIsLoading(false);
+      }
     }
   };
 
@@ -238,24 +264,42 @@ export default function NewTeamPage() {
     to: string,
     type: RelationshipType
   ) => {
+    // member.id를 실제 이름으로 변환
+    const fromMember = memberSlots.find((m) => m.id === from);
+    const toMember = memberSlots.find((m) => m.id === to);
+
+    const fromName = fromMember?.isUser
+      ? "나"
+      : fromMember?.agent?.name || from;
+    const toName = toMember?.isUser ? "나" : toMember?.agent?.name || to;
+
     setRelationships((prev) => {
       // 같은 방향의 관계가 이미 있으면 타입만 업데이트
       const existingIndex = prev.findIndex(
-        (rel) => rel.from === from && rel.to === to
+        (rel) => rel.from === fromName && rel.to === toName
       );
       if (existingIndex >= 0) {
         const newRels = [...prev];
-        newRels[existingIndex] = { from, to, type };
+        newRels[existingIndex] = { from: fromName, to: toName, type };
         return newRels;
       }
       // 새 관계 추가
-      return [...prev, { from, to, type }];
+      return [...prev, { from: fromName, to: toName, type }];
     });
   };
 
   const removeRelationship = (from: string, to: string) => {
+    // member.id를 실제 이름으로 변환
+    const fromMember = memberSlots.find((m) => m.id === from);
+    const toMember = memberSlots.find((m) => m.id === to);
+
+    const fromName = fromMember?.isUser
+      ? "나"
+      : fromMember?.agent?.name || from;
+    const toName = toMember?.isUser ? "나" : toMember?.agent?.name || to;
+
     setRelationships((prev) =>
-      prev.filter((rel) => !(rel.from === from && rel.to === to))
+      prev.filter((rel) => !(rel.from === fromName && rel.to === toName))
     );
   };
 
@@ -790,7 +834,7 @@ export default function NewTeamPage() {
                           roles={currentMember.roles}
                           isLeader={currentMember.isLeader}
                           onSubmit={(agentData) =>
-                            updateMemberAgent(currentMember.id, agentData)
+                            updateMemberAgent(currentMember.id, agentData, null)
                           }
                           initialData={currentMember.agent}
                         />
@@ -837,17 +881,11 @@ export default function NewTeamPage() {
                                     key={agent.id}
                                     type="button"
                                     onClick={() =>
-                                      updateMemberAgent(currentMember.id, {
-                                        name: agent.name,
-                                        age: agent.age,
-                                        gender: agent.gender,
-                                        professional: agent.professional,
-                                        skills: agent.skills,
-                                        autonomy: agent.autonomy,
-                                        personality: agent.personality,
-                                        value: agent.value,
-                                        designStyle: agent.designStyle,
-                                      })
+                                      updateMemberAgent(
+                                        currentMember.id,
+                                        { ...agent },
+                                        agent.id
+                                      )
                                     }
                                     className={`p-4 border-2 rounded-lg text-left transition-all ${
                                       isSelected
@@ -956,6 +994,15 @@ export default function NewTeamPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            <div className="p-4 bg-blue-50 rounded-lg text-sm text-blue-800">
+              <p className="font-semibold">💡 사용법</p>
+              <ul className="list-disc list-inside text-xs text-blue-700 mt-1 leading-normal">
+                <li>"관계 연결하기" 버튼을 눌러 관계 설정을 시작하세요.</li>
+                <li>노드를 클릭하여 관계를 만들고, 관계 종류를 선택하세요.</li>
+                <li>생성된 관계선을 클릭하면 해당 관계가 삭제됩니다.</li>
+                <li>노드를 드래그하여 위치를 자유롭게 바꿀 수 있습니다.</li>
+              </ul>
+            </div>
             <RelationshipGraph
               members={memberSlots}
               relationships={relationships}
@@ -991,7 +1038,7 @@ function AgentCreateForm({
 }: {
   roles: AgentRole[];
   isLeader: boolean;
-  onSubmit: (data: TeamMemberSlot["agent"]) => void;
+  onSubmit: (data: TeamMemberSlot["agent"], agentId: string | null) => void;
   initialData?: TeamMemberSlot["agent"];
 }) {
   const [formData, setFormData] = useState({
@@ -1028,12 +1075,12 @@ function AgentCreateForm({
       professional: formData.professional,
       skills: formData.skills,
       autonomy: parseInt(formData.autonomy),
-      personality: formData.personality,
-      value: formData.value,
-      designStyle: formData.designStyle,
+      personality: formData.personality || undefined,
+      value: formData.value || undefined,
+      designStyle: formData.designStyle || undefined,
     };
 
-    onSubmit(agentData);
+    onSubmit(agentData, null);
     setIsCompleted(true);
   };
 

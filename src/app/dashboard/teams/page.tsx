@@ -88,65 +88,67 @@ export default async function TeamsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {teamsWithAgents.map((team) => (
-            <Card key={team.id} className="hover:shadow-md transition-shadow">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">{team.teamName}</CardTitle>
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <Users className="h-4 w-4" />
-                    {team.members.length}명
+            <Link
+              href={`/dashboard/teams/${team.id}`}
+              key={team.id}
+              className="block"
+            >
+              <Card className="hover:shadow-lg transition-shadow cursor-pointer h-full flex flex-col">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">{team.teamName}</CardTitle>
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <Users className="h-4 w-4" />
+                      {team.members.length}명
+                    </div>
                   </div>
-                </div>
-                <CardDescription>
-                  생성일: {new Date(team.createdAt).toLocaleDateString()}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <h4 className="text-sm font-semibold text-gray-900 mb-2">
-                    팀원
-                  </h4>
-                  <div className="space-y-2">
-                    {team.membersWithAgents.map((member) => (
-                      <div
-                        key={member.agentId}
-                        className="bg-gray-50 p-3 rounded-lg"
-                      >
-                        <div className="flex justify-between items-start mb-1">
-                          <span className="font-medium text-sm">
-                            {member.agent?.name || "알 수 없음"}
-                          </span>
-                          <span className="text-xs text-gray-600">
-                            {member.agent?.age}세
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap gap-1">
-                          {member.roles.slice(0, 2).map((role) => (
-                            <span
-                              key={role}
-                              className="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded"
-                            >
-                              {role}
+                  <CardDescription>
+                    생성일: {new Date(team.createdAt).toLocaleDateString()}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4 flex-grow">
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-2">
+                      팀원
+                    </h4>
+                    <div className="space-y-2">
+                      {team.membersWithAgents.map((member, memberIndex) => (
+                        <div
+                          key={`${team.id}-${memberIndex}`}
+                          className="bg-gray-50 p-3 rounded-lg"
+                        >
+                          <div className="flex justify-between items-start mb-1">
+                            <span className="font-medium text-sm">
+                              {member.isUser
+                                ? "나"
+                                : member.agent?.name || "알 수 없음"}
                             </span>
-                          ))}
-                          {member.roles.length > 2 && (
-                            <span className="text-xs text-gray-500">
-                              +{member.roles.length - 2}개
+                            <span className="text-xs text-gray-600">
+                              {member.isUser ? "" : `${member.agent?.age}세`}
                             </span>
-                          )}
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {member.roles.slice(0, 2).map((role, roleIndex) => (
+                              <span
+                                key={`${team.id}-${memberIndex}-${roleIndex}`}
+                                className="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded"
+                              >
+                                {role}
+                              </span>
+                            ))}
+                            {member.roles.length > 2 && (
+                              <span className="text-xs text-gray-500">
+                                +{member.roles.length - 2}개
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
-
-                <div className="pt-2">
-                  <Button variant="outline" className="w-full" size="sm">
-                    팀 상세 보기
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </Link>
           ))}
         </div>
       )}

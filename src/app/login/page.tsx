@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,7 @@ import {
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -38,7 +40,7 @@ export default function LoginPage() {
       if (result?.error) {
         setError("이메일 또는 비밀번호가 올바르지 않습니다.");
       } else {
-        window.location.href = "/";
+        router.push("/");
       }
     } catch (error) {
       setError("로그인 중 오류가 발생했습니다.");

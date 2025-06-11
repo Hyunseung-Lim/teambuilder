@@ -16,9 +16,9 @@ export interface AIAgent {
   professional: string;
   skills: string;
   autonomy: number;
-  personality: string;
-  value: string;
-  designStyle: string;
+  personality?: string;
+  value?: string;
+  designStyle?: string;
   createdAt: Date;
   updatedAt: Date;
   userId: string;
@@ -81,6 +81,7 @@ export interface Relationship {
 
 export interface TeamMemberSlot {
   id: string; // A, B, C, D, E, F 또는 '나'
+  agentId?: string | null; // 기존 에이전트의 ID (신규 생성 시에는 없음)
   roles: AgentRole[];
   isLeader: boolean;
   isUser: boolean; // 사용자 본인인지 여부
@@ -91,9 +92,9 @@ export interface TeamMemberSlot {
     professional: string;
     skills: string;
     autonomy: number;
-    personality: string;
-    value: string;
-    designStyle: string;
+    personality?: string;
+    value?: string;
+    designStyle?: string;
   };
 }
 
@@ -116,9 +117,9 @@ export interface CreateAgentData {
   professional: string;
   skills: string;
   autonomy: number;
-  personality: string;
-  value: string;
-  designStyle: string;
+  personality?: string;
+  value?: string;
+  designStyle?: string;
 }
 
 export interface CreateTeamData {

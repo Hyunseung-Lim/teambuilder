@@ -124,6 +124,20 @@ export async function getTeamById(id: string): Promise<Team | null> {
       members = teamData.members; // 이미 배열인 경우
     }
 
+    // 원래 있던 중복 제거 로직을 주석 처리하여 모든 팀원을 유지
+    // 이제 같은 에이전트를 여러 역할로 팀에 추가할 수 있습니다
+    // members = members.filter((member: any, index: number, array: any[]) => {
+    //   if (member.isUser) {
+    //     // 사용자는 하나만 있어야 함
+    //     return array.findIndex((m) => m.isUser) === index;
+    //   }
+    //   // AI 멤버는 agentId로 중복 체크
+    //   return (
+    //     array.findIndex((m) => m.agentId === member.agentId && !m.isUser) ===
+    //     index
+    //   );
+    // });
+
     let relationships;
     if (typeof teamData.relationships === "string") {
       relationships = JSON.parse(teamData.relationships);
@@ -156,4 +170,22 @@ export async function getUserTeams(userId: string): Promise<Team[]> {
   );
 
   return teams.filter((team): team is Team => team !== null);
+}
+
+// 팀 삭제 함수 (에이전트는 보존)
+export async function deleteTeam(
+  teamId: string,
+  ownerId: string
+): Promise<void> {
+  // 팀이 존재하고 소유자가 맞는지 확인
+  const team = await getTeamById(teamId);
+  if (!team || team.ownerId !== ownerId) {
+    throw new Error("팀을 찾을 수 없거나 삭제 권한이 없습니다.");
+  }
+
+  // 팀 데이터 삭제
+  await redis.del(keys.team(teamId));
+
+  // 사용자의 팀 목록에서 제거
+  await redis.srem(keys.userTeams(ownerId), teamId);
 }

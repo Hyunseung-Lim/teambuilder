@@ -8,8 +8,8 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * - login, sign-up (auth pages)
+     * - login, signup (auth pages)
      */
-    "/((?!api|_next/static|_next/image|favicon.ico|login|sign-up).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|login|signup).*)",
   ],
 };

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
-import { createTeam, getUserTeams } from "@/lib/redis";
+import { createTeam, getUserTeams, getTeamById, deleteTeam } from "@/lib/redis";
 import { AgentRole, Relationship } from "@/lib/types";
 
 export async function createTeamAction(formData: FormData) {
@@ -50,6 +50,24 @@ export async function createTeamAction(formData: FormData) {
   }
 }
 
+export async function getTeamAction(teamId: string) {
+  const session = await getServerSession();
+  if (!session?.user?.email) {
+    throw new Error("인증이 필요합니다.");
+  }
+
+  try {
+    const team = await getTeamById(teamId);
+    if (!team || team.ownerId !== session.user.email) {
+      throw new Error("팀을 찾을 수 없거나 접근 권한이 없습니다.");
+    }
+    return team;
+  } catch (error) {
+    console.error("팀 조회 오류:", error);
+    throw new Error("팀 정보를 가져오는데 실패했습니다.");
+  }
+}
+
 export async function getUserTeamsAction() {
   const session = await getServerSession();
 
@@ -62,5 +80,21 @@ export async function getUserTeamsAction() {
   } catch (error) {
     console.error("팀 조회 오류:", error);
     return [];
+  }
+}
+
+export async function deleteTeamAction(teamId: string) {
+  const session = await getServerSession();
+
+  if (!session?.user?.email) {
+    throw new Error("인증이 필요합니다.");
+  }
+
+  try {
+    await deleteTeam(teamId, session.user.email);
+    revalidatePath("/");
+  } catch (error) {
+    console.error("팀 삭제 오류:", error);
+    throw new Error("팀 삭제에 실패했습니다.");
   }
 }

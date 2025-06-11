@@ -27,9 +27,9 @@ export async function createAgentAction(formData: FormData) {
     professional: formData.get("professional") as string,
     skills: formData.get("skills") as string,
     autonomy: parseInt(formData.get("autonomy") as string),
-    personality: formData.get("personality") as string,
-    value: formData.get("value") as string,
-    designStyle: formData.get("designStyle") as string,
+    personality: (formData.get("personality") as string) ?? undefined,
+    value: (formData.get("value") as string) ?? undefined,
+    designStyle: (formData.get("designStyle") as string) ?? undefined,
   };
 
   // 유효성 검사
