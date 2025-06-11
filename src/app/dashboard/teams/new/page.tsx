@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createTeamAction } from "@/actions/team.actions";
 import {
   getUserAgentsAction,
@@ -36,6 +36,36 @@ const AVAILABLE_ROLES: AgentRole[] = [
   "요청하기",
 ];
 
+// 관계 타입 정의
+const RELATIONSHIP_TYPES = {
+  AWKWARD: {
+    label: "어색한 사이",
+    color: "#ef4444",
+    strokeDasharray: "5,5",
+    strokeWidth: 2,
+  },
+  SUPERVISOR: {
+    label: "상사",
+    color: "#f59e0b",
+    strokeWidth: 3,
+    strokeDasharray: undefined,
+  },
+  FRIEND: {
+    label: "친구",
+    color: "#10b981",
+    strokeWidth: 2,
+    strokeDasharray: undefined,
+  },
+} as const;
+
+type RelationshipType = keyof typeof RELATIONSHIP_TYPES;
+
+interface Relationship {
+  from: string;
+  to: string;
+  type: RelationshipType;
+}
+
 interface TeamMemberSlot {
   id: string; // A, B, C, D, E, F 또는 '나'
   roles: AgentRole[];
@@ -54,10 +84,338 @@ interface TeamMemberSlot {
   };
 }
 
+// RelationshipGraph 컴포넌트
+function RelationshipGraph({
+  members,
+  relationships,
+  selectedType,
+  onAddRelationship,
+  onRemoveRelationship,
+  isConnecting,
+  setIsConnecting,
+  connectingFrom,
+  setConnectingFrom,
+}: {
+  members: TeamMemberSlot[];
+  relationships: Relationship[];
+  selectedType: RelationshipType;
+  onAddRelationship: (from: string, to: string, type: RelationshipType) => void;
+  onRemoveRelationship: (from: string, to: string) => void;
+  isConnecting: boolean;
+  setIsConnecting: (connecting: boolean) => void;
+  connectingFrom: string | null;
+  setConnectingFrom: (from: string | null) => void;
+}) {
+  const [nodes, setNodes] = useState<{
+    [key: string]: { x: number; y: number };
+  }>({});
+  const [draggedNode, setDraggedNode] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  // 노드 위치 초기화 (원형 배치)
+  useEffect(() => {
+    const centerX = 300;
+    const centerY = 200;
+    const radius = 120;
+    const angleStep = (2 * Math.PI) / members.length;
+
+    const newNodes: { [key: string]: { x: number; y: number } } = {};
+    members.forEach((member, index) => {
+      const angle = index * angleStep - Math.PI / 2; // -90도에서 시작 (12시 방향)
+      newNodes[member.id] = {
+        x: centerX + radius * Math.cos(angle),
+        y: centerY + radius * Math.sin(angle),
+      };
+    });
+    setNodes(newNodes);
+  }, [members]);
+
+  const handleNodeMouseDown = (e: React.MouseEvent, nodeId: string) => {
+    if (isConnecting) {
+      if (connectingFrom === null) {
+        setConnectingFrom(nodeId);
+      } else if (connectingFrom !== nodeId) {
+        // 연결 완료
+        onAddRelationship(connectingFrom, nodeId, selectedType);
+        setConnectingFrom(null);
+        setIsConnecting(false);
+      }
+      return;
+    }
+
+    // 드래그 시작
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (rect) {
+      setDragOffset({
+        x: e.clientX - rect.left - nodes[nodeId].x,
+        y: e.clientY - rect.top - nodes[nodeId].y,
+      });
+      setDraggedNode(nodeId);
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (draggedNode && svgRef.current) {
+      const rect = svgRef.current.getBoundingClientRect();
+      setNodes((prev) => ({
+        ...prev,
+        [draggedNode]: {
+          x: e.clientX - rect.left - dragOffset.x,
+          y: e.clientY - rect.top - dragOffset.y,
+        },
+      }));
+    }
+  };
+
+  const handleMouseUp = () => {
+    setDraggedNode(null);
+  };
+
+  const startConnecting = () => {
+    setIsConnecting(true);
+    setConnectingFrom(null);
+  };
+
+  const cancelConnecting = () => {
+    setIsConnecting(false);
+    setConnectingFrom(null);
+  };
+
+  return (
+    <div className="relative">
+      {/* 컨트롤 버튼 */}
+      <div className="flex gap-2 mb-4">
+        {!isConnecting ? (
+          <Button
+            variant="outline"
+            onClick={startConnecting}
+            className="text-blue-600 border-blue-300 hover:bg-blue-50"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            관계 연결하기
+          </Button>
+        ) : (
+          <div className="flex gap-2">
+            <div className="px-3 py-2 bg-blue-50 text-blue-700 text-sm rounded-lg border border-blue-200">
+              {connectingFrom
+                ? `${
+                    connectingFrom === "나" ? "나" : `팀원 ${connectingFrom}`
+                  }에서 연결할 대상을 클릭하세요`
+                : "시작점을 클릭하세요"}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={cancelConnecting}
+              className="text-gray-600"
+            >
+              취소
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* SVG 그래프 */}
+      <svg
+        ref={svgRef}
+        width="600"
+        height="400"
+        className="border border-gray-200 rounded-lg bg-gray-50 cursor-move"
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      >
+        {/* 관계 엣지 그리기 */}
+        {relationships.map((rel, index) => {
+          const fromNode = nodes[rel.from];
+          const toNode = nodes[rel.to];
+          if (!fromNode || !toNode) return null;
+
+          const relType = RELATIONSHIP_TYPES[rel.type];
+          const dx = toNode.x - fromNode.x;
+          const dy = toNode.y - fromNode.y;
+          const length = Math.sqrt(dx * dx + dy * dy);
+          const unitX = dx / length;
+          const unitY = dy / length;
+
+          // 노드 반지름만큼 떨어진 지점에서 시작/끝
+          const nodeRadius = 30;
+          const startX = fromNode.x + unitX * nodeRadius;
+          const startY = fromNode.y + unitY * nodeRadius;
+          const endX = toNode.x - unitX * nodeRadius;
+          const endY = toNode.y - unitY * nodeRadius;
+
+          return (
+            <g key={index}>
+              {/* 엣지 라인 */}
+              <line
+                x1={startX}
+                y1={startY}
+                x2={endX}
+                y2={endY}
+                stroke={relType.color}
+                strokeWidth={relType.strokeWidth || 2}
+                strokeDasharray={relType.strokeDasharray}
+                className="cursor-pointer hover:opacity-75"
+                onClick={() => onRemoveRelationship(rel.from, rel.to)}
+              />
+
+              {/* 화살표 */}
+              <polygon
+                points={`${endX},${endY} ${endX - 8 * unitX + 4 * unitY},${
+                  endY - 8 * unitY - 4 * unitX
+                } ${endX - 8 * unitX - 4 * unitY},${
+                  endY - 8 * unitY + 4 * unitX
+                }`}
+                fill={relType.color}
+                className="cursor-pointer hover:opacity-75"
+                onClick={() => onRemoveRelationship(rel.from, rel.to)}
+              />
+
+              {/* 관계 타입 라벨 */}
+              <text
+                x={(startX + endX) / 2}
+                y={(startY + endY) / 2 - 5}
+                fill={relType.color}
+                fontSize="12"
+                textAnchor="middle"
+                className="pointer-events-none font-medium"
+              >
+                {relType.label}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* 연결 중인 임시 라인 */}
+        {isConnecting && connectingFrom && (
+          <line
+            x1={nodes[connectingFrom]?.x || 0}
+            y1={nodes[connectingFrom]?.y || 0}
+            x2={nodes[connectingFrom]?.x || 0}
+            y2={nodes[connectingFrom]?.y || 0}
+            stroke={RELATIONSHIP_TYPES[selectedType].color}
+            strokeWidth={2}
+            strokeDasharray="3,3"
+            className="pointer-events-none"
+          />
+        )}
+
+        {/* 팀원 노드들 */}
+        {members.map((member) => {
+          const node = nodes[member.id];
+          if (!node) return null;
+
+          const isConnectingTarget =
+            isConnecting && connectingFrom === member.id;
+          const isBeingDragged = draggedNode === member.id;
+
+          return (
+            <g key={member.id}>
+              {/* 노드 원형 배경 */}
+              <circle
+                cx={node.x}
+                cy={node.y}
+                r="30"
+                fill={
+                  member.isLeader
+                    ? "#facc15"
+                    : member.isUser
+                    ? "#10b981"
+                    : "#3b82f6"
+                }
+                stroke={
+                  isConnectingTarget
+                    ? "#ef4444"
+                    : isConnecting
+                    ? "#94a3b8"
+                    : "#fff"
+                }
+                strokeWidth={isConnectingTarget ? 3 : 2}
+                className={`cursor-pointer transition-all ${
+                  isBeingDragged ? "opacity-75" : "hover:scale-110"
+                } ${isConnecting ? "hover:stroke-blue-500" : ""}`}
+                onMouseDown={(e) => handleNodeMouseDown(e, member.id)}
+              />
+
+              {/* 노드 아이콘 */}
+              <g transform={`translate(${node.x - 8}, ${node.y - 8})`}>
+                {member.isLeader ? (
+                  <Crown className="h-4 w-4 text-white pointer-events-none" />
+                ) : member.isUser ? (
+                  <User className="h-4 w-4 text-white pointer-events-none" />
+                ) : (
+                  <text
+                    x="8"
+                    y="12"
+                    fill="white"
+                    fontSize="14"
+                    fontWeight="bold"
+                    textAnchor="middle"
+                    className="pointer-events-none"
+                  >
+                    {member.id}
+                  </text>
+                )}
+              </g>
+
+              {/* 노드 라벨 */}
+              <text
+                x={node.x}
+                y={node.y + 45}
+                fill="#374151"
+                fontSize="12"
+                fontWeight="600"
+                textAnchor="middle"
+                className="pointer-events-none"
+              >
+                {member.isUser ? "나" : `팀원 ${member.id}`}
+                {member.isLeader && " (리더)"}
+              </text>
+
+              {/* 에이전트 이름 (설정된 경우) */}
+              {member.agent && (
+                <text
+                  x={node.x}
+                  y={node.y + 60}
+                  fill="#6b7280"
+                  fontSize="10"
+                  textAnchor="middle"
+                  className="pointer-events-none"
+                >
+                  {member.agent.name}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* 사용법 안내 */}
+      <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
+        <div className="flex items-start gap-2">
+          <div className="w-4 h-4 bg-blue-500 rounded-full mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="font-medium mb-1">사용법:</p>
+            <ul className="space-y-1 text-blue-700">
+              <li>• 노드를 드래그해서 위치를 조정하세요</li>
+              <li>
+                • "관계 연결하기" 버튼을 눌러 팀원들 간의 관계를 설정하세요
+              </li>
+              <li>• 관계선을 클릭하면 해당 관계를 삭제할 수 있습니다</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function NewTeamPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState(1); // 1: 팀정보, 2: 역할설계, 3: 팀원생성
+  const [step, setStep] = useState(1); // 1: 팀정보, 2: 역할설계, 3: 팀원생성, 4: 관계설정
   const [existingAgents, setExistingAgents] = useState<AIAgent[]>([]);
   const [activeTab, setActiveTab] = useState<"create" | "import">("create");
   const [currentMemberIndex, setCurrentMemberIndex] = useState(0); // 현재 설정 중인 팀원 인덱스
@@ -66,8 +424,15 @@ export default function NewTeamPage() {
   const [teamName, setTeamName] = useState("");
   const [teamSize, setTeamSize] = useState(4); // 나 + AI 3명 = 총 4명 기본값
 
-  // 2-3단계: 팀원 슬롯
+  // 2-4단계: 팀원 슬롯
   const [memberSlots, setMemberSlots] = useState<TeamMemberSlot[]>([]);
+
+  // 4단계: 관계 설정
+  const [relationships, setRelationships] = useState<Relationship[]>([]);
+  const [selectedRelationType, setSelectedRelationType] =
+    useState<RelationshipType>("FRIEND");
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
 
   // 기존 에이전트 로드
   useEffect(() => {
@@ -155,9 +520,11 @@ export default function NewTeamPage() {
   );
   const canProceedToStep3 = hasAllRoles && hasIdeaGenerator;
 
-  const canSubmit = memberSlots
+  const canProceedToStep4 = memberSlots
     .filter((member) => !member.isUser)
     .every((member) => member.agent);
+
+  const canSubmit = true; // 관계 설정은 선택사항
 
   // AI 팀원들만 필터링
   const aiMembers = memberSlots.filter((member) => !member.isUser);
@@ -237,6 +604,40 @@ export default function NewTeamPage() {
     }
   };
 
+  // 관계 관리 함수들
+  const addRelationship = (
+    from: string,
+    to: string,
+    type: RelationshipType
+  ) => {
+    setRelationships((prev) => {
+      // 같은 방향의 관계가 이미 있으면 타입만 업데이트
+      const existingIndex = prev.findIndex(
+        (rel) => rel.from === from && rel.to === to
+      );
+      if (existingIndex >= 0) {
+        const newRels = [...prev];
+        newRels[existingIndex] = { from, to, type };
+        return newRels;
+      }
+      // 새 관계 추가
+      return [...prev, { from, to, type }];
+    });
+  };
+
+  const removeRelationship = (from: string, to: string) => {
+    setRelationships((prev) =>
+      prev.filter((rel) => !(rel.from === from && rel.to === to))
+    );
+  };
+
+  const getRelationship = (
+    from: string,
+    to: string
+  ): Relationship | undefined => {
+    return relationships.find((rel) => rel.from === from && rel.to === to);
+  };
+
   return (
     <div className="max-w-4xl mx-auto p-6">
       <div className="mb-8">
@@ -253,6 +654,7 @@ export default function NewTeamPage() {
             { num: 1, label: "팀 정보" },
             { num: 2, label: "역할 & 리더" },
             { num: 3, label: "팀원 생성" },
+            { num: 4, label: "관계 설정" },
           ].map((stepInfo, index) => (
             <div key={stepInfo.num} className="flex items-center">
               <div className="flex flex-col items-center">
@@ -273,7 +675,7 @@ export default function NewTeamPage() {
                   {stepInfo.label}
                 </span>
               </div>
-              {index < 2 && (
+              {index < 3 && (
                 <ArrowRight
                   className={`h-4 w-4 mx-2 ${
                     step > stepInfo.num ? "text-blue-600" : "text-gray-300"
@@ -649,37 +1051,6 @@ export default function NewTeamPage() {
                   </span>
                 </div>
 
-                {/* 진행 바 */}
-                <div className="flex gap-2 mb-4">
-                  {aiMembers.map((member, index) => (
-                    <div key={member.id} className="flex-1">
-                      <div
-                        className={`h-2 rounded-full transition-all ${
-                          index < currentMemberIndex
-                            ? "bg-green-500"
-                            : index === currentMemberIndex
-                            ? "bg-blue-500"
-                            : "bg-gray-200"
-                        }`}
-                      />
-                      <div className="text-center mt-1">
-                        <span
-                          className={`text-xs ${
-                            index <= currentMemberIndex
-                              ? "text-gray-900 font-medium"
-                              : "text-gray-500"
-                          }`}
-                        >
-                          {member.id}
-                        </span>
-                        {member.agent && (
-                          <div className="text-green-600 text-xs">✓</div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
                 {/* 완료된 팀원 요약 */}
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                   {aiMembers.map((member, index) => {
@@ -937,15 +1308,144 @@ export default function NewTeamPage() {
                   이전: 역할 설계 & 리더 선택
                 </Button>
                 <Button
-                  onClick={handleSubmit}
-                  disabled={isLoading || !canSubmit}
+                  onClick={() => setStep(4)}
+                  disabled={isLoading || !canProceedToStep4}
                 >
-                  {isLoading ? "팀 생성 중..." : "팀 생성 완료"}
+                  {canProceedToStep4
+                    ? "다음: 관계 설정"
+                    : "팀원 생성을 완료해주세요"}
                 </Button>
               </div>
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* 4단계: 관계 설정 */}
+      {step === 4 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              4단계: 팀원 관계 설정
+            </CardTitle>
+            <CardDescription>
+              팀원들 간의 관계를 설정해서 더 현실적인 팀 다이나믹을
+              만들어보세요. (선택사항)
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* 관계 타입 선택 */}
+            <div className="bg-gray-50 rounded-xl p-4">
+              <h3 className="font-semibold text-gray-900 mb-3">
+                관계 타입 선택
+              </h3>
+              <div className="flex gap-3">
+                {Object.entries(RELATIONSHIP_TYPES).map(([type, config]) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() =>
+                      setSelectedRelationType(type as RelationshipType)
+                    }
+                    className={`px-4 py-2 rounded-lg border-2 transition-all flex items-center gap-2 ${
+                      selectedRelationType === type
+                        ? "border-blue-500 bg-blue-50 text-blue-700"
+                        : "border-gray-200 hover:border-gray-300 bg-white"
+                    }`}
+                  >
+                    <div
+                      className="w-4 h-4 rounded-full"
+                      style={{ backgroundColor: config.color }}
+                    />
+                    {config.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 관계 그래프 */}
+            <div className="bg-white border-2 border-gray-200 rounded-xl p-6 min-h-96">
+              <RelationshipGraph
+                members={memberSlots}
+                relationships={relationships}
+                selectedType={selectedRelationType}
+                onAddRelationship={addRelationship}
+                onRemoveRelationship={removeRelationship}
+                isConnecting={isConnecting}
+                setIsConnecting={setIsConnecting}
+                connectingFrom={connectingFrom}
+                setConnectingFrom={setConnectingFrom}
+              />
+            </div>
+
+            {/* 현재 관계 목록 */}
+            {relationships.length > 0 && (
+              <div className="bg-gray-50 rounded-xl p-4">
+                <h3 className="font-semibold text-gray-900 mb-3">
+                  설정된 관계
+                </h3>
+                <div className="space-y-2">
+                  {relationships.map((rel, index) => {
+                    const fromMember = memberSlots.find(
+                      (m) => m.id === rel.from
+                    );
+                    const toMember = memberSlots.find((m) => m.id === rel.to);
+                    const relType = RELATIONSHIP_TYPES[rel.type];
+
+                    return (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between bg-white rounded-lg p-3"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="font-medium">
+                            {fromMember?.isUser
+                              ? "나"
+                              : `팀원 ${fromMember?.id}`}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-3 h-3 rounded-full"
+                              style={{ backgroundColor: relType.color }}
+                            />
+                            <span className="text-sm text-gray-600">
+                              {relType.label}
+                            </span>
+                          </div>
+                          <span className="font-medium">
+                            {toMember?.isUser ? "나" : `팀원 ${toMember?.id}`}
+                          </span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeRelationship(rel.from, rel.to)}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          삭제
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-between pt-6 border-t border-gray-200">
+              <Button
+                variant="outline"
+                onClick={() => setStep(3)}
+                disabled={isLoading}
+              >
+                이전: 팀원 생성
+              </Button>
+              <Button onClick={handleSubmit} disabled={isLoading}>
+                {isLoading ? "팀 생성 중..." : "팀 생성 완료"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
