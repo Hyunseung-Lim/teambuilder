@@ -9,18 +9,19 @@ export interface User {
 
 // AI 에이전트 모델
 export interface AIAgent {
-  id: string; // 예: 'agent_x1y2z3'
-  ownerId: string; // User.id 외래 키
+  id: string;
   name: string;
   age: number;
   gender: "여자" | "남자" | "정의하지 않음" | "알 수 없음";
-  professional: string; // 직업/전문성
-  skills: string; // 스킬셋
-  autonomy: number; // 자율성 (1-5)
-  personality: string; // 성격 (텍스트 설명)
-  value: string; // 가치관 (텍스트 설명)
-  designStyle: string; // 추구하는 디자인 (텍스트 설명)
+  professional: string;
+  skills: string;
+  autonomy: number;
+  personality: string;
+  value: string;
+  designStyle: string;
   createdAt: Date;
+  updatedAt: Date;
+  userId: string;
 }
 
 // 팀 모델
@@ -44,6 +45,54 @@ export type AgentRole =
   | "아이디어 평가하기"
   | "피드백하기"
   | "요청하기";
+
+// 관계 타입 정의
+export const RELATIONSHIP_TYPES = {
+  FRIEND: {
+    label: "친구",
+    color: "#374151", // gray-700
+    strokeWidth: 2,
+    strokeDasharray: undefined,
+  },
+  AWKWARD: {
+    label: "어색한 사이",
+    color: "#6b7280", // gray-500
+    strokeDasharray: "5,5",
+    strokeWidth: 1.5,
+  },
+  SUPERVISOR: {
+    label: "상사",
+    color: "#111827", // gray-900
+    strokeWidth: 2.5,
+    strokeDasharray: undefined,
+  },
+} as const;
+
+export type RelationshipType = keyof typeof RELATIONSHIP_TYPES;
+
+export interface Relationship {
+  from: string;
+  to: string;
+  type: RelationshipType;
+}
+
+export interface TeamMemberSlot {
+  id: string; // A, B, C, D, E, F 또는 '나'
+  roles: AgentRole[];
+  isLeader: boolean;
+  isUser: boolean; // 사용자 본인인지 여부
+  agent?: {
+    name: string;
+    age: number;
+    gender: "여자" | "남자" | "정의하지 않음" | "알 수 없음";
+    professional: string;
+    skills: string;
+    autonomy: number;
+    personality: string;
+    value: string;
+    designStyle: string;
+  };
+}
 
 // 대화 로그 (미래 기능용)
 export interface Conversation {
