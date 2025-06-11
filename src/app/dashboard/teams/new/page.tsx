@@ -669,7 +669,7 @@ export default function NewTeamPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {/* 사용자 본인 정보 표시 */}
+              {/* 사용자 본인 정보 입력 */}
               {memberSlots
                 .filter((member) => member.isUser)
                 .map((member) => (
@@ -677,7 +677,7 @@ export default function NewTeamPage() {
                     key={member.id}
                     className="border-2 border-green-200 bg-green-50 rounded-xl p-4 mb-6"
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 mb-4">
                       <div
                         className={`w-10 h-10 rounded-full flex items-center justify-center ${
                           member.isLeader ? "bg-yellow-500" : "bg-green-500"
@@ -690,18 +690,23 @@ export default function NewTeamPage() {
                           <User className="h-5 w-5 text-white" />
                         )}
                       </div>
-                      <div>
+                      <div className="flex-1">
                         <h3 className="font-semibold text-gray-900">
                           나 {member.isLeader && "(리더)"}
                         </h3>
                         <p className="text-sm text-gray-600">
                           역할: {member.roles.join(", ")}
                         </p>
-                        <p className="text-sm text-green-700 font-medium mt-1">
-                          ✓ 본인 정보는 자동으로 설정됩니다
-                        </p>
                       </div>
                     </div>
+
+                    {/* 사용자 정보 입력 폼 */}
+                    <UserInfoForm
+                      initialData={member.agent}
+                      onSubmit={(agentData) =>
+                        updateMemberAgent(member.id, agentData, null)
+                      }
+                    />
                   </div>
                 ))}
 
@@ -837,6 +842,7 @@ export default function NewTeamPage() {
                             updateMemberAgent(currentMember.id, agentData, null)
                           }
                           initialData={currentMember.agent}
+                          memberKey={currentMember.id}
                         />
                       </div>
                     )}
@@ -1029,16 +1035,12 @@ export default function NewTeamPage() {
   );
 }
 
-// 팀원별 생성 폼 컴포넌트
-function AgentCreateForm({
-  roles,
-  isLeader,
+// 사용자 정보 입력 폼 컴포넌트 (자율성 제외)
+function UserInfoForm({
   onSubmit,
   initialData,
 }: {
-  roles: AgentRole[];
-  isLeader: boolean;
-  onSubmit: (data: TeamMemberSlot["agent"], agentId: string | null) => void;
+  onSubmit: (data: TeamMemberSlot["agent"]) => void;
   initialData?: TeamMemberSlot["agent"];
 }) {
   const [formData, setFormData] = useState({
@@ -1047,7 +1049,6 @@ function AgentCreateForm({
     gender: initialData?.gender || "",
     professional: initialData?.professional || "",
     skills: initialData?.skills || "",
-    autonomy: initialData?.autonomy?.toString() || "",
     personality: initialData?.personality || "",
     value: initialData?.value || "",
     designStyle: initialData?.designStyle || "",
@@ -1055,12 +1056,260 @@ function AgentCreateForm({
 
   const [isCompleted, setIsCompleted] = useState(!!initialData);
 
+  // initialData가 변경될 때 폼 데이터 업데이트
+  useEffect(() => {
+    if (initialData) {
+      setFormData({
+        name: initialData.name || "",
+        age: initialData.age?.toString() || "",
+        gender: initialData.gender || "",
+        professional: initialData.professional || "",
+        skills: initialData.skills || "",
+        personality: initialData.personality || "",
+        value: initialData.value || "",
+        designStyle: initialData.designStyle || "",
+      });
+      setIsCompleted(true);
+    }
+  }, [initialData]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.name || !formData.professional || !formData.skills) {
+      return;
+    }
+
+    const validGenders = [
+      "여자",
+      "남자",
+      "정의하지 않음",
+      "알 수 없음",
+    ] as const;
+    const genderValue =
+      formData.gender && validGenders.includes(formData.gender as any)
+        ? (formData.gender as (typeof validGenders)[number])
+        : undefined;
+
+    const agentData = {
+      name: formData.name,
+      age: formData.age ? parseInt(formData.age) : undefined,
+      gender: genderValue,
+      professional: formData.professional,
+      skills: formData.skills,
+      autonomy: 3, // 사용자는 기본 자율성 3으로 설정
+      personality: formData.personality || undefined,
+      value: formData.value || undefined,
+      designStyle: formData.designStyle || undefined,
+    };
+
+    onSubmit(agentData);
+    setIsCompleted(true);
+  };
+
+  if (isCompleted) {
+    return (
+      <div className="bg-white border border-green-200 rounded-lg p-4">
+        <div className="flex items-center gap-2 text-green-800">
+          <CheckCircle className="h-5 w-5" />
+          <span className="font-medium">내 정보 입력 완료</span>
+        </div>
+        <div className="mt-2 text-sm text-green-700">
+          {formData.name} ({formData.professional})
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setIsCompleted(false)}
+          className="mt-2"
+        >
+          수정하기
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="user-name">이름 *</Label>
+          <Input
+            id="user-name"
+            value={formData.name}
+            onChange={(e) =>
+              setFormData((prev) => ({ ...prev, name: e.target.value }))
+            }
+            placeholder="예: 김민수"
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="user-age">나이</Label>
+          <Input
+            id="user-age"
+            type="number"
+            min="1"
+            max="100"
+            value={formData.age}
+            onChange={(e) =>
+              setFormData((prev) => ({ ...prev, age: e.target.value }))
+            }
+            placeholder="28"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="user-gender">성별</Label>
+          <Select
+            id="user-gender"
+            value={formData.gender}
+            onChange={(e) =>
+              setFormData((prev) => ({ ...prev, gender: e.target.value }))
+            }
+          >
+            <option value="">선택해주세요</option>
+            <option value="여자">여자</option>
+            <option value="남자">남자</option>
+            <option value="정의하지 않음">정의하지 않음</option>
+            <option value="알 수 없음">알 수 없음</option>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="user-professional">직업/전문성 *</Label>
+          <Input
+            id="user-professional"
+            value={formData.professional}
+            onChange={(e) =>
+              setFormData((prev) => ({ ...prev, professional: e.target.value }))
+            }
+            placeholder="예: 프로덕트 매니저"
+            required
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="user-skills">스킬셋 *</Label>
+        <Textarea
+          id="user-skills"
+          value={formData.skills}
+          onChange={(e) =>
+            setFormData((prev) => ({ ...prev, skills: e.target.value }))
+          }
+          placeholder="예: 프로젝트 관리, 데이터 분석, 팀 리더십"
+          required
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="user-personality">성격</Label>
+        <Textarea
+          id="user-personality"
+          value={formData.personality}
+          onChange={(e) =>
+            setFormData((prev) => ({ ...prev, personality: e.target.value }))
+          }
+          placeholder="예: 체계적이고 분석적인 성격으로 문제 해결을 좋아함"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="user-value">가치관</Label>
+        <Textarea
+          id="user-value"
+          value={formData.value}
+          onChange={(e) =>
+            setFormData((prev) => ({ ...prev, value: e.target.value }))
+          }
+          placeholder="예: 효율성과 투명성을 중시하며 팀워크를 통한 성장을 추구"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="user-designStyle">추구하는 디자인</Label>
+        <Textarea
+          id="user-designStyle"
+          value={formData.designStyle}
+          onChange={(e) =>
+            setFormData((prev) => ({ ...prev, designStyle: e.target.value }))
+          }
+          placeholder="예: 미니멀하면서도 감각적인 디자인"
+        />
+      </div>
+
+      <Button type="submit" className="w-full">
+        <CheckCircle className="h-4 w-4 mr-2" />내 정보 저장
+      </Button>
+    </form>
+  );
+}
+
+// 팀원별 생성 폼 컴포넌트
+function AgentCreateForm({
+  roles,
+  isLeader,
+  onSubmit,
+  initialData,
+  memberKey, // 폼 초기화 문제 해결을 위한 키
+}: {
+  roles: AgentRole[];
+  isLeader: boolean;
+  onSubmit: (data: TeamMemberSlot["agent"], agentId: string | null) => void;
+  initialData?: TeamMemberSlot["agent"];
+  memberKey?: string; // 멤버 식별을 위한 키
+}) {
+  const [formData, setFormData] = useState({
+    name: "",
+    age: "",
+    gender: "",
+    professional: "",
+    skills: "",
+    autonomy: "",
+    personality: "",
+    value: "",
+    designStyle: "",
+  });
+
+  const [isCompleted, setIsCompleted] = useState(false);
+
+  // memberKey나 initialData가 변경될 때만 폼 데이터 업데이트
+  useEffect(() => {
+    if (initialData) {
+      setFormData({
+        name: initialData.name || "",
+        age: initialData.age?.toString() || "",
+        gender: initialData.gender || "",
+        professional: initialData.professional || "",
+        skills: initialData.skills || "",
+        autonomy: initialData.autonomy?.toString() || "",
+        personality: initialData.personality || "",
+        value: initialData.value || "",
+        designStyle: initialData.designStyle || "",
+      });
+      setIsCompleted(true);
+    } else {
+      // 새로운 멤버로 변경될 때 폼 초기화
+      setFormData({
+        name: "",
+        age: "",
+        gender: "",
+        professional: "",
+        skills: "",
+        autonomy: "",
+        personality: "",
+        value: "",
+        designStyle: "",
+      });
+      setIsCompleted(false);
+    }
+  }, [memberKey, initialData]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (
       !formData.name ||
-      !formData.age ||
-      !formData.gender ||
       !formData.professional ||
       !formData.skills ||
       !formData.autonomy
@@ -1068,10 +1317,21 @@ function AgentCreateForm({
       return;
     }
 
+    const validGenders = [
+      "여자",
+      "남자",
+      "정의하지 않음",
+      "알 수 없음",
+    ] as const;
+    const genderValue =
+      formData.gender && validGenders.includes(formData.gender as any)
+        ? (formData.gender as (typeof validGenders)[number])
+        : undefined;
+
     const agentData = {
       name: formData.name,
-      age: parseInt(formData.age),
-      gender: formData.gender as any,
+      age: formData.age ? parseInt(formData.age) : undefined,
+      gender: genderValue,
       professional: formData.professional,
       skills: formData.skills,
       autonomy: parseInt(formData.autonomy),
@@ -1110,9 +1370,9 @@ function AgentCreateForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="name">이름 *</Label>
+          <Label htmlFor={`name-${memberKey}`}>이름 *</Label>
           <Input
-            id="name"
+            id={`name-${memberKey}`}
             value={formData.name}
             onChange={(e) =>
               setFormData((prev) => ({ ...prev, name: e.target.value }))
@@ -1122,9 +1382,9 @@ function AgentCreateForm({
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="age">나이 *</Label>
+          <Label htmlFor={`age-${memberKey}`}>나이</Label>
           <Input
-            id="age"
+            id={`age-${memberKey}`}
             type="number"
             min="1"
             max="100"
@@ -1133,21 +1393,19 @@ function AgentCreateForm({
               setFormData((prev) => ({ ...prev, age: e.target.value }))
             }
             placeholder="28"
-            required
           />
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="gender">성별 *</Label>
+          <Label htmlFor={`gender-${memberKey}`}>성별</Label>
           <Select
-            id="gender"
+            id={`gender-${memberKey}`}
             value={formData.gender}
             onChange={(e) =>
               setFormData((prev) => ({ ...prev, gender: e.target.value }))
             }
-            required
           >
             <option value="">선택해주세요</option>
             <option value="여자">여자</option>
@@ -1157,9 +1415,9 @@ function AgentCreateForm({
           </Select>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="professional">직업/전문성 *</Label>
+          <Label htmlFor={`professional-${memberKey}`}>직업/전문성 *</Label>
           <Input
-            id="professional"
+            id={`professional-${memberKey}`}
             value={formData.professional}
             onChange={(e) =>
               setFormData((prev) => ({ ...prev, professional: e.target.value }))
@@ -1171,9 +1429,9 @@ function AgentCreateForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="skills">스킬셋 *</Label>
+        <Label htmlFor={`skills-${memberKey}`}>스킬셋 *</Label>
         <Textarea
-          id="skills"
+          id={`skills-${memberKey}`}
           value={formData.skills}
           onChange={(e) =>
             setFormData((prev) => ({ ...prev, skills: e.target.value }))
@@ -1184,7 +1442,7 @@ function AgentCreateForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="autonomy">자율성 *</Label>
+        <Label htmlFor={`autonomy-${memberKey}`}>자율성 *</Label>
         <div className="grid grid-cols-5 gap-2">
           {[1, 2, 3, 4, 5].map((level) => (
             <button
@@ -1215,9 +1473,9 @@ function AgentCreateForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="personality">성격</Label>
+        <Label htmlFor={`personality-${memberKey}`}>성격</Label>
         <Textarea
-          id="personality"
+          id={`personality-${memberKey}`}
           value={formData.personality}
           onChange={(e) =>
             setFormData((prev) => ({ ...prev, personality: e.target.value }))
@@ -1226,8 +1484,33 @@ function AgentCreateForm({
         />
       </div>
 
+      <div className="space-y-2">
+        <Label htmlFor={`value-${memberKey}`}>가치관</Label>
+        <Textarea
+          id={`value-${memberKey}`}
+          value={formData.value}
+          onChange={(e) =>
+            setFormData((prev) => ({ ...prev, value: e.target.value }))
+          }
+          placeholder="예: 혁신과 창의성을 중시하며 사용자 중심의 사고를 추구"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`designStyle-${memberKey}`}>추구하는 디자인</Label>
+        <Textarea
+          id={`designStyle-${memberKey}`}
+          value={formData.designStyle}
+          onChange={(e) =>
+            setFormData((prev) => ({ ...prev, designStyle: e.target.value }))
+          }
+          placeholder="예: 미니멀하면서도 감각적인 디자인"
+        />
+      </div>
+
       <Button type="submit" className="w-full">
-        팀원 생성 완료
+        <CheckCircle className="h-4 w-4 mr-2" />
+        팀원 정보 저장
       </Button>
     </form>
   );

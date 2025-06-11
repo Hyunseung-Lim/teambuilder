@@ -87,8 +87,8 @@ export interface TeamMemberSlot {
   isUser: boolean; // 사용자 본인인지 여부
   agent?: {
     name: string;
-    age: number;
-    gender: "여자" | "남자" | "정의하지 않음" | "알 수 없음";
+    age?: number;
+    gender?: "여자" | "남자" | "정의하지 않음" | "알 수 없음";
     professional: string;
     skills: string;
     autonomy: number;
