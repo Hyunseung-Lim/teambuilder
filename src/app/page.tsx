@@ -30,6 +30,7 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<AIAgent | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
 
   useEffect(() => {
     if (session) {
@@ -153,7 +154,7 @@ export default function HomePage() {
                 }`}
               >
                 <User className="h-5 w-5 inline mr-2" />
-                팀원 만들기
+                팀원 보기
               </button>
               <button
                 onClick={() => setActiveTab("teams")}
@@ -169,395 +170,316 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* 팀원 만들기 탭 */}
+        {/* 팀원 보기 탭 */}
         {activeTab === "agents" && (
           <div>
             <div className="flex justify-between items-center mb-6">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">팀원 관리</h2>
+                <h2 className="text-2xl font-bold text-gray-900">팀원 보기</h2>
                 <p className="text-gray-600">
-                  AI 에이전트를 생성하고 관리하세요.
+                  현재 생성된 AI 팀원들을 확인하세요. 새로운 팀원은 팀
+                  만들기에서 생성할 수 있습니다.
                 </p>
               </div>
-              <Button
-                onClick={() => setShowCreateForm(!showCreateForm)}
-                disabled={isLoading}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                {showCreateForm ? "취소" : "새 팀원"}
-              </Button>
+              <Link href="/dashboard/teams/new">
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />새 팀 만들기
+                </Button>
+              </Link>
             </div>
 
-            {/* 에이전트 생성 폼 */}
-            {showCreateForm && (
-              <Card className="mb-6">
-                <CardHeader>
-                  <CardTitle>새 AI 에이전트 만들기</CardTitle>
-                  <CardDescription>
-                    에이전트의 기본 정보와 성격을 입력해주세요.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleCreateAgent} className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="name">이름</Label>
-                        <Input
-                          id="name"
-                          name="name"
-                          placeholder="예: Dave"
-                          required
-                          disabled={isLoading}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="age">나이 *</Label>
-                        <Input
-                          id="age"
-                          name="age"
-                          type="number"
-                          min="1"
-                          max="100"
-                          placeholder="21"
-                          required
-                          disabled={isLoading}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="gender">성별 *</Label>
-                      <Select
-                        id="gender"
-                        name="gender"
-                        placeholder="성별을 선택해주세요"
-                        required
-                        disabled={isLoading}
-                      >
-                        <option value="여자">여자</option>
-                        <option value="남자">남자</option>
-                        <option value="정의하지 않음">정의하지 않음</option>
-                        <option value="알 수 없음">알 수 없음</option>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="professional">직업/전문성 *</Label>
-                      <Input
-                        id="professional"
-                        name="professional"
-                        placeholder="예: UX/UI 디자이너, 개발자, PM"
-                        required
-                        disabled={isLoading}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="skills">스킬셋 *</Label>
-                      <Textarea
-                        id="skills"
-                        name="skills"
-                        placeholder="예: Figma, React, 사용자 인터뷰"
-                        required
-                        disabled={isLoading}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="autonomy">자율성 *</Label>
-                      <div className="space-y-2">
-                        <div className="flex items-center space-x-2">
-                          <input
-                            type="radio"
-                            id="autonomy-1"
-                            name="autonomy"
-                            value="1"
-                            required
-                            disabled={isLoading}
-                            className="h-4 w-4 text-gray-900 border-gray-300 focus:ring-gray-900"
-                          />
-                          <label
-                            htmlFor="autonomy-1"
-                            className="text-sm text-gray-700"
-                          >
-                            1 - 매우 낮음
-                          </label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <input
-                            type="radio"
-                            id="autonomy-2"
-                            name="autonomy"
-                            value="2"
-                            required
-                            disabled={isLoading}
-                            className="h-4 w-4 text-gray-900 border-gray-300 focus:ring-gray-900"
-                          />
-                          <label
-                            htmlFor="autonomy-2"
-                            className="text-sm text-gray-700"
-                          >
-                            2 - 낮음
-                          </label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <input
-                            type="radio"
-                            id="autonomy-3"
-                            name="autonomy"
-                            value="3"
-                            required
-                            disabled={isLoading}
-                            className="h-4 w-4 text-gray-900 border-gray-300 focus:ring-gray-900"
-                          />
-                          <label
-                            htmlFor="autonomy-3"
-                            className="text-sm text-gray-700"
-                          >
-                            3 - 보통
-                          </label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <input
-                            type="radio"
-                            id="autonomy-4"
-                            name="autonomy"
-                            value="4"
-                            required
-                            disabled={isLoading}
-                            className="h-4 w-4 text-gray-900 border-gray-300 focus:ring-gray-900"
-                          />
-                          <label
-                            htmlFor="autonomy-4"
-                            className="text-sm text-gray-700"
-                          >
-                            4 - 높음
-                          </label>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <input
-                            type="radio"
-                            id="autonomy-5"
-                            name="autonomy"
-                            value="5"
-                            required
-                            disabled={isLoading}
-                            className="h-4 w-4 text-gray-900 border-gray-300 focus:ring-gray-900"
-                          />
-                          <label
-                            htmlFor="autonomy-5"
-                            className="text-sm text-gray-700"
-                          >
-                            5 - 매우 높음
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="personality">성격</Label>
-                      <Textarea
-                        id="personality"
-                        name="personality"
-                        placeholder="예: 창의적이고 도전적인 성격"
-                        disabled={isLoading}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="value">가치관</Label>
-                      <Textarea
-                        id="value"
-                        name="value"
-                        placeholder="예: 사용자 중심의 디자인을 추구"
-                        disabled={isLoading}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="designStyle">추구하는 디자인</Label>
-                      <Textarea
-                        id="designStyle"
-                        name="designStyle"
-                        placeholder="예: 미니멀하고 깔끔한 디자인"
-                        disabled={isLoading}
-                      />
-                    </div>
-
-                    {error && (
-                      <div className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">
-                        {error}
-                      </div>
-                    )}
-
-                    <Button
-                      type="submit"
-                      disabled={isLoading}
-                      className="w-full"
-                    >
-                      {isLoading ? "생성 중..." : "에이전트 생성"}
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* 에이전트 목록 */}
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {agents.map((agent) => (
-                <Card
-                  key={agent.id}
-                  className="group relative overflow-hidden border-0 bg-white/80 backdrop-blur-sm shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02] rounded-2xl cursor-pointer"
-                  onClick={() => setSelectedAgent(agent)}
-                >
-                  <CardContent className="p-6">
-                    <div className="flex flex-col items-center text-center space-y-4">
-                      {/* 아바타 */}
-                      <div className="relative">
-                        <div className="w-20 h-20 bg-gradient-to-br from-blue-400 via-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-lg group-hover:shadow-xl transition-shadow duration-300">
-                          <User className="h-10 w-10 text-white" />
-                        </div>
-                      </div>
-
-                      {/* 기본 정보만 표시 */}
-                      <div className="w-full space-y-3">
-                        <h3 className="text-lg font-bold text-gray-900 tracking-tight">
-                          {agent.name}
-                        </h3>
-
-                        <div className="space-y-2">
-                          <div className="flex justify-between text-sm">
-                            <span className="text-gray-500">나이</span>
-                            <span className="font-medium text-gray-900">
-                              {agent.age}세
-                            </span>
+            {/* 팀원 목록 */}
+            {agents.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {agents.map((agent) => (
+                  <Card
+                    key={agent.id}
+                    className="group relative overflow-hidden border-0 bg-white/80 backdrop-blur-sm shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02] rounded-2xl cursor-pointer"
+                    onClick={() => setSelectedAgent(agent)}
+                  >
+                    <CardContent className="p-6">
+                      <div className="flex flex-col items-center text-center space-y-4">
+                        {/* 아바타 */}
+                        <div className="relative">
+                          <div className="w-20 h-20 bg-gradient-to-br from-blue-400 via-purple-500 to-pink-500 rounded-full flex items-center justify-center shadow-lg group-hover:shadow-xl transition-shadow duration-300">
+                            <User className="h-10 w-10 text-white" />
                           </div>
-                          <div className="flex justify-between text-sm">
-                            <span className="text-gray-500">성별</span>
-                            <span className="font-medium text-gray-900">
-                              {agent.gender}
-                            </span>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                            <span className="text-gray-500">직업</span>
-                            <span className="font-medium text-gray-900 text-right">
-                              {agent.professional}
-                            </span>
+                        </div>
+
+                        {/* 기본 정보만 표시 */}
+                        <div className="w-full space-y-3">
+                          <h3 className="text-lg font-bold text-gray-900 tracking-tight">
+                            {agent.name}
+                          </h3>
+
+                          <div className="space-y-2">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-gray-500">나이</span>
+                              <span className="font-medium text-gray-900">
+                                {agent.age}세
+                              </span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-gray-500">성별</span>
+                              <span className="font-medium text-gray-900">
+                                {agent.gender}
+                              </span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                              <span className="text-gray-500">직업</span>
+                              <span className="font-medium text-gray-900 text-right">
+                                {agent.professional}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* 호버 시 표시되는 액션 버튼 */}
-                    <div className="absolute bottom-4 left-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                      {/* 호버 시 표시되는 액션 버튼 */}
+                      <div className="absolute bottom-4 left-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full bg-white/90 backdrop-blur-sm border-gray-200 hover:bg-gray-50 text-gray-700"
+                        >
+                          상세 보기
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="text-center py-16">
+                  <div className="max-w-md mx-auto">
+                    <User className="mx-auto h-16 w-16 text-gray-400 mb-6" />
+                    <h3 className="text-xl font-semibold text-gray-900 mb-3">
+                      아직 생성된 팀원이 없습니다
+                    </h3>
+                    <p className="text-gray-600 mb-6">
+                      새로운 팀을 만들 때 팀원을 생성할 수 있습니다.
+                    </p>
+                    <Link href="/dashboard/teams/new">
                       <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full bg-white/90 backdrop-blur-sm border-gray-200 hover:bg-gray-50 text-gray-700"
+                        size="lg"
+                        className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
                       >
-                        상세 보기
+                        <Plus className="h-4 w-4 mr-2" />첫 번째 팀 만들기
                       </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-
-              {/* + 버튼 카드 */}
-              <Card
-                className="group border-2 border-dashed border-gray-300 hover:border-blue-400 cursor-pointer transition-all duration-300 hover:scale-[1.02] rounded-2xl bg-gray-50/50 hover:bg-blue-50/50"
-                onClick={() => setShowCreateForm(true)}
-              >
-                <CardContent className="p-6 flex items-center justify-center min-h-[240px]">
-                  <div className="text-center space-y-3">
-                    <div className="w-12 h-12 bg-gradient-to-br from-gray-400 to-gray-500 group-hover:from-blue-400 group-hover:to-blue-500 rounded-xl flex items-center justify-center mx-auto transition-all duration-300">
-                      <Plus className="h-6 w-6 text-white" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-700 group-hover:text-blue-700 transition-colors">
-                        새 팀원 추가
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        AI 에이전트 생성하기
-                      </p>
-                    </div>
+                    </Link>
                   </div>
                 </CardContent>
               </Card>
-            </div>
+            )}
           </div>
         )}
 
         {/* 팀 만들기 탭 */}
         {activeTab === "teams" && (
           <div>
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex justify-between items-center mb-8">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">팀 관리</h2>
+                <h2 className="text-2xl font-bold text-gray-900">팀 만들기</h2>
                 <p className="text-gray-600">
-                  에이전트들을 조합하여 팀을 구성하세요.
+                  새로운 팀을 만들고 팀원을 생성하여 아이디에이션을 시작하세요.
                 </p>
               </div>
               <Link href="/dashboard/teams/new">
-                <Button disabled={agents.length === 0}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  {agents.length === 0 ? "에이전트가 필요합니다" : "새 팀"}
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />새 팀 만들기
                 </Button>
               </Link>
             </div>
 
-            {/* 팀 목록 */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {teams.map((team) => (
-                <Card
-                  key={team.id}
-                  className="hover:shadow-md transition-shadow"
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="font-semibold text-gray-900">
-                        {team.teamName}
-                      </h3>
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
-                        <Users className="h-4 w-4" />
-                        {team.members.length}명
+            {teams.length > 0 ? (
+              <div className="space-y-8">
+                {/* 현재 활성 팀 (가장 최근 팀) */}
+                {(() => {
+                  const sortedTeams = [...teams].sort(
+                    (a, b) =>
+                      new Date(b.createdAt).getTime() -
+                      new Date(a.createdAt).getTime()
+                  );
+                  const currentTeam = sortedTeams[0];
+                  const teamAgents = currentTeam.members
+                    .map((member) =>
+                      agents.find((agent) => agent.id === member.agentId)
+                    )
+                    .filter(Boolean);
+
+                  return (
+                    <div>
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                        <h3 className="text-lg font-semibold text-gray-900">
+                          현재 활성 팀
+                        </h3>
                       </div>
+
+                      <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-200 shadow-lg">
+                        <CardContent className="p-8">
+                          <div className="flex items-start justify-between mb-6">
+                            <div>
+                              <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                                {currentTeam.teamName}
+                              </h3>
+                              <div className="flex items-center gap-4 text-sm text-gray-600">
+                                <div className="flex items-center gap-2">
+                                  <Users className="h-4 w-4" />
+                                  <span>
+                                    {currentTeam.members.length}명의 팀원
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span>
+                                    생성일:{" "}
+                                    {new Date(
+                                      currentTeam.createdAt
+                                    ).toLocaleDateString()}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            <Button
+                              size="lg"
+                              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg"
+                            >
+                              <span className="text-lg mr-2">💡</span>
+                              <span className="text-base font-bold">
+                                아이디에이션 시작
+                              </span>
+                            </Button>
+                          </div>
+
+                          {/* 팀원 미리보기 */}
+                          <div>
+                            <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                              팀원 구성
+                            </h4>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                              {currentTeam.members.map((member) => {
+                                const agent = agents.find(
+                                  (agent) => agent.id === member.agentId
+                                );
+                                if (!agent) return null;
+                                return (
+                                  <div
+                                    key={agent.id}
+                                    className="bg-white/70 backdrop-blur-sm rounded-lg p-4 border border-white/50"
+                                  >
+                                    <div className="flex items-start gap-3">
+                                      <div className="w-12 h-12 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center flex-shrink-0">
+                                        <User className="h-6 w-6 text-white" />
+                                      </div>
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <p className="font-semibold text-gray-900">
+                                            {agent.name}
+                                          </p>
+                                          <span className="text-sm text-gray-500">
+                                            ({agent.age}세)
+                                          </span>
+                                        </div>
+                                        <p className="text-sm text-gray-600 mb-2">
+                                          {agent.professional}
+                                        </p>
+                                        <div className="flex flex-wrap gap-1">
+                                          {member.roles.map((role, index) => (
+                                            <span
+                                              key={index}
+                                              className="inline-block px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full"
+                                            >
+                                              {role}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
                     </div>
-                    <p className="text-sm text-gray-600">
-                      생성일: {new Date(team.createdAt).toLocaleDateString()}
-                    </p>
-                  </CardContent>
-                </Card>
-              ))}
+                  );
+                })()}
 
-              {/* + 버튼 카드 (에이전트가 있을 때만 표시) */}
-              {agents.length > 0 && (
-                <Link href="/dashboard/teams/new">
-                  <Card className="border-2 border-dashed border-gray-300 hover:border-gray-400 cursor-pointer transition-colors">
-                    <CardContent className="p-4 flex items-center justify-center min-h-[120px]">
-                      <div className="text-center">
-                        <Plus className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-                        <p className="text-sm text-gray-600">새 팀 추가</p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              )}
-            </div>
-
-            {agents.length === 0 && (
+                {/* 팀 히스토리 */}
+                {teams.length > 1 && (
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                      팀 히스토리
+                    </h3>
+                    <div className="space-y-3">
+                      {(() => {
+                        const sortedTeams = [...teams].sort(
+                          (a, b) =>
+                            new Date(b.createdAt).getTime() -
+                            new Date(a.createdAt).getTime()
+                        );
+                        return sortedTeams.slice(1).map((team, index) => (
+                          <Card
+                            key={team.id}
+                            className="bg-gray-50 border border-gray-200 hover:bg-gray-100 transition-colors"
+                          >
+                            <CardContent className="p-4">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-4">
+                                  <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                                  <div>
+                                    <h4 className="font-medium text-gray-900">
+                                      {team.teamName}
+                                    </h4>
+                                    <p className="text-sm text-gray-600">
+                                      {team.members.length}명 •{" "}
+                                      {new Date(
+                                        team.createdAt
+                                      ).toLocaleDateString()}
+                                    </p>
+                                  </div>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-gray-500 hover:text-gray-700"
+                                  onClick={() => setSelectedTeam(team)}
+                                >
+                                  보기
+                                </Button>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* 팀이 없을 때 */
               <Card>
-                <CardContent className="text-center py-12">
-                  <Users className="mx-auto h-16 w-16 text-gray-400 mb-4" />
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                    팀을 만들려면 먼저 에이전트가 필요합니다
-                  </h3>
-                  <p className="text-gray-600 mb-4">
-                    "팀원 만들기" 탭에서 AI 에이전트를 먼저 생성해주세요.
-                  </p>
-                  <Button onClick={() => setActiveTab("agents")}>
-                    <User className="h-4 w-4 mr-2" />
-                    팀원 만들기로 이동
-                  </Button>
+                <CardContent className="text-center py-16">
+                  <div className="max-w-md mx-auto">
+                    <Users className="mx-auto h-16 w-16 text-gray-400 mb-6" />
+                    <h3 className="text-xl font-semibold text-gray-900 mb-3">
+                      첫 번째 팀을 만들어보세요
+                    </h3>
+                    <p className="text-gray-600 mb-6">
+                      팀을 만들면서 필요한 AI 팀원들을 생성하고 창의적인
+                      아이디에이션을 시작해보세요.
+                    </p>
+                    <Link href="/dashboard/teams/new">
+                      <Button
+                        size="lg"
+                        className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
+                      >
+                        <Plus className="h-4 w-4 mr-2" />첫 번째 팀 만들기
+                      </Button>
+                    </Link>
+                  </div>
                 </CardContent>
               </Card>
             )}
@@ -680,6 +602,155 @@ export default function HomePage() {
                     생성일:{" "}
                     {new Date(selectedAgent.createdAt).toLocaleDateString()}
                   </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 팀 상세 정보 모달 */}
+      {selectedTeam && (
+        <div
+          className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50"
+          onClick={() => setSelectedTeam(null)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-gray-900">
+                  팀 상세 정보
+                </h2>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedTeam(null)}
+                  className="rounded-full"
+                >
+                  ×
+                </Button>
+              </div>
+
+              <div className="space-y-6">
+                {/* 팀 기본 정보 */}
+                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-xl font-bold text-gray-900 mb-2">
+                        {selectedTeam.teamName}
+                      </h3>
+                      <div className="flex items-center gap-4 text-sm text-gray-600">
+                        <div className="flex items-center gap-2">
+                          <Users className="h-4 w-4" />
+                          <span>{selectedTeam.members.length}명의 팀원</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span>
+                            생성일:{" "}
+                            {new Date(
+                              selectedTeam.createdAt
+                            ).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 팀원 상세 정보 */}
+                <div>
+                  <h4 className="text-lg font-semibold text-gray-900 mb-4">
+                    팀원 구성
+                  </h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    {selectedTeam.members.map((member) => {
+                      const agent = agents.find(
+                        (agent) => agent.id === member.agentId
+                      );
+                      if (!agent) return null;
+                      return (
+                        <div
+                          key={agent.id}
+                          className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                        >
+                          <div className="flex items-start gap-4">
+                            <div className="w-14 h-14 bg-gradient-to-br from-blue-400 to-purple-500 rounded-full flex items-center justify-center flex-shrink-0">
+                              <User className="h-7 w-7 text-white" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 mb-2">
+                                <h5 className="font-semibold text-gray-900">
+                                  {agent.name}
+                                </h5>
+                                <span className="text-sm text-gray-500">
+                                  ({agent.age}세, {agent.gender})
+                                </span>
+                              </div>
+                              <p className="text-sm text-gray-600 mb-3">
+                                {agent.professional}
+                              </p>
+
+                              {/* 역할 */}
+                              <div className="mb-3">
+                                <p className="text-xs font-medium text-gray-700 mb-1">
+                                  담당 역할
+                                </p>
+                                <div className="flex flex-wrap gap-1">
+                                  {member.roles.map((role, index) => (
+                                    <span
+                                      key={index}
+                                      className="inline-block px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full"
+                                    >
+                                      {role}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* 스킬셋 */}
+                              {agent.skills && (
+                                <div className="mb-2">
+                                  <p className="text-xs font-medium text-gray-700 mb-1">
+                                    스킬셋
+                                  </p>
+                                  <p className="text-xs text-gray-600">
+                                    {agent.skills}
+                                  </p>
+                                </div>
+                              )}
+
+                              {/* 자율성 */}
+                              <div>
+                                <p className="text-xs font-medium text-gray-700 mb-1">
+                                  자율성
+                                </p>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex gap-1">
+                                    {[1, 2, 3, 4, 5].map((level) => (
+                                      <div
+                                        key={level}
+                                        className={`w-2 h-2 rounded-full ${
+                                          level <= agent.autonomy
+                                            ? "bg-blue-500"
+                                            : "bg-gray-300"
+                                        }`}
+                                      />
+                                    ))}
+                                  </div>
+                                  <span className="text-xs text-gray-600">
+                                    {agent.autonomy}/5
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>

@@ -53,12 +53,13 @@ export async function createAgentAction(formData: FormData) {
   }
 
   try {
-    await createAgent({
+    const createdAgent = await createAgent({
       ...agentData,
       ownerId: session.user.email, // 이메일을 ID로 사용
     });
 
     revalidatePath("/");
+    return createdAgent;
   } catch (error) {
     console.error("에이전트 생성 오류:", error);
     throw new Error("에이전트 생성에 실패했습니다.");

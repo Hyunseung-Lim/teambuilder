@@ -40,12 +40,10 @@ export interface TeamMember {
 
 // 에이전트 역할 타입
 export type AgentRole =
-  | "아이디어 제안하기"
-  | "아이디어 디벨롭하기"
+  | "아이디어 생성하기"
   | "아이디어 평가하기"
-  | "아이디어 삭제하기"
-  | "논의하기"
-  | "피드백하기";
+  | "피드백하기"
+  | "요청하기";
 
 // 대화 로그 (미래 기능용)
 export interface Conversation {
