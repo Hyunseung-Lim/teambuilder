@@ -220,6 +220,7 @@ export default function NewTeamPage() {
       const teamFormData = new FormData();
       teamFormData.append("teamName", teamName.trim());
       teamFormData.append("selectedAgents", JSON.stringify(teamMembers));
+      teamFormData.append("relationships", JSON.stringify(relationships));
 
       await createTeamAction(teamFormData);
     } catch (error) {

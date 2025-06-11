@@ -104,6 +104,7 @@ export async function createTeam(
     teamName: team.teamName,
     ownerId: team.ownerId,
     members: JSON.stringify(team.members),
+    relationships: JSON.stringify(team.relationships),
     createdAt: team.createdAt.toISOString(),
   });
   await redis.sadd(keys.userTeams(team.ownerId), team.id);
@@ -123,11 +124,21 @@ export async function getTeamById(id: string): Promise<Team | null> {
       members = teamData.members; // 이미 배열인 경우
     }
 
+    let relationships;
+    if (typeof teamData.relationships === "string") {
+      relationships = JSON.parse(teamData.relationships);
+    } else if (teamData.relationships) {
+      relationships = teamData.relationships;
+    } else {
+      relationships = []; // 관계 데이터가 없는 경우 빈 배열
+    }
+
     return {
       id: teamData.id as string,
       teamName: teamData.teamName as string,
       ownerId: teamData.ownerId as string,
       members: members,
+      relationships: relationships,
       createdAt: new Date(teamData.createdAt as string),
     } as Team;
   } catch (error) {

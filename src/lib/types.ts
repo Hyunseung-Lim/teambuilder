@@ -30,13 +30,16 @@ export interface Team {
   ownerId: string; // User.id 외래 키
   teamName: string;
   members: TeamMember[];
+  relationships: Relationship[];
   createdAt: Date;
 }
 
 // 팀 멤버 (역할이 부여된 에이전트)
 export interface TeamMember {
-  agentId: string; // AIAgent.id 외래 키
+  agentId: string | null; // AIAgent.id 외래 키 또는 사용자일 경우 null
   roles: AgentRole[];
+  isLeader: boolean;
+  isUser: boolean;
 }
 
 // 에이전트 역할 타입

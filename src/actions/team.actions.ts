@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { createTeam, getUserTeams } from "@/lib/redis";
-import { AgentRole } from "@/lib/types";
+import { AgentRole, Relationship } from "@/lib/types";
 
 export async function createTeamAction(formData: FormData) {
   const session = await getServerSession();
@@ -15,6 +15,9 @@ export async function createTeamAction(formData: FormData) {
 
   const teamName = formData.get("teamName") as string;
   const selectedAgents = JSON.parse(formData.get("selectedAgents") as string);
+  const relationships = JSON.parse(
+    (formData.get("relationships") as string) || "[]"
+  );
 
   if (!teamName || selectedAgents.length === 0) {
     throw new Error("팀 이름과 에이전트를 선택해주세요.");
@@ -31,6 +34,7 @@ export async function createTeamAction(formData: FormData) {
     await createTeam({
       teamName,
       members: selectedAgents,
+      relationships,
       ownerId: session.user.email,
     });
 
