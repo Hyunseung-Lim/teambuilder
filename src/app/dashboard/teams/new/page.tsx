@@ -211,6 +211,16 @@ export default function NewTeamPage() {
                     <p className="text-sm text-gray-600 mb-1">
                       {agent.age}세, {agent.gender}
                     </p>
+                    {agent.professional && (
+                      <p className="text-xs text-gray-500 mb-1">
+                        {agent.professional}
+                      </p>
+                    )}
+                    {agent.autonomy && (
+                      <p className="text-xs text-gray-500 mb-1">
+                        자율성: {agent.autonomy}/5
+                      </p>
+                    )}
                     {agent.personality && (
                       <p className="text-xs text-gray-500 line-clamp-2">
                         {agent.personality}

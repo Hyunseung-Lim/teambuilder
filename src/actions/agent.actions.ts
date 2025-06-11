@@ -24,18 +24,32 @@ export async function createAgentAction(formData: FormData) {
     name: formData.get("name") as string,
     age: parseInt(formData.get("age") as string),
     gender: formData.get("gender") as any,
+    professional: formData.get("professional") as string,
+    skills: formData.get("skills") as string,
+    autonomy: parseInt(formData.get("autonomy") as string),
     personality: formData.get("personality") as string,
     value: formData.get("value") as string,
     designStyle: formData.get("designStyle") as string,
   };
 
   // 유효성 검사
-  if (!agentData.name || !agentData.age || !agentData.gender) {
+  if (
+    !agentData.name ||
+    !agentData.age ||
+    !agentData.gender ||
+    !agentData.professional ||
+    !agentData.skills ||
+    !agentData.autonomy
+  ) {
     throw new Error("필수 정보를 모두 입력해주세요.");
   }
 
   if (agentData.age < 1 || agentData.age > 100) {
     throw new Error("나이는 1-100 사이의 값이어야 합니다.");
+  }
+
+  if (agentData.autonomy < 1 || agentData.autonomy > 5) {
+    throw new Error("자율성은 1-5 사이의 값이어야 합니다.");
   }
 
   try {

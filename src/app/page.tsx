@@ -29,6 +29,7 @@ export default function HomePage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedAgent, setSelectedAgent] = useState<AIAgent | null>(null);
 
   useEffect(() => {
     if (session) {
@@ -241,6 +242,119 @@ export default function HomePage() {
                     </div>
 
                     <div className="space-y-2">
+                      <Label htmlFor="professional">직업/전문성 *</Label>
+                      <Input
+                        id="professional"
+                        name="professional"
+                        placeholder="예: UX/UI 디자이너, 개발자, PM"
+                        required
+                        disabled={isLoading}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="skills">스킬셋 *</Label>
+                      <Textarea
+                        id="skills"
+                        name="skills"
+                        placeholder="예: Figma, React, 사용자 인터뷰"
+                        required
+                        disabled={isLoading}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="autonomy">자율성 *</Label>
+                      <div className="space-y-2">
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="radio"
+                            id="autonomy-1"
+                            name="autonomy"
+                            value="1"
+                            required
+                            disabled={isLoading}
+                            className="h-4 w-4 text-gray-900 border-gray-300 focus:ring-gray-900"
+                          />
+                          <label
+                            htmlFor="autonomy-1"
+                            className="text-sm text-gray-700"
+                          >
+                            1 - 매우 낮음
+                          </label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="radio"
+                            id="autonomy-2"
+                            name="autonomy"
+                            value="2"
+                            required
+                            disabled={isLoading}
+                            className="h-4 w-4 text-gray-900 border-gray-300 focus:ring-gray-900"
+                          />
+                          <label
+                            htmlFor="autonomy-2"
+                            className="text-sm text-gray-700"
+                          >
+                            2 - 낮음
+                          </label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="radio"
+                            id="autonomy-3"
+                            name="autonomy"
+                            value="3"
+                            required
+                            disabled={isLoading}
+                            className="h-4 w-4 text-gray-900 border-gray-300 focus:ring-gray-900"
+                          />
+                          <label
+                            htmlFor="autonomy-3"
+                            className="text-sm text-gray-700"
+                          >
+                            3 - 보통
+                          </label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="radio"
+                            id="autonomy-4"
+                            name="autonomy"
+                            value="4"
+                            required
+                            disabled={isLoading}
+                            className="h-4 w-4 text-gray-900 border-gray-300 focus:ring-gray-900"
+                          />
+                          <label
+                            htmlFor="autonomy-4"
+                            className="text-sm text-gray-700"
+                          >
+                            4 - 높음
+                          </label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="radio"
+                            id="autonomy-5"
+                            name="autonomy"
+                            value="5"
+                            required
+                            disabled={isLoading}
+                            className="h-4 w-4 text-gray-900 border-gray-300 focus:ring-gray-900"
+                          />
+                          <label
+                            htmlFor="autonomy-5"
+                            className="text-sm text-gray-700"
+                          >
+                            5 - 매우 높음
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
                       <Label htmlFor="personality">성격</Label>
                       <Textarea
                         id="personality"
@@ -293,7 +407,8 @@ export default function HomePage() {
               {agents.map((agent) => (
                 <Card
                   key={agent.id}
-                  className="group relative overflow-hidden border-0 bg-white/80 backdrop-blur-sm shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02] rounded-2xl"
+                  className="group relative overflow-hidden border-0 bg-white/80 backdrop-blur-sm shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02] rounded-2xl cursor-pointer"
+                  onClick={() => setSelectedAgent(agent)}
                 >
                   <CardContent className="p-6">
                     <div className="flex flex-col items-center text-center space-y-4">
@@ -304,7 +419,7 @@ export default function HomePage() {
                         </div>
                       </div>
 
-                      {/* 정보 */}
+                      {/* 기본 정보만 표시 */}
                       <div className="w-full space-y-3">
                         <h3 className="text-lg font-bold text-gray-900 tracking-tight">
                           {agent.name}
@@ -323,33 +438,13 @@ export default function HomePage() {
                               {agent.gender}
                             </span>
                           </div>
-                        </div>
-
-                        {/* 추가 정보 (있을 때만 표시) */}
-                        {(agent.personality || agent.designStyle) && (
-                          <div className="pt-3 border-t border-gray-100 space-y-3">
-                            {agent.personality && (
-                              <div>
-                                <p className="text-xs font-semibold text-gray-800 mb-1">
-                                  💭 성격
-                                </p>
-                                <p className="text-xs text-gray-600 line-clamp-2 pl-4">
-                                  {agent.personality}
-                                </p>
-                              </div>
-                            )}
-                            {agent.designStyle && (
-                              <div>
-                                <p className="text-xs font-semibold text-gray-800 mb-1">
-                                  🎨 추구하는 디자인
-                                </p>
-                                <p className="text-xs text-gray-600 line-clamp-2 pl-4">
-                                  {agent.designStyle}
-                                </p>
-                              </div>
-                            )}
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-500">직업</span>
+                            <span className="font-medium text-gray-900 text-right">
+                              {agent.professional}
+                            </span>
                           </div>
-                        )}
+                        </div>
                       </div>
                     </div>
 
@@ -469,6 +564,128 @@ export default function HomePage() {
           </div>
         )}
       </div>
+
+      {/* 에이전트 상세 정보 모달 */}
+      {selectedAgent && (
+        <div
+          className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50"
+          onClick={() => setSelectedAgent(null)}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold text-gray-900">
+                  에이전트 상세 정보
+                </h2>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedAgent(null)}
+                  className="rounded-full"
+                >
+                  ×
+                </Button>
+              </div>
+
+              <div className="space-y-6">
+                {/* 기본 정보 */}
+                <div className="flex items-center space-x-4">
+                  <div className="w-16 h-16 bg-gradient-to-br from-blue-400 via-purple-500 to-pink-500 rounded-full flex items-center justify-center">
+                    <User className="h-8 w-8 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900">
+                      {selectedAgent.name}
+                    </h3>
+                    <p className="text-gray-600">
+                      {selectedAgent.age}세, {selectedAgent.gender}
+                    </p>
+                  </div>
+                </div>
+
+                {/* 상세 정보 */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-2">
+                      직업/전문성
+                    </h4>
+                    <p className="text-sm text-gray-600">
+                      {selectedAgent.professional}
+                    </p>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-2">
+                      자율성
+                    </h4>
+                    <p className="text-sm text-gray-600">
+                      {selectedAgent.autonomy}/5
+                      {selectedAgent.autonomy === 1 && " (매우 낮음)"}
+                      {selectedAgent.autonomy === 2 && " (낮음)"}
+                      {selectedAgent.autonomy === 3 && " (보통)"}
+                      {selectedAgent.autonomy === 4 && " (높음)"}
+                      {selectedAgent.autonomy === 5 && " (매우 높음)"}
+                    </p>
+                  </div>
+                </div>
+
+                {selectedAgent.skills && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-2">
+                      스킬셋
+                    </h4>
+                    <p className="text-sm text-gray-600">
+                      {selectedAgent.skills}
+                    </p>
+                  </div>
+                )}
+
+                {selectedAgent.personality && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-2">
+                      성격
+                    </h4>
+                    <p className="text-sm text-gray-600">
+                      {selectedAgent.personality}
+                    </p>
+                  </div>
+                )}
+
+                {selectedAgent.value && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-2">
+                      가치관
+                    </h4>
+                    <p className="text-sm text-gray-600">
+                      {selectedAgent.value}
+                    </p>
+                  </div>
+                )}
+
+                {selectedAgent.designStyle && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-2">
+                      추구하는 디자인
+                    </h4>
+                    <p className="text-sm text-gray-600">
+                      {selectedAgent.designStyle}
+                    </p>
+                  </div>
+                )}
+
+                <div className="pt-4 border-t border-gray-200">
+                  <p className="text-xs text-gray-500">
+                    생성일:{" "}
+                    {new Date(selectedAgent.createdAt).toLocaleDateString()}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -14,6 +14,9 @@ export interface AIAgent {
   name: string;
   age: number;
   gender: "여자" | "남자" | "정의하지 않음" | "알 수 없음";
+  professional: string; // 직업/전문성
+  skills: string; // 스킬셋
+  autonomy: number; // 자율성 (1-5)
   personality: string; // 성격 (텍스트 설명)
   value: string; // 가치관 (텍스트 설명)
   designStyle: string; // 추구하는 디자인 (텍스트 설명)
@@ -60,6 +63,9 @@ export interface CreateAgentData {
   name: string;
   age: number;
   gender: AIAgent["gender"];
+  professional: string;
+  skills: string;
+  autonomy: number;
   personality: string;
   value: string;
   designStyle: string;

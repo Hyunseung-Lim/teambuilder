@@ -23,7 +23,9 @@ export default async function AgentsPage() {
           </Button>
         </Link>
         <div className="flex-1">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">AI 에이전트 관리</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            AI 에이전트 관리
+          </h1>
           <p className="text-gray-600">
             생성된 AI 에이전트들을 관리하고 새로운 에이전트를 만들어보세요.
           </p>
@@ -70,6 +72,44 @@ export default async function AgentsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {agent.professional && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-1">
+                      직업/전문성
+                    </h4>
+                    <p className="text-sm text-gray-600 line-clamp-2">
+                      {agent.professional}
+                    </p>
+                  </div>
+                )}
+
+                {agent.skills && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-1">
+                      스킬셋
+                    </h4>
+                    <p className="text-sm text-gray-600 line-clamp-2">
+                      {agent.skills}
+                    </p>
+                  </div>
+                )}
+
+                {agent.autonomy && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-1">
+                      자율성
+                    </h4>
+                    <p className="text-sm text-gray-600">
+                      {agent.autonomy}/5
+                      {agent.autonomy === 1 && " (매우 낮음)"}
+                      {agent.autonomy === 2 && " (낮음)"}
+                      {agent.autonomy === 3 && " (보통)"}
+                      {agent.autonomy === 4 && " (높음)"}
+                      {agent.autonomy === 5 && " (매우 높음)"}
+                    </p>
+                  </div>
+                )}
+
                 {agent.personality && (
                   <div>
                     <h4 className="text-sm font-semibold text-gray-900 mb-1">

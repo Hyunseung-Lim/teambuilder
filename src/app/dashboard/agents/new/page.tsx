@@ -99,6 +99,104 @@ export default function NewAgentPage() {
             </div>
 
             <div className="space-y-2">
+              <Label htmlFor="professional">직업/전문성 *</Label>
+              <Input
+                id="professional"
+                name="professional"
+                placeholder="예: UX/UI 디자이너, 프론트엔드 개발자, 프로덕트 매니저"
+                required
+                disabled={isLoading}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="skills">스킬셋 *</Label>
+              <Textarea
+                id="skills"
+                name="skills"
+                placeholder="예: Figma, Sketch, React, TypeScript, 사용자 인터뷰, 프로토타이핑"
+                required
+                disabled={isLoading}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="autonomy">자율성 *</Label>
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="autonomy-1"
+                    name="autonomy"
+                    value="1"
+                    required
+                    disabled={isLoading}
+                    className="h-4 w-4 text-gray-900 border-gray-300 focus:ring-gray-900"
+                  />
+                  <label htmlFor="autonomy-1" className="text-sm text-gray-700">
+                    1 - 매우 낮음 (지시를 정확히 따름)
+                  </label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="autonomy-2"
+                    name="autonomy"
+                    value="2"
+                    required
+                    disabled={isLoading}
+                    className="h-4 w-4 text-gray-900 border-gray-300 focus:ring-gray-900"
+                  />
+                  <label htmlFor="autonomy-2" className="text-sm text-gray-700">
+                    2 - 낮음 (기본적인 판단 가능)
+                  </label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="autonomy-3"
+                    name="autonomy"
+                    value="3"
+                    required
+                    disabled={isLoading}
+                    className="h-4 w-4 text-gray-900 border-gray-300 focus:ring-gray-900"
+                  />
+                  <label htmlFor="autonomy-3" className="text-sm text-gray-700">
+                    3 - 보통 (상황에 맞게 적응)
+                  </label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="autonomy-4"
+                    name="autonomy"
+                    value="4"
+                    required
+                    disabled={isLoading}
+                    className="h-4 w-4 text-gray-900 border-gray-300 focus:ring-gray-900"
+                  />
+                  <label htmlFor="autonomy-4" className="text-sm text-gray-700">
+                    4 - 높음 (창의적 제안 가능)
+                  </label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id="autonomy-5"
+                    name="autonomy"
+                    value="5"
+                    required
+                    disabled={isLoading}
+                    className="h-4 w-4 text-gray-900 border-gray-300 focus:ring-gray-900"
+                  />
+                  <label htmlFor="autonomy-5" className="text-sm text-gray-700">
+                    5 - 매우 높음 (독립적 의사결정)
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="personality">성격</Label>
               <Textarea
                 id="personality"
