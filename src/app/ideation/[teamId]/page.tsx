@@ -925,16 +925,47 @@ export default function IdeationPage() {
                             <div
                               className="underline cursor-pointer border-blue-300 text-blue-600 text-xs h-auto"
                               onClick={() => {
-                                // 해당 작성자의 아이디어 찾기
-                                const authorIdea = ideas.find(
-                                  (idea) => idea.author === message.sender
-                                );
-                                if (authorIdea) {
-                                  setIdeaDetailModalData(authorIdea);
+                                // 해당 메시지 시간과 가장 가까운 아이디어 찾기
+                                const messageTime = new Date(
+                                  message.timestamp
+                                ).getTime();
+
+                                // 해당 작성자의 모든 아이디어 중에서 메시지 시간과 가장 가까운 것 찾기
+                                const authorIdeas = ideas
+                                  .filter(
+                                    (idea) => idea.author === message.sender
+                                  )
+                                  .map((idea) => ({
+                                    ...idea,
+                                    timeDiff: Math.abs(
+                                      new Date(idea.timestamp).getTime() -
+                                        messageTime
+                                    ),
+                                  }))
+                                  .sort((a, b) => a.timeDiff - b.timeDiff);
+
+                                const closestIdea = authorIdeas[0];
+
+                                if (closestIdea) {
+                                  console.log(
+                                    "🎯 메시지 시간 기준 가장 가까운 아이디어 찾음:",
+                                    {
+                                      messageTime: message.timestamp,
+                                      ideaTime: closestIdea.timestamp,
+                                      timeDiff:
+                                        closestIdea.timeDiff / 1000 + "초 차이",
+                                    }
+                                  );
+
+                                  setIdeaDetailModalData(closestIdea);
                                   setCurrentIdeaIndex(
-                                    ideas.indexOf(authorIdea)
+                                    filteredIdeas.indexOf(closestIdea)
                                   );
                                   setShowIdeaDetailModal(true);
+                                } else {
+                                  console.log(
+                                    "❌ 해당 작성자의 아이디어를 찾을 수 없음"
+                                  );
                                 }
                               }}
                             >
@@ -1463,31 +1494,38 @@ export default function IdeationPage() {
                       const newIndex =
                         currentIdeaIndex > 0
                           ? currentIdeaIndex - 1
-                          : ideas.length - 1;
+                          : filteredIdeas.length - 1;
                       setCurrentIdeaIndex(newIndex);
-                      setIdeaDetailModalData(ideas[newIndex]);
+                      setIdeaDetailModalData(filteredIdeas[newIndex]);
                     }}
                     className="px-2 py-1 w-10 hover:bg-gray-100 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={ideas.length <= 1 || isEditMode}
+                    disabled={filteredIdeas.length <= 1 || isEditMode}
                   >
                     <span className="text-gray-400 w-6 h-6">
                       <ArrowLeft />
                     </span>
                   </button>
                   <h2 className="text-xl font-bold text-gray-900">
-                    Idea {currentIdeaIndex + 1}
+                    Idea{" "}
+                    {(() => {
+                      // 아이디어 섹션과 동일한 방식으로 인덱스 계산
+                      const creationIndex = ideasSortedByCreation.findIndex(
+                        (i) => i.id === ideaDetailModalData.id
+                      );
+                      return creationIndex + 1;
+                    })()}
                   </h2>
                   <button
                     onClick={() => {
                       const newIndex =
-                        currentIdeaIndex < ideas.length - 1
+                        currentIdeaIndex < filteredIdeas.length - 1
                           ? currentIdeaIndex + 1
                           : 0;
                       setCurrentIdeaIndex(newIndex);
-                      setIdeaDetailModalData(ideas[newIndex]);
+                      setIdeaDetailModalData(filteredIdeas[newIndex]);
                     }}
                     className="px-2 py-1 w-10 hover:bg-gray-100 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={ideas.length <= 1 || isEditMode}
+                    disabled={filteredIdeas.length <= 1 || isEditMode}
                   >
                     <span className="text-gray-400 w-6 h-6">
                       <ArrowRight />
