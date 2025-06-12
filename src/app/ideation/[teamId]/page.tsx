@@ -574,11 +574,11 @@ export default function IdeationPage() {
                               </span>
                             )}
                         </div>
-                        <div className="flex flex-col gap-1 mt-1">
+                        <div className="flex flex-wrap gap-1 mt-1">
                           {member.roles.map((role, roleIndex) => (
                             <span
                               key={roleIndex}
-                              className="text-sm px-3 py-2 bg-gray-100 text-gray-700 rounded-lg w-fit font-medium"
+                              className="text-xs px-2 py-1 bg-indigo-50 text-indigo-600 rounded-lg w-fit font-medium"
                             >
                               {role}
                             </span>
@@ -856,26 +856,27 @@ export default function IdeationPage() {
                       </div>
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="space-y-3 pt-2">
                       <div>
-                        <span className="text-xs font-medium text-gray-500">
-                          Object:{" "}
-                        </span>
-                        <span className="text-xs text-gray-900">
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                          Object
+                        </h4>
+                        <p className="text-sm font-medium text-gray-800 truncate mt-0.5">
                           {idea.content.object}
-                        </span>
+                        </p>
                       </div>
                       <div>
-                        <span className="text-xs font-medium text-gray-500">
-                          Function:
-                        </span>
+                        <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mt-2">
+                          Function
+                        </h4>
                         <p
-                          className="text-xs text-gray-700 mt-1"
+                          className="text-sm text-gray-600 mt-0.5"
                           style={{
                             display: "-webkit-box",
-                            WebkitLineClamp: 3,
+                            WebkitLineClamp: 2,
                             WebkitBoxOrient: "vertical",
                             overflow: "hidden",
+                            textOverflow: "ellipsis",
                           }}
                         >
                           {idea.content.function}
@@ -883,7 +884,7 @@ export default function IdeationPage() {
                       </div>
                     </div>
 
-                    <button className="w-full mt-3 bg-gray-100 text-gray-700 py-2 px-3 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">
+                    <button className="w-full mt-4 bg-gray-100 text-gray-700 py-2 px-3 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">
                       자세히 보기
                     </button>
                   </div>
@@ -977,10 +978,10 @@ export default function IdeationPage() {
                       setCurrentIdeaIndex(newIndex);
                       setIdeaDetailModalData(ideas[newIndex]);
                     }}
-                    className="p-2 hover:bg-gray-100 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-2 py-1 w-10 hover:bg-gray-100 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
                     disabled={ideas.length <= 1 || isEditMode}
                   >
-                    <span className="text-xl">←</span>
+                    <span className="text-xl text-gray-400">←</span>
                   </button>
                   <h2 className="text-xl font-bold text-gray-900">
                     Idea {currentIdeaIndex + 1}
@@ -994,10 +995,10 @@ export default function IdeationPage() {
                       setCurrentIdeaIndex(newIndex);
                       setIdeaDetailModalData(ideas[newIndex]);
                     }}
-                    className="p-2 hover:bg-gray-100 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-2 py-1 w-10 hover:bg-gray-100 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
                     disabled={ideas.length <= 1 || isEditMode}
                   >
-                    <span className="text-xl">→</span>
+                    <span className="text-xl text-gray-400">→</span>
                   </button>
                 </div>
                 <div className="flex items-center gap-4">
@@ -1025,7 +1026,7 @@ export default function IdeationPage() {
                       setShowIdeaDetailModal(false);
                       setIsEditMode(false);
                     }}
-                    className="p-2 hover:bg-gray-100 rounded-full text-gray-500 hover:text-gray-700"
+                    className="p-2 w-10 hover:bg-gray-100 rounded-full text-gray-500 hover:text-gray-700"
                   >
                     <span className="text-xl">×</span>
                   </button>
