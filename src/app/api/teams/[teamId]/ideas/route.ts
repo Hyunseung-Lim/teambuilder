@@ -144,19 +144,23 @@ export async function POST(
             !member.isUser && member.roles.includes("아이디어 생성하기")
         );
 
-        // 각 에이전트의 아이디어 생성을 병렬로 실행
-        const generationPromises = ideaGenerators.map(async (member) => {
-          // agentId가 없는 경우 건너뛰기
-          if (!member.agentId) {
-            return null;
-          }
-
-          // 해당 에이전트가 이미 아이디어를 생성했는지 확인
+        // 실제로 생성할 에이전트들 (이미 아이디어가 있는 에이전트 제외)
+        const agentsToGenerate = ideaGenerators.filter((member) => {
+          if (!member.agentId) return false;
           const agentHasIdea = existingIdeas.some(
             (idea) => idea.author === member.agentId
           );
-          if (agentHasIdea) {
-            return null; // 이미 아이디어를 생성한 에이전트는 건너뛰기
+          return !agentHasIdea;
+        });
+
+        const generatingAgentIds = agentsToGenerate
+          .map((member) => member.agentId)
+          .filter((agentId): agentId is string => agentId !== null);
+
+        // 각 에이전트의 아이디어 생성을 병렬로 실행
+        const generationPromises = agentsToGenerate.map(async (member) => {
+          if (!member.agentId) {
+            return null;
           }
 
           try {
@@ -228,7 +232,8 @@ export async function POST(
 
         return NextResponse.json({
           message: "아이디어 생성을 시작했습니다",
-          agentCount: ideaGenerators.length,
+          agentCount: generatingAgentIds.length,
+          generatingAgentIds,
         });
       } catch (error) {
         console.error("자동 아이디어 생성 오류:", error);

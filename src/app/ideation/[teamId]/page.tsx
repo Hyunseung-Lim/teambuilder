@@ -67,6 +67,15 @@ export default function IdeationPage() {
     completed: 0,
     total: 0,
   });
+  const [generatingAgents, setGeneratingAgents] = useState<Set<string>>(
+    new Set()
+  );
+  const [behaviorPairs, setBehaviorPairs] = useState<
+    Array<{ key: string; value: string }>
+  >([]);
+  const [structurePairs, setStructurePairs] = useState<
+    Array<{ key: string; value: string }>
+  >([]);
 
   // 현재 사용자가 아이디어 생성 롤을 가지고 있는지 확인
   const userCanGenerateIdeas =
@@ -121,6 +130,41 @@ export default function IdeationPage() {
     return authorId;
   };
 
+  // JSON 문자열을 키-값 쌍 배열로 변환
+  const parseJsonToPairs = (
+    jsonString: string
+  ): Array<{ key: string; value: string }> => {
+    try {
+      const parsed = JSON.parse(jsonString);
+      if (typeof parsed === "object" && parsed !== null) {
+        return Object.entries(parsed).map(([key, value]) => ({
+          key,
+          value: String(value),
+        }));
+      }
+    } catch (error) {
+      // JSON 파싱 실패 시 원본 텍스트를 단일 쌍으로 처리
+    }
+    return [{ key: "", value: jsonString }];
+  };
+
+  // 키-값 쌍 배열을 JSON 문자열로 변환
+  const pairsToJsonString = (
+    pairs: Array<{ key: string; value: string }>
+  ): string => {
+    const validPairs = pairs.filter(
+      (pair) => pair.key.trim() && pair.value.trim()
+    );
+    if (validPairs.length === 0) return "";
+
+    const obj = validPairs.reduce((acc, pair) => {
+      acc[pair.key] = pair.value;
+      return acc;
+    }, {} as Record<string, string>);
+
+    return JSON.stringify(obj);
+  };
+
   // 필터링된 아이디어 목록 (최신순 정렬)
   const filteredIdeas = ideas
     .filter((idea) => {
@@ -166,6 +210,35 @@ export default function IdeationPage() {
     }
   }, [params.teamId, session]);
 
+  // 아이디어 로드
+  const loadIdeas = async (teamId: string) => {
+    try {
+      const response = await fetch(`/api/teams/${teamId}/ideas`);
+      if (response.ok) {
+        const data = await response.json();
+        setIdeas(data.ideas || []);
+        return (data.ideas || []).length;
+      }
+      return 0;
+    } catch (error) {
+      console.error("아이디어 로드 실패:", error);
+      return 0;
+    }
+  };
+
+  // 채팅 메시지 로드
+  const loadMessages = async (teamId: string) => {
+    try {
+      const response = await fetch(`/api/teams/${teamId}/chat`);
+      if (response.ok) {
+        const data = await response.json();
+        setMessages(data.messages || []);
+      }
+    } catch (error) {
+      console.error("채팅 메시지 로드 실패:", error);
+    }
+  };
+
   // 아이디어가 로드되면 주제 모달 상태 체크
   useEffect(() => {
     if (ideas.length > 0 && showTopicModal) {
@@ -194,6 +267,7 @@ export default function IdeationPage() {
   ) => {
     try {
       setIsAutoGenerating(true);
+      setGeneratingAgents(new Set()); // 초기화
 
       // 아이디어 생성 요청
       const response = await fetch(`/api/teams/${teamId}/ideas`, {
@@ -213,6 +287,11 @@ export default function IdeationPage() {
 
       const result = await response.json();
       console.log("아이디어 생성 시작:", result);
+
+      // 생성할 에이전트들을 generatingAgents에 추가
+      if (result.generatingAgentIds) {
+        setGeneratingAgents(new Set(result.generatingAgentIds));
+      }
 
       // 생성 진행 상황 초기화
       const expectedCount = result.agentCount || 1;
@@ -236,6 +315,7 @@ export default function IdeationPage() {
             console.log("폴링 시간 초과로 중지");
             clearInterval(pollInterval);
             setIsAutoGenerating(false);
+            setGeneratingAgents(new Set());
             setGenerationProgress({ completed: 0, total: 0 });
             return;
           }
@@ -258,6 +338,18 @@ export default function IdeationPage() {
             completedCount = completedMessages.length;
             console.log(`완료된 아이디어: ${completedCount}/${expectedCount}`);
 
+            // 완료된 에이전트들을 generatingAgents에서 제거
+            const completedAgentIds = completedMessages.map(
+              (msg: any) => msg.sender
+            );
+            setGeneratingAgents((prev) => {
+              const newSet = new Set(prev);
+              completedAgentIds.forEach((agentId: string) =>
+                newSet.delete(agentId)
+              );
+              return newSet;
+            });
+
             // 진행 상황 업데이트
             setGenerationProgress({
               completed: completedCount,
@@ -269,6 +361,7 @@ export default function IdeationPage() {
               console.log("모든 에이전트 아이디어 생성 완료");
               clearInterval(pollInterval);
               setIsAutoGenerating(false);
+              setGeneratingAgents(new Set());
               setGenerationProgress({ completed: 0, total: 0 });
             }
           }
@@ -279,36 +372,8 @@ export default function IdeationPage() {
     } catch (error) {
       console.error("AI 에이전트 자동 아이디어 생성 실패:", error);
       setIsAutoGenerating(false);
+      setGeneratingAgents(new Set());
       setGenerationProgress({ completed: 0, total: 0 });
-    }
-  };
-
-  // 아이디어 로드
-  const loadIdeas = async (teamId: string) => {
-    try {
-      const response = await fetch(`/api/teams/${teamId}/ideas`);
-      if (response.ok) {
-        const data = await response.json();
-        setIdeas(data.ideas || []);
-        return (data.ideas || []).length;
-      }
-      return 0;
-    } catch (error) {
-      console.error("아이디어 로드 실패:", error);
-      return 0;
-    }
-  };
-
-  // 채팅 메시지 로드
-  const loadMessages = async (teamId: string) => {
-    try {
-      const response = await fetch(`/api/teams/${teamId}/chat`);
-      if (response.ok) {
-        const data = await response.json();
-        setMessages(data.messages || []);
-      }
-    } catch (error) {
-      console.error("채팅 메시지 로드 실패:", error);
     }
   };
 
@@ -501,6 +566,13 @@ export default function IdeationPage() {
                           {member.isLeader && (
                             <Crown className="h-3 w-3 text-yellow-600 flex-shrink-0" />
                           )}
+                          {!member.isUser &&
+                            member.agentId &&
+                            generatingAgents.has(member.agentId) && (
+                              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full animate-pulse flex-shrink-0">
+                                아이디어 생성중...
+                              </span>
+                            )}
                         </div>
                         <div className="flex flex-col gap-1 mt-1">
                           {member.roles.map((role, roleIndex) => (
@@ -532,90 +604,98 @@ export default function IdeationPage() {
 
             {/* 메시지 목록 */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {messages.map((message) => {
-                // 메시지 발송자 이름 가져오기
-                const getSenderName = (senderId: string) => {
-                  if (senderId === "나") return "나";
+              {messages
+                .filter(
+                  (message) =>
+                    message.type !== "system" ||
+                    !message.payload.content?.includes("생성중입니다")
+                )
+                .map((message) => {
+                  // 메시지 발송자 이름 가져오기
+                  const getSenderName = (senderId: string) => {
+                    if (senderId === "나") return "나";
 
-                  // 팀 멤버에서 해당 에이전트 찾기
-                  const member = team?.members.find(
-                    (m) => m.agentId === senderId
-                  );
-                  if (member && !member.isUser) {
-                    const agent = agents.find((a) => a.id === senderId);
-                    return agent?.name || `에이전트 ${senderId}`;
+                    // 팀 멤버에서 해당 에이전트 찾기
+                    const member = team?.members.find(
+                      (m) => m.agentId === senderId
+                    );
+                    if (member && !member.isUser) {
+                      const agent = agents.find((a) => a.id === senderId);
+                      return agent?.name || `에이전트 ${senderId}`;
+                    }
+
+                    return senderId;
+                  };
+
+                  const senderName = getSenderName(message.sender);
+
+                  if (message.type === "system") {
+                    // 시스템 메시지 (아이디어 생성 알림)
+                    const isGeneratingMessage =
+                      message.payload.content?.includes("생성중입니다");
+
+                    return (
+                      <div key={message.id} className="flex justify-center">
+                        <div className="bg-blue-50 text-blue-600 px-7 py-2 rounded-full text-sm font-medium flex items-center gap-3">
+                          <span>
+                            {senderName}가{" "}
+                            {message.payload.content || "작업을 완료했습니다"}
+                          </span>
+                          {!isGeneratingMessage && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="bg-white hover:bg-gray-50 border-blue-300 text-blue-700 text-xs h-auto"
+                              onClick={() => {
+                                // 해당 작성자의 아이디어 찾기
+                                const authorIdea = ideas.find(
+                                  (idea) => idea.author === message.sender
+                                );
+                                if (authorIdea) {
+                                  setIdeaDetailModalData(authorIdea);
+                                  setCurrentIdeaIndex(
+                                    ideas.indexOf(authorIdea)
+                                  );
+                                  setShowIdeaDetailModal(true);
+                                }
+                              }}
+                            >
+                              생성된 아이디어 보기
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
                   }
 
-                  return senderId;
-                };
-
-                const senderName = getSenderName(message.sender);
-
-                if (message.type === "system") {
-                  // 시스템 메시지 (아이디어 생성 알림)
-                  const isGeneratingMessage =
-                    message.payload.content?.includes("생성중입니다");
-
+                  // 일반 메시지
                   return (
-                    <div key={message.id} className="flex justify-center">
-                      <div className="bg-blue-50 text-blue-600 px-7 py-2 rounded-full text-sm font-medium flex items-center gap-3">
-                        <span>
-                          {senderName}가{" "}
-                          {message.payload.content || "작업을 완료했습니다"}
-                        </span>
-                        {!isGeneratingMessage && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="bg-white hover:bg-gray-50 border-blue-300 text-blue-700 text-xs h-auto"
-                            onClick={() => {
-                              // 해당 작성자의 아이디어 찾기
-                              const authorIdea = ideas.find(
-                                (idea) => idea.author === message.sender
-                              );
-                              if (authorIdea) {
-                                setIdeaDetailModalData(authorIdea);
-                                setCurrentIdeaIndex(ideas.indexOf(authorIdea));
-                                setShowIdeaDetailModal(true);
-                              }
-                            }}
-                          >
-                            생성된 아이디어 보기
-                          </Button>
-                        )}
+                    <div key={message.id} className="flex gap-3">
+                      <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                          message.sender === "나"
+                            ? "bg-green-500 text-white"
+                            : "bg-blue-500 text-white"
+                        }`}
+                      >
+                        {senderName === "나" ? "나" : senderName[0]}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium text-gray-900">
+                            {senderName}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {formatTimestamp(message.timestamp)}
+                          </span>
+                        </div>
+                        <div className="p-3 rounded-lg max-w-lg bg-gray-100 text-gray-900">
+                          {message.payload.content || "메시지 내용 없음"}
+                        </div>
                       </div>
                     </div>
                   );
-                }
-
-                // 일반 메시지
-                return (
-                  <div key={message.id} className="flex gap-3">
-                    <div
-                      className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                        message.sender === "나"
-                          ? "bg-green-500 text-white"
-                          : "bg-blue-500 text-white"
-                      }`}
-                    >
-                      {senderName === "나" ? "나" : senderName[0]}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-medium text-gray-900">
-                          {senderName}
-                        </span>
-                        <span className="text-xs text-gray-500">
-                          {formatTimestamp(message.timestamp)}
-                        </span>
-                      </div>
-                      <div className="p-3 rounded-lg max-w-lg bg-gray-100 text-gray-900">
-                        {message.payload.content || "메시지 내용 없음"}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+                })}
             </div>
 
             {/* 메시지 입력 */}
@@ -897,8 +977,8 @@ export default function IdeationPage() {
                       setCurrentIdeaIndex(newIndex);
                       setIdeaDetailModalData(ideas[newIndex]);
                     }}
-                    className="p-2 hover:bg-gray-100 rounded-full"
-                    disabled={ideas.length <= 1}
+                    className="p-2 hover:bg-gray-100 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={ideas.length <= 1 || isEditMode}
                   >
                     <span className="text-xl">←</span>
                   </button>
@@ -914,8 +994,8 @@ export default function IdeationPage() {
                       setCurrentIdeaIndex(newIndex);
                       setIdeaDetailModalData(ideas[newIndex]);
                     }}
-                    className="p-2 hover:bg-gray-100 rounded-full"
-                    disabled={ideas.length <= 1}
+                    className="p-2 hover:bg-gray-100 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={ideas.length <= 1 || isEditMode}
                   >
                     <span className="text-xl">→</span>
                   </button>
@@ -1009,18 +1089,57 @@ export default function IdeationPage() {
                     Behavior:
                   </h3>
                   {isEditMode ? (
-                    <textarea
-                      value={editFormData.behavior}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          behavior: e.target.value,
-                        })
-                      }
-                      className="w-full p-3 border border-gray-300 rounded-lg text-gray-700 bg-gray-50 resize-none"
-                      rows={4}
-                      placeholder="Behavior를 입력하세요..."
-                    />
+                    <div className="space-y-3">
+                      {behaviorPairs.map((pair, index) => (
+                        <div key={index} className="flex gap-2 items-center">
+                          <input
+                            type="text"
+                            value={pair.key}
+                            onChange={(e) => {
+                              const newPairs = [...behaviorPairs];
+                              newPairs[index].key = e.target.value;
+                              setBehaviorPairs(newPairs);
+                            }}
+                            placeholder="키"
+                            className="w-1/3 p-2 border border-gray-300 rounded text-sm text-gray-900"
+                          />
+                          <span className="text-gray-500">:</span>
+                          <input
+                            type="text"
+                            value={pair.value}
+                            onChange={(e) => {
+                              const newPairs = [...behaviorPairs];
+                              newPairs[index].value = e.target.value;
+                              setBehaviorPairs(newPairs);
+                            }}
+                            placeholder="값"
+                            className="flex-1 p-2 border border-gray-300 rounded text-sm text-gray-900"
+                          />
+                          <button
+                            onClick={() => {
+                              const newPairs = behaviorPairs.filter(
+                                (_, i) => i !== index
+                              );
+                              setBehaviorPairs(newPairs);
+                            }}
+                            className="text-red-500 hover:text-red-700 px-2 py-1 text-sm"
+                          >
+                            삭제
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => {
+                          setBehaviorPairs([
+                            ...behaviorPairs,
+                            { key: "", value: "" },
+                          ]);
+                        }}
+                        className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                      >
+                        + 항목 추가
+                      </button>
+                    </div>
                   ) : (
                     <div className="text-gray-700 leading-relaxed">
                       {(() => {
@@ -1058,18 +1177,57 @@ export default function IdeationPage() {
                     Structure:
                   </h3>
                   {isEditMode ? (
-                    <textarea
-                      value={editFormData.structure}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          structure: e.target.value,
-                        })
-                      }
-                      className="w-full p-3 border border-gray-300 rounded-lg text-gray-700 bg-gray-50 resize-none"
-                      rows={4}
-                      placeholder="Structure를 입력하세요..."
-                    />
+                    <div className="space-y-3">
+                      {structurePairs.map((pair, index) => (
+                        <div key={index} className="flex gap-2 items-center">
+                          <input
+                            type="text"
+                            value={pair.key}
+                            onChange={(e) => {
+                              const newPairs = [...structurePairs];
+                              newPairs[index].key = e.target.value;
+                              setStructurePairs(newPairs);
+                            }}
+                            placeholder="키"
+                            className="w-1/3 p-2 border border-gray-300 rounded text-sm text-gray-900"
+                          />
+                          <span className="text-gray-500">:</span>
+                          <input
+                            type="text"
+                            value={pair.value}
+                            onChange={(e) => {
+                              const newPairs = [...structurePairs];
+                              newPairs[index].value = e.target.value;
+                              setStructurePairs(newPairs);
+                            }}
+                            placeholder="값"
+                            className="flex-1 p-2 border border-gray-300 rounded text-sm text-gray-900"
+                          />
+                          <button
+                            onClick={() => {
+                              const newPairs = structurePairs.filter(
+                                (_, i) => i !== index
+                              );
+                              setStructurePairs(newPairs);
+                            }}
+                            className="text-red-500 hover:text-red-700 px-2 py-1 text-sm"
+                          >
+                            삭제
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => {
+                          setStructurePairs([
+                            ...structurePairs,
+                            { key: "", value: "" },
+                          ]);
+                        }}
+                        className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                      >
+                        + 항목 추가
+                      </button>
+                    </div>
                   ) : (
                     <div className="text-gray-700 leading-relaxed">
                       {(() => {
@@ -1187,8 +1345,8 @@ export default function IdeationPage() {
                             content: {
                               object: editFormData.object,
                               function: editFormData.function,
-                              behavior: editFormData.behavior,
-                              structure: editFormData.structure,
+                              behavior: pairsToJsonString(behaviorPairs),
+                              structure: pairsToJsonString(structurePairs),
                             },
                             evaluations: [],
                           };
@@ -1217,6 +1375,16 @@ export default function IdeationPage() {
                             behavior: ideaDetailModalData.content.behavior,
                             structure: ideaDetailModalData.content.structure,
                           });
+                          setBehaviorPairs(
+                            parseJsonToPairs(
+                              ideaDetailModalData.content.behavior
+                            )
+                          );
+                          setStructurePairs(
+                            parseJsonToPairs(
+                              ideaDetailModalData.content.structure
+                            )
+                          );
                         }}
                         className="flex-1 bg-gray-500 text-white py-3 px-4 rounded-lg font-medium"
                       >
@@ -1235,6 +1403,17 @@ export default function IdeationPage() {
                             behavior: ideaDetailModalData.content.behavior,
                             structure: ideaDetailModalData.content.structure,
                           });
+                          // behavior와 structure를 키-값 쌍으로 파싱
+                          setBehaviorPairs(
+                            parseJsonToPairs(
+                              ideaDetailModalData.content.behavior
+                            )
+                          );
+                          setStructurePairs(
+                            parseJsonToPairs(
+                              ideaDetailModalData.content.structure
+                            )
+                          );
                         }}
                         className="flex-1 bg-black text-white py-3 px-4 rounded-lg font-medium"
                       >
