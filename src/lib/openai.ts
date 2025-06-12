@@ -6,6 +6,9 @@ import {
   feedbackPrompt,
   requestPrompt,
   planNextActionPrompt,
+  preIdeationPrompt,
+  newIdeationPrompt,
+  updateIdeationPrompt,
 } from "@/core/prompts";
 
 if (!process.env.OPENAI_API_KEY) {
@@ -39,18 +42,14 @@ async function getJsonResponse(prompt: string, agentProfile?: any) {
     if (agentProfile.personality) {
       const personalityText = Array.isArray(agentProfile.personality)
         ? agentProfile.personality.join(", ")
-        : typeof agentProfile.personality === "string"
-        ? agentProfile.personality
-        : JSON.stringify(agentProfile.personality);
+        : String(agentProfile.personality);
       systemPrompt += ` Your personality: ${personalityText}.`;
     }
 
     if (agentProfile.skills) {
       const skillsText = Array.isArray(agentProfile.skills)
         ? agentProfile.skills.join(", ")
-        : typeof agentProfile.skills === "string"
-        ? agentProfile.skills
-        : JSON.stringify(agentProfile.skills);
+        : String(agentProfile.skills);
       systemPrompt += ` Your skills: ${skillsText}.`;
     }
 
@@ -69,17 +68,6 @@ async function getJsonResponse(prompt: string, agentProfile?: any) {
     const rawResponse = response.content;
 
     console.log("=== LLM 응답 로그 ===");
-    console.log(
-      "요청 메시지들:",
-      JSON.stringify(
-        messages.map((m) => ({
-          type: m._getType(),
-          content: m.content,
-        })),
-        null,
-        2
-      )
-    );
     console.log("원본 LLM 응답:", rawResponse);
     console.log("==================");
 
@@ -87,34 +75,19 @@ async function getJsonResponse(prompt: string, agentProfile?: any) {
       throw new Error("OpenAI returned an empty response.");
     }
 
-    try {
-      const parsedResponse = JSON.parse(rawResponse as string);
-      console.log("파싱된 JSON 응답:", JSON.stringify(parsedResponse, null, 2));
-      return parsedResponse;
-    } catch (error) {
-      console.error("JSON 파싱 오류:", error);
-      console.error("파싱 실패한 원본 응답:", rawResponse);
-      throw new Error("Invalid JSON response from OpenAI");
-    }
+    // JSON 마크다운 블록 제거
+    const cleanedResponse = rawResponse
+      .toString()
+      .replace(/```json\n?|```/g, "")
+      .trim();
+
+    const parsedResponse = JSON.parse(cleanedResponse);
+    console.log("파싱된 JSON 응답:", JSON.stringify(parsedResponse, null, 2));
+    return parsedResponse;
   } catch (error) {
-    console.error("LLM 호출 오류:", error);
-
-    // 기본 응답 반환
-    const fallbackResponse = {
-      object: "환경 보호 아이디어",
-      function: "탄소 배출을 줄이는 혁신적인 솔루션",
-      behavior: {
-        "주요 기능": "환경 보호에 기여하는 핵심 동작",
-        "사용자 상호작용": "직관적이고 효과적인 사용자 경험 제공",
-      },
-      structure: {
-        "핵심 구조": "효율적이고 지속가능한 시스템 구조",
-        "구성 요소": "환경 친화적인 재료와 기술 활용",
-      },
-    };
-
-    console.log("기본 응답 사용:", JSON.stringify(fallbackResponse, null, 2));
-    return fallbackResponse;
+    console.error("LLM 응답 처리 오류:", error);
+    // 오류를 그대로 전달하여 호출한 쪽에서 처리하도록 함
+    throw error;
   }
 }
 
@@ -145,4 +118,34 @@ export async function requestAction(target: string, context: string) {
 export async function planNextAction(context: any) {
   const prompt = planNextActionPrompt(context);
   return getJsonResponse(prompt);
+}
+
+// --- New 2-Stage Ideation Action Functions ---
+
+export async function preIdeationAction(
+  requestMessage: string,
+  ideaList: { object: string; function: string }[],
+  agentProfile?: any
+) {
+  const prompt = preIdeationPrompt(requestMessage, ideaList);
+  return getJsonResponse(prompt, agentProfile);
+}
+
+export async function executeIdeationAction(
+  decision: "New" | "Update",
+  ideationStrategy: string,
+  topic: string,
+  referenceIdea?: any,
+  agentProfile?: any
+) {
+  let prompt;
+  if (decision === "New") {
+    prompt = newIdeationPrompt(ideationStrategy, topic);
+  } else {
+    if (!referenceIdea) {
+      throw new Error("Reference idea is required for 'Update' decision.");
+    }
+    prompt = updateIdeationPrompt(referenceIdea, ideationStrategy, topic);
+  }
+  return getJsonResponse(prompt, agentProfile);
 }

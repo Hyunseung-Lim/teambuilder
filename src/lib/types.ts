@@ -126,3 +126,56 @@ export interface CreateTeamData {
   teamName: string;
   members: TeamMember[];
 }
+
+// 아이디어 평가
+export interface Evaluation {
+  evaluator: string; // '나' 또는 agentId
+  scores: {
+    relevance: number;
+    innovation: number;
+    insightful: number;
+  };
+  comment: string;
+}
+
+// 아이디어 모델
+export interface Idea {
+  id: number;
+  author: string; // '나' 또는 agentId
+  timestamp: string;
+  content: {
+    object: string;
+    function: string;
+    behavior: string; // JSON string
+    structure: string; // JSON string
+  };
+  evaluations: Evaluation[];
+}
+
+// 채팅 메시지 페이로드
+export interface ChatMessagePayload {
+  type: "feedback" | "request";
+  content: string;
+  mention: string; // agentId
+  requestType?: "generate" | "evaluate" | "feedback" | null;
+}
+
+// 시스템 메시지 페이로드
+export interface SystemMessagePayload {
+  content: string;
+}
+
+// 채팅 메시지 모델
+export interface ChatMessage {
+  id: string | number;
+  sender: string; // '나' 또는 agentId
+  timestamp: string;
+  type: "feedback" | "request" | "system";
+  payload: ChatMessagePayload | SystemMessagePayload | string;
+}
+
+// AI 에이전트 메모리
+export interface AgentMemory {
+  lastAction: any;
+  recentMessages: ChatMessage[];
+}

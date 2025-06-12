@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useParams } from "next/navigation";
 import { getTeamAction } from "@/actions/team.actions";
@@ -15,7 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Team, AIAgent, Idea, ChatMessage } from "@/lib/types";
+import { Team, AIAgent, Idea, ChatMessage, Evaluation } from "@/lib/types";
 import {
   User,
   Users,
@@ -73,12 +73,20 @@ export default function IdeationPage() {
   const [generatingAgents, setGeneratingAgents] = useState<Set<string>>(
     new Set()
   );
+  const [generatingViaRequestAgents, setGeneratingViaRequestAgents] = useState<
+    Set<string>
+  >(new Set());
   const [behaviorPairs, setBehaviorPairs] = useState<
     Array<{ key: string; value: string }>
   >([]);
   const [structurePairs, setStructurePairs] = useState<
     Array<{ key: string; value: string }>
   >([]);
+
+  // 스마트 폴링 상태 추가
+  const [shouldPoll, setShouldPoll] = useState(false);
+  const [pollStartTime, setPollStartTime] = useState<number | null>(null);
+  const [sseConnected, setSseConnected] = useState(false);
 
   // New state for chat functionality
   const [chatMode, setChatMode] = useState<"feedback" | "request">("feedback");
@@ -87,6 +95,17 @@ export default function IdeationPage() {
     "generate" | "evaluate" | "feedback" | null
   >(null);
   const [showMentionDropdown, setShowMentionDropdown] = useState(false);
+
+  const chatContainerRef = useRef<HTMLDivElement | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
   // 현재 팀에 속한 AI 에이전트만 필터링
   const teamAgents = agents.filter((agent) =>
@@ -183,7 +202,10 @@ export default function IdeationPage() {
     return JSON.stringify(obj);
   };
 
-  // 필터링된 아이디어 목록 (최신순 정렬)
+  // 아이디어 번호 매기기를 위한 생성순 정렬
+  const ideasSortedByCreation = [...ideas].sort((a, b) => a.id - b.id);
+
+  // 화면 표시를 위한 최신순 정렬
   const filteredIdeas = ideas
     .filter((idea) => {
       if (authorFilter === "전체") return true;
@@ -228,34 +250,151 @@ export default function IdeationPage() {
     }
   }, [params.teamId, session]);
 
-  // 아이디어 로드
-  const loadIdeas = async (teamId: string) => {
+  // 아이디어 로드 - useCallback으로 메모화
+  const loadIdeas = useCallback(async (teamId: string) => {
     try {
-      const response = await fetch(`/api/teams/${teamId}/ideas`);
+      console.log("💡 아이디어 로드 시작:", teamId);
+      const response = await fetch(
+        `/api/teams/${teamId}/ideas?t=${new Date().getTime()}`
+      );
       if (response.ok) {
         const data = await response.json();
+        console.log("💡 아이디어 로드 완료:", data.ideas?.length || 0, "개");
         setIdeas(data.ideas || []);
         return (data.ideas || []).length;
       }
+      console.log("💡 아이디어 로드 실패: response not ok");
       return 0;
     } catch (error) {
-      console.error("아이디어 로드 실패:", error);
+      console.error("💡 아이디어 로드 실패:", error);
       return 0;
     }
-  };
+  }, []);
 
-  // 채팅 메시지 로드
-  const loadMessages = async (teamId: string) => {
+  // 채팅 메시지 로드 - useCallback으로 메모화
+  const loadMessages = useCallback(async (teamId: string) => {
     try {
-      const response = await fetch(`/api/teams/${teamId}/chat`);
+      console.log("💬 채팅 메시지 로드 시작:", teamId);
+      const response = await fetch(
+        `/api/teams/${teamId}/chat?t=${new Date().getTime()}`
+      );
       if (response.ok) {
         const data = await response.json();
+        console.log(
+          "💬 채팅 메시지 로드 완료:",
+          data.messages?.length || 0,
+          "개"
+        );
         setMessages(data.messages || []);
+      } else {
+        console.log("💬 채팅 메시지 로드 실패: response not ok");
       }
     } catch (error) {
-      console.error("채팅 메시지 로드 실패:", error);
+      console.error("💬 채팅 메시지 로드 실패:", error);
     }
-  };
+  }, []);
+
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop =
+        chatContainerRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  // Server-Sent Events 연결 - 폴링 대신 실시간 업데이트
+  useEffect(() => {
+    if (!team?.id) {
+      console.log("팀 ID가 없어서 SSE 연결 안함");
+      return;
+    }
+
+    console.log("🔥 SSE 연결 시작:", team.id);
+
+    const eventSource = new EventSource(`/api/teams/${team.id}/events`);
+
+    eventSource.onopen = () => {
+      console.log("✅ SSE 연결 성공");
+      setSseConnected(true);
+    };
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log("📨 SSE 데이터 수신:", data.type, data.timestamp);
+
+        switch (data.type) {
+          case "initial":
+            console.log("🚀 초기 데이터 로드:", {
+              messages: data.messages?.length || 0,
+              ideas: data.ideas?.length || 0,
+            });
+            if (data.messages) setMessages(data.messages);
+            if (data.ideas) setIdeas(data.ideas);
+            break;
+
+          case "update":
+            console.log("🔄 실시간 업데이트:", {
+              messagesUpdated: !!data.messages,
+              ideasUpdated: !!data.ideas,
+            });
+            if (data.messages) {
+              setMessages(data.messages);
+              console.log(
+                "💬 메시지 업데이트 완료:",
+                data.messages.length + "개"
+              );
+            }
+            if (data.ideas) {
+              setIdeas(data.ideas);
+              console.log(
+                "💡 아이디어 업데이트 완료:",
+                data.ideas.length + "개"
+              );
+            }
+            break;
+
+          case "heartbeat":
+            console.log("💓 하트비트");
+            break;
+
+          default:
+            console.log("❓ 알 수 없는 SSE 이벤트:", data.type);
+        }
+      } catch (error) {
+        console.error("❌ SSE 데이터 파싱 실패:", error);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error("❌ SSE 연결 오류:", error);
+      setSseConnected(false);
+
+      // 연결이 끊어지면 5초 후 재연결 시도
+      setTimeout(() => {
+        console.log("🔄 SSE 재연결 시도...");
+      }, 5000);
+    };
+
+    // 컴포넌트 언마운트 시 연결 해제
+    return () => {
+      console.log("🔌 SSE 연결 해제");
+      eventSource.close();
+      setSseConnected(false);
+    };
+  }, [team?.id]);
+
+  // 폴링 시작 헬퍼 함수 - 이제 사용 안함 (SSE로 대체)
+  const startPolling = useCallback((reason: string) => {
+    console.log("📋 폴링 요청 무시됨 (SSE 사용 중):", reason);
+    // SSE를 사용하므로 폴링 불필요
+  }, []);
+
+  // 폴링 중지 헬퍼 함수 - 이제 사용 안함 (SSE로 대체)
+  const stopPolling = useCallback((reason: string) => {
+    console.log("📋 폴링 중지 요청 무시됨 (SSE 사용 중):", reason);
+    // SSE를 사용하므로 폴링 불필요
+  }, []);
 
   // 아이디어가 로드되면 주제 모달 상태 체크
   useEffect(() => {
@@ -321,12 +460,12 @@ export default function IdeationPage() {
       // 생성할 에이전트 수만큼 완료를 기다림
       let completedCount = 0;
       let pollCount = 0;
-      const maxPolls = 30; // 최대 30번 폴링 (30초)
+      const maxPolls = 60; // 최대 60번 폴링 (30초)
 
       const pollInterval = setInterval(async () => {
         try {
           pollCount++;
-          console.log(`폴링 ${pollCount}/${maxPolls}`);
+          console.log(`아이디어 생성 폴링 ${pollCount}/${maxPolls}`);
 
           // 최대 폴링 횟수 초과 시 중지
           if (pollCount >= maxPolls) {
@@ -341,7 +480,9 @@ export default function IdeationPage() {
           await Promise.all([loadIdeas(teamId), loadMessages(teamId)]);
 
           // 메시지를 다시 확인하여 완료된 에이전트 수 계산
-          const messagesResponse = await fetch(`/api/teams/${teamId}/chat`);
+          const messagesResponse = await fetch(
+            `/api/teams/${teamId}/chat?t=${new Date().getTime()}`
+          );
           if (messagesResponse.ok) {
             const data = await messagesResponse.json();
             const messages = data.messages || [];
@@ -350,6 +491,7 @@ export default function IdeationPage() {
             const completedMessages = messages.filter(
               (msg: any) =>
                 msg.type === "system" &&
+                typeof msg.payload === "object" &&
                 msg.payload?.content?.includes("새로운 아이디어를 생성했습니다")
             );
 
@@ -381,12 +523,14 @@ export default function IdeationPage() {
               setIsAutoGenerating(false);
               setGeneratingAgents(new Set());
               setGenerationProgress({ completed: 0, total: 0 });
+              // 최종 업데이트
+              await Promise.all([loadIdeas(teamId), loadMessages(teamId)]);
             }
           }
         } catch (error) {
           console.error("폴링 오류:", error);
         }
-      }, 2000); // 2초마다 체크
+      }, 500); // 500ms로 단축
     } catch (error) {
       console.error("AI 에이전트 자동 아이디어 생성 실패:", error);
       setIsAutoGenerating(false);
@@ -395,16 +539,66 @@ export default function IdeationPage() {
     }
   };
 
+  // Check for completion of request-based generation
+  useEffect(() => {
+    if (generatingViaRequestAgents.size === 0) return;
+
+    const completedAgents = new Set<string>();
+
+    messages.forEach((msg) => {
+      if (
+        msg.type === "system" &&
+        typeof msg.payload === "object" &&
+        msg.payload.content?.includes(
+          "요청에 따라 새로운 아이디어를 생성했습니다"
+        )
+      ) {
+        if (generatingViaRequestAgents.has(msg.sender)) {
+          completedAgents.add(msg.sender);
+        }
+      }
+    });
+
+    if (completedAgents.size > 0) {
+      console.log(
+        "🎉 요청 기반 아이디어 생성 완료:",
+        completedAgents.size + "개"
+      );
+      setGeneratingViaRequestAgents((prev) => {
+        const newSet = new Set(prev);
+        completedAgents.forEach((agentId) => newSet.delete(agentId));
+        return newSet;
+      });
+
+      // 모든 요청 기반 생성이 완료되면 폴링 중지
+      if (generatingViaRequestAgents.size === completedAgents.size) {
+        setTimeout(() => {
+          stopPolling("모든 요청 기반 아이디어 생성 완료");
+        }, 2000); // 2초 후 중지 (마지막 업데이트 확인용)
+      }
+    }
+  }, [messages, generatingViaRequestAgents, stopPolling]);
+
   // 메시지 전송
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !team || !mentionedAgent) return;
 
+    console.log("📤 메시지 전송 시작:", {
+      message: newMessage.trim(),
+      mentionedAgent: mentionedAgent.name,
+      chatMode,
+      requestType,
+    });
+
     const messageType = chatMode;
-    const requestTextMap = {
-      generate: "아이디어 생성",
-      evaluate: "아이디어 평가",
-      feedback: "피드백",
-    };
+
+    // Trigger generation tracking
+    if (messageType === "request" && requestType === "generate") {
+      console.log("🔄 아이디어 생성 요청 - 추적 시작:", mentionedAgent.id);
+      setGeneratingViaRequestAgents((prev) =>
+        new Set(prev).add(mentionedAgent.id)
+      );
+    }
 
     // 1. 낙관적 업데이트를 위한 임시 메시지 객체 생성
     const tempMessage: ChatMessage = {
@@ -422,6 +616,7 @@ export default function IdeationPage() {
 
     // 2. UI에 즉시 반영
     setMessages((prevMessages) => [...prevMessages, tempMessage]);
+    console.log("✅ 낙관적 업데이트 완료 - 임시 메시지 추가");
 
     // 3. 입력 필드 초기화
     setNewMessage("");
@@ -431,6 +626,7 @@ export default function IdeationPage() {
 
     // 4. 백그라운드에서 서버로 실제 데이터 전송
     try {
+      console.log("🌐 서버로 메시지 전송 중...");
       const response = await fetch(`/api/teams/${team.id}/chat`, {
         method: "POST",
         headers: {
@@ -444,15 +640,15 @@ export default function IdeationPage() {
 
       if (!response.ok) throw new Error("서버 전송 실패");
 
-      // 성공 시, 서버로부터 최신 메시지 목록을 다시 불러와 동기화
-      await loadMessages(team.id);
+      console.log("✅ 서버 전송 성공 - SSE를 통해 자동 업데이트 됨");
+      // SSE를 통해 자동으로 업데이트되므로 수동 새로고침 불필요
     } catch (error) {
-      console.error("메시지 전송 실패:", error);
+      console.error("❌ 메시지 전송 실패:", error);
       // 실패 시, 낙관적으로 추가했던 임시 메시지 제거
       setMessages((prevMessages) =>
         prevMessages.filter((m) => m.id !== tempMessage.id)
       );
-      // 사용자에게 에러 알림 (추가 가능)
+      console.log("🔄 임시 메시지 제거됨");
     }
   };
 
@@ -462,6 +658,7 @@ export default function IdeationPage() {
 
     try {
       setIsGeneratingIdea(true);
+
       const response = await fetch(`/api/teams/${team.id}/ideas`, {
         method: "POST",
         headers: {
@@ -474,8 +671,8 @@ export default function IdeationPage() {
       });
 
       if (response.ok) {
-        await loadIdeas(team.id);
-        await loadMessages(team.id);
+        console.log("✅ 아이디어 생성 요청 완료 - SSE를 통해 자동 업데이트 됨");
+        // SSE를 통해 자동으로 업데이트되므로 수동 새로고침 불필요
       }
     } catch (error) {
       console.error("아이디어 생성 실패:", error);
@@ -502,7 +699,8 @@ export default function IdeationPage() {
       });
 
       if (response.ok) {
-        await loadIdeas(team.id);
+        console.log("✅ 아이디어 추가 완료 - SSE를 통해 자동 업데이트 됨");
+        // SSE를 통해 자동으로 업데이트되므로 수동 새로고침 불필요
         setShowAddIdeaModal(false);
         setAddIdeaFormData({
           object: "",
@@ -565,8 +763,21 @@ export default function IdeationPage() {
               </p>
             </div>
           </div>
-          <div className="text-sm text-gray-600">
-            {team.members.length}명의 팀원
+          <div className="flex items-center gap-4">
+            {/* SSE 연결 상태 표시 */}
+            <div className="flex items-center gap-2">
+              <div
+                className={`w-2 h-2 rounded-full ${
+                  sseConnected ? "bg-green-500" : "bg-red-500"
+                }`}
+              />
+              <span className="text-xs text-gray-500">
+                {sseConnected ? "실시간 연결됨" : "연결 끊어짐"}
+              </span>
+            </div>
+            <div className="text-sm text-gray-600">
+              {team.members.length}명의 팀원
+            </div>
           </div>
         </div>
       </header>
@@ -659,11 +870,17 @@ export default function IdeationPage() {
             {/* 메시지 목록 */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {messages
-                .filter(
-                  (message) =>
-                    message.type !== "system" ||
-                    !message.payload.content?.includes("생성중입니다")
-                )
+                .filter((message) => {
+                  if (
+                    typeof message.payload === "object" &&
+                    message.payload &&
+                    "content" in message.payload &&
+                    typeof message.payload.content === "string"
+                  ) {
+                    return !message.payload.content.includes("생성중입니다");
+                  }
+                  return true;
+                })
                 .map((message) => {
                   // 메시지 발송자 이름 가져오기
                   const getSenderName = (senderId: string) => {
@@ -686,20 +903,27 @@ export default function IdeationPage() {
                   if (message.type === "system") {
                     // 시스템 메시지 (아이디어 생성 알림)
                     const isGeneratingMessage =
-                      message.payload.content?.includes("생성중입니다");
+                      typeof message.payload === "object" &&
+                      message.payload &&
+                      typeof message.payload.content === "string" &&
+                      (message.payload.content.includes("생성중입니다") ||
+                        message.payload.content.includes("생성하고 있습니다"));
+                    const isCompletedMessage =
+                      typeof message.payload === "object" &&
+                      message.payload?.content?.includes("생성했습니다");
 
                     return (
                       <div key={message.id} className="flex justify-center">
                         <div className="bg-blue-50 text-blue-600 px-7 py-2 rounded-full text-sm font-medium flex items-center gap-3">
                           <span>
                             {senderName}가{" "}
-                            {message.payload.content || "작업을 완료했습니다"}
+                            {(typeof message.payload === "object" &&
+                              message.payload?.content) ||
+                              "작업을 완료했습니다."}
                           </span>
-                          {!isGeneratingMessage && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="bg-white hover:bg-gray-50 border-blue-300 text-blue-700 text-xs h-auto"
+                          {isCompletedMessage && (
+                            <div
+                              className="underline cursor-pointer border-blue-300 text-blue-600 text-xs h-auto"
                               onClick={() => {
                                 // 해당 작성자의 아이디어 찾기
                                 const authorIdea = ideas.find(
@@ -715,7 +939,7 @@ export default function IdeationPage() {
                               }}
                             >
                               생성된 아이디어 보기
-                            </Button>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -733,7 +957,7 @@ export default function IdeationPage() {
                       } mb-4`}
                     >
                       <div
-                        className={`max-w-xs ${
+                        className={`max-w-md ${
                           isMyMessage ? "order-2" : "order-1"
                         }`}
                       >
@@ -744,11 +968,30 @@ export default function IdeationPage() {
                         )}
 
                         <div
-                          className={`rounded-2xl px-4 py-3 ${
-                            isMyMessage
+                          className={`rounded-2xl px-4 py-3 ${(() => {
+                            // 메시지 타입에 따른 색상 결정
+                            if (
+                              typeof message.payload === "object" &&
+                              message.payload !== null &&
+                              "type" in message.payload
+                            ) {
+                              const isRequest =
+                                message.payload.type === "request";
+                              if (isMyMessage) {
+                                return isRequest
+                                  ? "bg-indigo-500 text-white"
+                                  : "bg-blue-500 text-white";
+                              } else {
+                                return isRequest
+                                  ? "bg-yellow-100 text-gray-900"
+                                  : "bg-slate-200 text-gray-900";
+                              }
+                            }
+                            // 기본값
+                            return isMyMessage
                               ? "bg-blue-500 text-white"
-                              : "bg-gray-100 text-gray-900"
-                          }`}
+                              : "bg-gray-100 text-gray-900";
+                          })()}`}
                         >
                           {(() => {
                             // Check if payload is the new object format
@@ -768,75 +1011,26 @@ export default function IdeationPage() {
                                   | "generate"
                                   | "evaluate"
                                   | "feedback";
-                                const requestInfo = {
-                                  generate: {
-                                    text: "아이디어 생성 요청",
-                                    icon: <Lightbulb className="w-4 h-4" />,
-                                    bgColor: isMyMessage
-                                      ? "bg-blue-300/40"
-                                      : "bg-purple-50",
-                                    textColor: isMyMessage
-                                      ? "text-blue-50"
-                                      : "text-purple-700",
-                                    iconColor: isMyMessage
-                                      ? "text-blue-100"
-                                      : "text-purple-600",
-                                  },
-                                  evaluate: {
-                                    text: "아이디어 평가 요청",
-                                    icon: (
-                                      <ClipboardCheck className="w-4 h-4" />
-                                    ),
-                                    bgColor: isMyMessage
-                                      ? "bg-blue-300/40"
-                                      : "bg-orange-50",
-                                    textColor: isMyMessage
-                                      ? "text-blue-50"
-                                      : "text-orange-700",
-                                    iconColor: isMyMessage
-                                      ? "text-blue-100"
-                                      : "text-orange-600",
-                                  },
-                                  feedback: {
-                                    text: "피드백 요청",
-                                    icon: (
-                                      <MessageSquareText className="w-4 h-4" />
-                                    ),
-                                    bgColor: isMyMessage
-                                      ? "bg-blue-300/40"
-                                      : "bg-blue-50",
-                                    textColor: isMyMessage
-                                      ? "text-blue-50"
-                                      : "text-blue-700",
-                                    iconColor: isMyMessage
-                                      ? "text-blue-100"
-                                      : "text-blue-600",
-                                  },
-                                }[reqType];
+                                const requestText =
+                                  {
+                                    generate: "아이디어 생성",
+                                    evaluate: "아이디어 평가",
+                                    feedback: "피드백",
+                                  }[reqType] || "요청";
 
                                 return (
                                   <div>
                                     <div
-                                      className={`flex items-center gap-2 text-sm font-medium mb-2 p-2 rounded-lg ${requestInfo.bgColor}`}
-                                    >
-                                      <span className={requestInfo.iconColor}>
-                                        {requestInfo.icon}
-                                      </span>
-                                      <span className={requestInfo.textColor}>
-                                        {requestInfo.text}
-                                      </span>
-                                    </div>
-                                    <div
-                                      className={`text-sm mb-2 ${
+                                      className={`text-sm font-medium mb-2 ${
                                         isMyMessage
-                                          ? "text-blue-100"
-                                          : "text-gray-600"
+                                          ? "text-indigo-100"
+                                          : "text-yellow-800"
                                       }`}
                                     >
                                       <span className="font-medium">
                                         @{getAuthorName(mention)}
                                       </span>
-                                      <span>에게</span>
+                                      <span>에게 {requestText} 요청</span>
                                     </div>
                                     <p
                                       className={`text-sm leading-relaxed ${
@@ -858,7 +1052,7 @@ export default function IdeationPage() {
                                       className={`text-sm mb-2 ${
                                         isMyMessage
                                           ? "text-blue-100"
-                                          : "text-gray-600"
+                                          : "text-slate-600"
                                       }`}
                                     >
                                       <span className="font-medium">
@@ -907,6 +1101,7 @@ export default function IdeationPage() {
                     </div>
                   );
                 })}
+              <div ref={messagesEndRef} />
             </div>
 
             {/* 메시지 입력 */}
@@ -1109,11 +1304,12 @@ export default function IdeationPage() {
 
             {/* 아이디어 목록 */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {filteredIdeas.map((idea, index) => {
-                // 원본 배열에서의 실제 인덱스 찾기
-                const originalIndex = ideas.findIndex(
-                  (originalIdea) => originalIdea.id === idea.id
+              {filteredIdeas.map((idea) => {
+                // 원본 생성 순서에 따른 인덱스 찾기
+                const creationIndex = ideasSortedByCreation.findIndex(
+                  (i) => i.id === idea.id
                 );
+
                 const authorName = getAuthorName(idea.author);
 
                 return (
@@ -1122,13 +1318,13 @@ export default function IdeationPage() {
                     className="bg-white rounded-xl border border-gray-200 p-4 cursor-pointer hover:shadow-md transition-shadow"
                     onClick={() => {
                       setIdeaDetailModalData(idea);
-                      setCurrentIdeaIndex(originalIndex);
+                      setCurrentIdeaIndex(filteredIdeas.indexOf(idea));
                       setShowIdeaDetailModal(true);
                     }}
                   >
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="font-semibold text-gray-900">
-                        Idea {originalIndex + 1}
+                        Idea {creationIndex + 1}
                       </h3>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-gray-500">
@@ -1564,7 +1760,7 @@ export default function IdeationPage() {
                       Evaluation
                     </h3>
                     {ideaDetailModalData.evaluations.map(
-                      (evaluation, index) => (
+                      (evaluation: Evaluation, index: number) => (
                         <div
                           key={index}
                           className="bg-gray-50 rounded-lg p-4 mb-3"

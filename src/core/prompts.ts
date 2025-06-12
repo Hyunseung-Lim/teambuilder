@@ -111,3 +111,98 @@ Provide your decision in the following JSON format. Ensure the payload matches t
   "reasoning": "A brief explanation for your choice."
 }
 `;
+
+// New prompts for the 2-stage idea generation process
+
+export const preIdeationPrompt = (
+  requestMessage: string,
+  ideaList: {
+    ideaNumber: number;
+    authorName: string;
+    object: string;
+    function: string;
+  }[]
+) => {
+  const simplifiedIdeaList =
+    ideaList.length > 0 ? JSON.stringify(ideaList, null, 2) : "No ideas yet.";
+  return `You are an AI agent in a team ideation session. Your task is to analyze a request for an idea and decide the best way to generate it.
+
+Inputs:
+1. Request Message: "${requestMessage}"
+2. Existing Ideas: ${simplifiedIdeaList}
+
+Based on the inputs, you must perform the following tasks:
+1.  Decide whether to create a completely "New" idea or "Update" an existing one. A "New" idea is suitable for a broad or novel request. An "Update" is better if the request aims to refine, combine, or build upon an existing concept. If there are no existing ideas, you must choose "New".
+2.  If you decide to "Update", you MUST select one idea from the "Existing Ideas" list by its "ideaNumber". The reference idea should be the one most relevant to the request.
+3.  Extract a concise "Ideation Strategy" from the request message. This strategy will guide the next stage of idea generation. For example, "Make it more eco-friendly" or "Combine it with AI features".
+
+Return your decision as a single JSON object in the following format. Do not include any other text or explanations.
+
+{
+  "decision": "New" | "Update",
+  "referenceIdea": { "ideaNumber": 1, "object": "...", "function": "..." } | null,
+  "ideationStrategy": "Your extracted ideation strategy."
+}
+
+Example:
+Request Message: "I like idea #1, the '교육적 튜터링 스피커', but can we make it more focused on elderly care?"
+Existing Ideas: [
+  { 
+    "ideaNumber": 1, 
+    "authorName": "Agent Jane", 
+    "object": "교육적 튜터링 스피커", 
+    "function": "..."
+  }
+]
+
+Your output:
+{
+  "decision": "Update",
+  "referenceIdea": { "ideaNumber": 1, "object": "교육적 튜터링 스피커", "function": "..." },
+  "ideationStrategy": "Focus on elderly care features instead of general education."
+}
+
+Now, process the given inputs and provide your JSON output.
+`;
+};
+
+const baseIdeationPromptText = `Generate one idea based on the provided instructions and return only one JSON object in the following structure:
+{
+  "object": "",
+  "function": "",
+  "behavior": {},
+  "structure": {}
+}
+- object: The design target that appears beside each idea node.
+- function: The purpose or teleology of the object.
+- behavior: What the object does, expressed as a JSON object.
+- structure: The object's components and their relationships, as a JSON object.
+Write all content in Korean. Return only the JSON object.`;
+
+export const newIdeationPrompt = (ideationStrategy: string, topic: string) => {
+  return `${baseIdeationPromptText}
+
+Task: ${topic}
+Ideation Strategy: ${ideationStrategy}
+
+Apply the strategy to generate a completely new idea for the given task.
+Idea: `;
+};
+
+export const updateIdeationPrompt = (
+  referenceIdea: any,
+  ideationStrategy: string,
+  topic: string
+) => {
+  const ideaString = JSON.stringify(referenceIdea, null, 2);
+  return `${baseIdeationPromptText}
+
+Task: ${topic}
+Reference Idea to Update:
+${ideaString}
+
+Ideation Strategy: ${ideationStrategy}
+
+Apply the strategy to the reference idea to create an improved or modified version. The new idea should be a clear evolution of the reference.
+Idea: `;
+};

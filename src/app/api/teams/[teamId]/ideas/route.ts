@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { getIdeas, addIdea, addChatMessage, getTeamById } from "@/lib/redis";
-import { generateIdeaAction } from "@/lib/openai";
-import { getAgentById } from "@/lib/redis";
+import {
+  getIdeas,
+  addIdea,
+  addChatMessage,
+  getTeamById,
+  getAgentById,
+} from "@/lib/redis";
+import {
+  generateIdeaAction,
+  preIdeationAction,
+  executeIdeationAction,
+} from "@/lib/openai";
 
 export async function GET(
   request: NextRequest,
@@ -39,6 +48,7 @@ export async function POST(
 
   try {
     const resolvedParams = await params;
+    const teamId = resolvedParams.teamId;
     const body = await request.json();
     const { action, author, content, topic } = body;
 
@@ -57,7 +67,7 @@ export async function POST(
           agentProfile
         );
 
-        const newIdea = await addIdea(resolvedParams.teamId, {
+        const newIdea = await addIdea(teamId, {
           author: author || session.user.email,
           timestamp: new Date().toISOString(),
           content: {
@@ -76,7 +86,7 @@ export async function POST(
         });
 
         // 시스템 메시지로 아이디어 생성 알림
-        await addChatMessage(resolvedParams.teamId, {
+        await addChatMessage(teamId, {
           sender: author || session.user.email,
           type: "system",
           payload: {
@@ -88,7 +98,7 @@ export async function POST(
       } catch (error) {
         console.error("AI 아이디어 생성 오류:", error);
         // 실패시 기본 아이디어로 대체
-        const newIdea = await addIdea(resolvedParams.teamId, {
+        const newIdea = await addIdea(teamId, {
           author: author || session.user.email,
           timestamp: new Date().toISOString(),
           content: {
@@ -109,7 +119,7 @@ export async function POST(
 
     if (action === "add") {
       // 사용자가 수동으로 추가하는 아이디어
-      const newIdea = await addIdea(resolvedParams.teamId, {
+      const newIdea = await addIdea(teamId, {
         author: author || session.user.email,
         timestamp: new Date().toISOString(),
         content: {
@@ -127,7 +137,7 @@ export async function POST(
     if (action === "auto_generate") {
       // AI 에이전트들이 자동으로 아이디어 생성
       try {
-        const team = await getTeamById(resolvedParams.teamId);
+        const team = await getTeamById(teamId);
         if (!team) {
           return NextResponse.json(
             { error: "팀을 찾을 수 없습니다." },
@@ -136,7 +146,7 @@ export async function POST(
         }
 
         // 현재 아이디어 개수 확인
-        const existingIdeas = await getIdeas(resolvedParams.teamId);
+        const existingIdeas = await getIdeas(teamId);
 
         // "아이디어 생성하기" 롤을 가진 AI 에이전트들 찾기
         const ideaGenerators = team.members.filter(
@@ -167,7 +177,7 @@ export async function POST(
             const agentProfile = await getAgentById(member.agentId);
 
             // 아이디어 생성 시작 메시지
-            await addChatMessage(resolvedParams.teamId, {
+            await addChatMessage(teamId, {
               sender: member.agentId,
               type: "system",
               payload: {
@@ -180,7 +190,7 @@ export async function POST(
               agentProfile
             );
 
-            const newIdea = await addIdea(resolvedParams.teamId, {
+            const newIdea = await addIdea(teamId, {
               author: member.agentId,
               timestamp: new Date().toISOString(),
               content: {
@@ -199,7 +209,7 @@ export async function POST(
             });
 
             // 시스템 메시지로 아이디어 생성 완료 알림
-            await addChatMessage(resolvedParams.teamId, {
+            await addChatMessage(teamId, {
               sender: member.agentId,
               type: "system",
               payload: {
@@ -212,7 +222,7 @@ export async function POST(
             console.error(`${member.agentId} 아이디어 생성 오류:`, error);
 
             // 오류 발생 시 메시지
-            await addChatMessage(resolvedParams.teamId, {
+            await addChatMessage(teamId, {
               sender: member.agentId,
               type: "system",
               payload: {
@@ -246,9 +256,9 @@ export async function POST(
 
     return NextResponse.json({ error: "잘못된 액션입니다." }, { status: 400 });
   } catch (error) {
-    console.error("아이디어 생성 오류:", error);
+    console.error("아이디어 API 오류:", error);
     return NextResponse.json(
-      { error: "아이디어 생성에 실패했습니다." },
+      { error: "아이디어 API 처리 중 오류가 발생했습니다." },
       { status: 500 }
     );
   }

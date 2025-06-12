@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { getChatHistory, addChatMessage } from "@/lib/redis";
+import { generateIdeaViaRequest } from "@/actions/ideation.actions";
 
 export async function GET(
   request: NextRequest,
@@ -37,25 +38,43 @@ export async function POST(
 
   try {
     const resolvedParams = await params;
+    const teamId = resolvedParams.teamId;
     const body = await request.json();
-    console.log("채팅 메시지 추가 시작:", {
-      teamId: resolvedParams.teamId,
-      message: body,
-    });
-
     const { sender, payload } = body;
 
-    // 새로운 payload 구조와 기존 구조 모두 지원
     const messageType = payload?.type || "feedback";
     const messagePayload = payload || { content: body.content };
 
-    const newMessage = await addChatMessage(resolvedParams.teamId, {
+    const newMessage = await addChatMessage(teamId, {
       sender: sender || session.user.email,
       type: messageType,
       payload: messagePayload,
     });
 
-    console.log("생성된 채팅 메시지:", newMessage);
+    // Check if it's a generation request and trigger the action
+    if (
+      messageType === "request" &&
+      messagePayload.requestType === "generate"
+    ) {
+      // Don't wait for the generation to finish, run it in the background
+      generateIdeaViaRequest({
+        teamId: teamId,
+        agentId: messagePayload.mention,
+        requestMessage: messagePayload.content,
+        topic: "Current Ideation Topic", // Consider passing the actual topic
+      }).then((result) => {
+        if (result.success) {
+          console.log(
+            `Successfully generated idea for agent ${messagePayload.mention}`
+          );
+        } else {
+          console.error(
+            `Failed to generate idea for agent ${messagePayload.mention}: ${result.error}`
+          );
+        }
+      });
+    }
+
     return NextResponse.json({ message: newMessage });
   } catch (error) {
     console.error("채팅 메시지 전송 오류:", error);
