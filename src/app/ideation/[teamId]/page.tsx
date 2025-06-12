@@ -25,6 +25,9 @@ import {
   ArrowLeft,
   MessageCircle,
   Plus,
+  ArrowRight,
+  ClipboardCheck,
+  MessageSquareText,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -76,6 +79,21 @@ export default function IdeationPage() {
   const [structurePairs, setStructurePairs] = useState<
     Array<{ key: string; value: string }>
   >([]);
+
+  // New state for chat functionality
+  const [chatMode, setChatMode] = useState<"feedback" | "request">("feedback");
+  const [mentionedAgent, setMentionedAgent] = useState<AIAgent | null>(null);
+  const [requestType, setRequestType] = useState<
+    "generate" | "evaluate" | "feedback" | null
+  >(null);
+  const [showMentionDropdown, setShowMentionDropdown] = useState(false);
+
+  // 현재 팀에 속한 AI 에이전트만 필터링
+  const teamAgents = agents.filter((agent) =>
+    team?.members.some(
+      (member) => !member.isUser && member.agentId === agent.id
+    )
+  );
 
   // 현재 사용자가 아이디어 생성 롤을 가지고 있는지 확인
   const userCanGenerateIdeas =
@@ -379,8 +397,39 @@ export default function IdeationPage() {
 
   // 메시지 전송
   const handleSendMessage = async () => {
-    if (!newMessage.trim() || !team) return;
+    if (!newMessage.trim() || !team || !mentionedAgent) return;
 
+    const messageType = chatMode;
+    const requestTextMap = {
+      generate: "아이디어 생성",
+      evaluate: "아이디어 평가",
+      feedback: "피드백",
+    };
+
+    // 1. 낙관적 업데이트를 위한 임시 메시지 객체 생성
+    const tempMessage: ChatMessage = {
+      id: `temp-${Date.now()}`,
+      sender: "나",
+      timestamp: new Date().toISOString(),
+      type: messageType,
+      payload: {
+        type: messageType,
+        content: newMessage.trim(),
+        mention: mentionedAgent.id,
+        requestType: chatMode === "request" ? requestType : undefined,
+      },
+    };
+
+    // 2. UI에 즉시 반영
+    setMessages((prevMessages) => [...prevMessages, tempMessage]);
+
+    // 3. 입력 필드 초기화
+    setNewMessage("");
+    setMentionedAgent(null);
+    setChatMode("feedback");
+    setRequestType(null);
+
+    // 4. 백그라운드에서 서버로 실제 데이터 전송
     try {
       const response = await fetch(`/api/teams/${team.id}/chat`, {
         method: "POST",
@@ -388,17 +437,22 @@ export default function IdeationPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          content: newMessage.trim(),
           sender: "나",
+          payload: tempMessage.payload,
         }),
       });
 
-      if (response.ok) {
-        setNewMessage("");
-        await loadMessages(team.id);
-      }
+      if (!response.ok) throw new Error("서버 전송 실패");
+
+      // 성공 시, 서버로부터 최신 메시지 목록을 다시 불러와 동기화
+      await loadMessages(team.id);
     } catch (error) {
       console.error("메시지 전송 실패:", error);
+      // 실패 시, 낙관적으로 추가했던 임시 메시지 제거
+      setMessages((prevMessages) =>
+        prevMessages.filter((m) => m.id !== tempMessage.id)
+      );
+      // 사용자에게 에러 알림 (추가 가능)
     }
   };
 
@@ -669,29 +723,186 @@ export default function IdeationPage() {
                   }
 
                   // 일반 메시지
+                  const isMyMessage = message.sender === "나";
+
                   return (
-                    <div key={message.id} className="flex gap-3">
+                    <div
+                      key={message.id}
+                      className={`flex ${
+                        isMyMessage ? "justify-end" : "justify-start"
+                      } mb-4`}
+                    >
                       <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                          message.sender === "나"
-                            ? "bg-green-500 text-white"
-                            : "bg-blue-500 text-white"
+                        className={`max-w-xs ${
+                          isMyMessage ? "order-2" : "order-1"
                         }`}
                       >
-                        {senderName === "나" ? "나" : senderName[0]}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-medium text-gray-900">
-                            {senderName}
-                          </span>
-                          <span className="text-xs text-gray-500">
+                        {!isMyMessage && (
+                          <div className="text-xs text-gray-500 mb-1 px-3">
+                            {senderName} • {formatTimestamp(message.timestamp)}
+                          </div>
+                        )}
+
+                        <div
+                          className={`rounded-2xl px-4 py-3 ${
+                            isMyMessage
+                              ? "bg-blue-500 text-white"
+                              : "bg-gray-100 text-gray-900"
+                          }`}
+                        >
+                          {(() => {
+                            // Check if payload is the new object format
+                            if (
+                              typeof message.payload === "object" &&
+                              message.payload !== null &&
+                              "type" in message.payload
+                            ) {
+                              const { type, mention, requestType, content } =
+                                message.payload;
+                              const isRequest =
+                                type === "request" && mention && requestType;
+                              const isFeedback = type === "feedback" && mention;
+
+                              if (isRequest) {
+                                const reqType = requestType as
+                                  | "generate"
+                                  | "evaluate"
+                                  | "feedback";
+                                const requestInfo = {
+                                  generate: {
+                                    text: "아이디어 생성 요청",
+                                    icon: <Lightbulb className="w-4 h-4" />,
+                                    bgColor: isMyMessage
+                                      ? "bg-blue-300/40"
+                                      : "bg-purple-50",
+                                    textColor: isMyMessage
+                                      ? "text-blue-50"
+                                      : "text-purple-700",
+                                    iconColor: isMyMessage
+                                      ? "text-blue-100"
+                                      : "text-purple-600",
+                                  },
+                                  evaluate: {
+                                    text: "아이디어 평가 요청",
+                                    icon: (
+                                      <ClipboardCheck className="w-4 h-4" />
+                                    ),
+                                    bgColor: isMyMessage
+                                      ? "bg-blue-300/40"
+                                      : "bg-orange-50",
+                                    textColor: isMyMessage
+                                      ? "text-blue-50"
+                                      : "text-orange-700",
+                                    iconColor: isMyMessage
+                                      ? "text-blue-100"
+                                      : "text-orange-600",
+                                  },
+                                  feedback: {
+                                    text: "피드백 요청",
+                                    icon: (
+                                      <MessageSquareText className="w-4 h-4" />
+                                    ),
+                                    bgColor: isMyMessage
+                                      ? "bg-blue-300/40"
+                                      : "bg-blue-50",
+                                    textColor: isMyMessage
+                                      ? "text-blue-50"
+                                      : "text-blue-700",
+                                    iconColor: isMyMessage
+                                      ? "text-blue-100"
+                                      : "text-blue-600",
+                                  },
+                                }[reqType];
+
+                                return (
+                                  <div>
+                                    <div
+                                      className={`flex items-center gap-2 text-sm font-medium mb-2 p-2 rounded-lg ${requestInfo.bgColor}`}
+                                    >
+                                      <span className={requestInfo.iconColor}>
+                                        {requestInfo.icon}
+                                      </span>
+                                      <span className={requestInfo.textColor}>
+                                        {requestInfo.text}
+                                      </span>
+                                    </div>
+                                    <div
+                                      className={`text-sm mb-2 ${
+                                        isMyMessage
+                                          ? "text-blue-100"
+                                          : "text-gray-600"
+                                      }`}
+                                    >
+                                      <span className="font-medium">
+                                        @{getAuthorName(mention)}
+                                      </span>
+                                      <span>에게</span>
+                                    </div>
+                                    <p
+                                      className={`text-sm leading-relaxed ${
+                                        isMyMessage
+                                          ? "text-white"
+                                          : "text-gray-800"
+                                      }`}
+                                    >
+                                      {content}
+                                    </p>
+                                  </div>
+                                );
+                              }
+
+                              if (isFeedback) {
+                                return (
+                                  <div>
+                                    <div
+                                      className={`text-sm mb-2 ${
+                                        isMyMessage
+                                          ? "text-blue-100"
+                                          : "text-gray-600"
+                                      }`}
+                                    >
+                                      <span className="font-medium">
+                                        @{getAuthorName(mention)}
+                                      </span>
+                                      <span>에게 피드백</span>
+                                    </div>
+                                    <p
+                                      className={`text-sm leading-relaxed ${
+                                        isMyMessage
+                                          ? "text-white"
+                                          : "text-gray-800"
+                                      }`}
+                                    >
+                                      {content || "메시지 내용 없음"}
+                                    </p>
+                                  </div>
+                                );
+                              }
+                            }
+
+                            // Fallback for older string-based messages or other types
+                            const messageContent =
+                              (typeof message.payload === "string"
+                                ? message.payload
+                                : message.payload?.content) ||
+                              "메시지 내용 없음";
+                            return (
+                              <p
+                                className={`text-sm leading-relaxed ${
+                                  isMyMessage ? "text-white" : "text-gray-800"
+                                }`}
+                              >
+                                {messageContent}
+                              </p>
+                            );
+                          })()}
+                        </div>
+
+                        {isMyMessage && (
+                          <div className="text-xs text-gray-500 mt-1 px-3 text-right">
                             {formatTimestamp(message.timestamp)}
-                          </span>
-                        </div>
-                        <div className="p-3 rounded-lg max-w-lg bg-gray-100 text-gray-900">
-                          {message.payload.content || "메시지 내용 없음"}
-                        </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -700,22 +911,104 @@ export default function IdeationPage() {
 
             {/* 메시지 입력 */}
             <div className="p-4 border-t border-gray-200">
-              <div className="flex gap-2">
-                <Input
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  placeholder="메시지를 입력하세요..."
-                  onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
-                  className="flex-1"
-                  disabled={isAutoGenerating || isGeneratingIdea}
-                />
-                <Button
-                  onClick={handleSendMessage}
-                  size="sm"
-                  disabled={isAutoGenerating || isGeneratingIdea}
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
+              <div className="relative">
+                {/* 멘션 및 요청 타입 UI */}
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="relative">
+                    <button
+                      onClick={() =>
+                        setShowMentionDropdown(!showMentionDropdown)
+                      }
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-200"
+                    >
+                      <span className="text-gray-500">@</span>
+                      <span>
+                        {mentionedAgent ? mentionedAgent.name : "팀원 선택"}
+                      </span>
+                    </button>
+                    {showMentionDropdown && (
+                      <div className="absolute bottom-full left-0 mb-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-10">
+                        {teamAgents.map((agent) => (
+                          <button
+                            key={agent.id}
+                            onClick={() => {
+                              setMentionedAgent(agent);
+                              setShowMentionDropdown(false);
+                            }}
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                          >
+                            {agent.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <span className="text-sm text-gray-500">에게</span>
+
+                  <select
+                    value={chatMode}
+                    onChange={(e) =>
+                      setChatMode(e.target.value as "feedback" | "request")
+                    }
+                    className="px-3 py-1.5 bg-gray-100 border-none rounded-md text-sm font-medium text-gray-700 focus:ring-0"
+                  >
+                    <option value="feedback">피드백</option>
+                    <option value="request">요청</option>
+                  </select>
+
+                  {chatMode === "request" && (
+                    <select
+                      value={requestType || ""}
+                      onChange={(e) =>
+                        setRequestType(
+                          e.target.value as "generate" | "evaluate" | "feedback"
+                        )
+                      }
+                      className="px-3 py-1.5 bg-gray-100 border-none rounded-md text-sm font-medium text-gray-700 focus:ring-0"
+                    >
+                      <option value="" disabled>
+                        요청 선택
+                      </option>
+                      <option value="generate">아이디어 생성</option>
+                      <option value="evaluate">아이디어 평가</option>
+                      <option value="feedback">피드백</option>
+                    </select>
+                  )}
+                </div>
+
+                {/* 메시지 입력창 */}
+                <div className="flex gap-2">
+                  <Input
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder={
+                      chatMode === "feedback"
+                        ? `${
+                            mentionedAgent ? mentionedAgent.name : "팀원"
+                          }에게 피드백을 보내세요...`
+                        : `${
+                            mentionedAgent ? mentionedAgent.name : "팀원"
+                          }에게 요청할 내용을 입력하세요...`
+                    }
+                    onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+                    className="flex-1"
+                    disabled={isAutoGenerating || isGeneratingIdea}
+                  />
+                  <Button
+                    onClick={handleSendMessage}
+                    size="icon"
+                    disabled={
+                      isAutoGenerating ||
+                      isGeneratingIdea ||
+                      !mentionedAgent ||
+                      (chatMode === "request" && !requestType)
+                    }
+                    className="self-center"
+                  >
+                    <Send className="w-4" />
+                  </Button>
+                </div>
               </div>
 
               {/* 아이디어 생성 버튼 - 해당 롤을 가진 사용자만 표시 */}
@@ -981,7 +1274,9 @@ export default function IdeationPage() {
                     className="px-2 py-1 w-10 hover:bg-gray-100 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
                     disabled={ideas.length <= 1 || isEditMode}
                   >
-                    <span className="text-xl text-gray-400">←</span>
+                    <span className="text-gray-400 w-6 h-6">
+                      <ArrowLeft />
+                    </span>
                   </button>
                   <h2 className="text-xl font-bold text-gray-900">
                     Idea {currentIdeaIndex + 1}
@@ -998,7 +1293,9 @@ export default function IdeationPage() {
                     className="px-2 py-1 w-10 hover:bg-gray-100 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
                     disabled={ideas.length <= 1 || isEditMode}
                   >
-                    <span className="text-xl text-gray-400">→</span>
+                    <span className="text-gray-400 w-6 h-6">
+                      <ArrowRight />
+                    </span>
                   </button>
                 </div>
                 <div className="flex items-center gap-4">

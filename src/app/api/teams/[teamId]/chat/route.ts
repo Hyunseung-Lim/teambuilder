@@ -38,16 +38,24 @@ export async function POST(
   try {
     const resolvedParams = await params;
     const body = await request.json();
-    const { content, sender } = body;
+    console.log("채팅 메시지 추가 시작:", {
+      teamId: resolvedParams.teamId,
+      message: body,
+    });
+
+    const { sender, payload } = body;
+
+    // 새로운 payload 구조와 기존 구조 모두 지원
+    const messageType = payload?.type || "feedback";
+    const messagePayload = payload || { content: body.content };
 
     const newMessage = await addChatMessage(resolvedParams.teamId, {
       sender: sender || session.user.email,
-      type: "feedback",
-      payload: {
-        content: content,
-      },
+      type: messageType,
+      payload: messagePayload,
     });
 
+    console.log("생성된 채팅 메시지:", newMessage);
     return NextResponse.json({ message: newMessage });
   } catch (error) {
     console.error("채팅 메시지 전송 오류:", error);
