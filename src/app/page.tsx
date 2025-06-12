@@ -31,32 +31,42 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<AIAgent | null>(null);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
-  const [isMounted, setIsMounted] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingTeam, setDeletingTeam] = useState<string | null>(null);
 
-  // 클라이언트에서만 실행되도록 보장
   useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (session && isMounted) {
+    if (session) {
       async function loadData() {
         try {
           const [userAgents, userTeams] = await Promise.all([
             getUserAgentsAction(),
             getUserTeamsAction(),
           ]);
+          console.log("🔍 데이터 디버깅:", {
+            session: session?.user?.email,
+            agentsCount: userAgents.length,
+            agents: userAgents.map((a) => ({ id: a.id, name: a.name })),
+            teamsCount: userTeams.length,
+            teams: userTeams.map((t) => ({
+              id: t.id,
+              name: t.teamName,
+              members: t.members.map((m) => ({
+                agentId: m.agentId,
+                isUser: m.isUser,
+                roles: m.roles,
+              })),
+            })),
+          });
           setAgents(userAgents);
           setTeams(userTeams);
         } catch (error) {
+          console.error("데이터 로딩 오류:", error);
           setError("데이터를 불러오는데 실패했습니다.");
         }
       }
       loadData();
     }
-  }, [session, isMounted]);
+  }, [session]);
 
   async function handleCreateAgent(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -91,7 +101,14 @@ export default function HomePage() {
     setError(null);
 
     try {
-      await deleteTeamAction(teamId);
+      const response = await fetch(`/api/teams/${teamId}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "팀 삭제에 실패했습니다.");
+      }
 
       // 팀 목록 새로고침
       const userTeams = await getUserTeamsAction();
@@ -110,7 +127,7 @@ export default function HomePage() {
   }
 
   // 로딩 중 또는 마운트되지 않음
-  if (status === "loading" || !isMounted) {
+  if (status === "loading") {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -375,24 +392,31 @@ export default function HomePage() {
                                 </div>
                               </div>
                             </div>
-                            <div className="flex flex-col gap-3">
-                              <Button
-                                size="lg"
-                                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg"
-                              >
-                                <span className="text-lg mr-2">💡</span>
-                                <span className="text-base font-bold">
-                                  아이디에이션 시작
-                                </span>
-                              </Button>
+                            <div className="flex flex-row gap-3">
                               <Button
                                 variant="outline"
                                 size="lg"
                                 onClick={() => setSelectedTeam(currentTeam)}
                                 className="border-blue-200 text-blue-700 hover:bg-blue-50"
                               >
-                                <Users className="h-4 w-4 mr-2" />팀 정보 보기
+                                <Users className="h-4 w-4 mr-2" />
+                                <span className="text-base font-semibold">
+                                  팀 정보 보기
+                                </span>
                               </Button>
+                              <div className="flex flex-col gap-3">
+                                <Link href={`/ideation/${currentTeam.id}`}>
+                                  <Button
+                                    size="lg"
+                                    className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg w-full"
+                                  >
+                                    <span className="text-lg mr-2">💡</span>
+                                    <span className="text-base font-bold">
+                                      아이디에이션 시작
+                                    </span>
+                                  </Button>
+                                </Link>
+                              </div>
                             </div>
                           </div>
 
@@ -401,26 +425,9 @@ export default function HomePage() {
                             <h4 className="text-sm font-semibold text-gray-700 mb-3">
                               팀원 구성
                             </h4>
-                            {/* 디버깅 정보 */}
-                            {process.env.NODE_ENV === "development" && (
-                              <div className="mb-2 text-xs text-gray-500">
-                                디버그: 전체 {currentTeam.members.length}명,
-                                에이전트 {agents.length}개
-                              </div>
-                            )}
                             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                               {currentTeam.members.map(
                                 (member, memberIndex) => {
-                                  // 디버깅 로그
-                                  if (process.env.NODE_ENV === "development") {
-                                    console.log(`팀원 ${memberIndex}:`, {
-                                      isUser: member.isUser,
-                                      agentId: member.agentId,
-                                      roles: member.roles,
-                                      isLeader: member.isLeader,
-                                    });
-                                  }
-
                                   if (member.isUser) {
                                     // 사용자 본인 카드
                                     return (
@@ -457,12 +464,12 @@ export default function HomePage() {
                                             <p className="text-sm text-gray-600 mb-2">
                                               사용자 본인
                                             </p>
-                                            <div className="flex flex-wrap gap-1">
+                                            <div className="flex flex-col gap-1">
                                               {member.roles.map(
                                                 (role, index) => (
                                                   <span
                                                     key={index}
-                                                    className="inline-block px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full"
+                                                    className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded-lg w-fit font-medium"
                                                   >
                                                     {role}
                                                   </span>
@@ -478,17 +485,6 @@ export default function HomePage() {
                                     const agent = agents.find(
                                       (agent) => agent.id === member.agentId
                                     );
-
-                                    // 디버깅 로그
-                                    if (
-                                      process.env.NODE_ENV === "development"
-                                    ) {
-                                      console.log(`에이전트 찾기 결과:`, {
-                                        agentId: member.agentId,
-                                        found: !!agent,
-                                        agentName: agent?.name,
-                                      });
-                                    }
 
                                     // agent를 찾지 못해도 기본 정보는 표시
                                     return (
@@ -544,7 +540,7 @@ export default function HomePage() {
                                                 (role, index) => (
                                                   <span
                                                     key={index}
-                                                    className="inline-block px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full"
+                                                    className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded-lg w-fit font-medium"
                                                   >
                                                     {role}
                                                   </span>
@@ -857,13 +853,6 @@ export default function HomePage() {
                   <h4 className="text-lg font-semibold text-gray-900 mb-4">
                     팀원 구성
                   </h4>
-                  {/* 디버깅 정보 */}
-                  {process.env.NODE_ENV === "development" && (
-                    <div className="mb-2 text-xs text-gray-500">
-                      디버그: 전체 {selectedTeam.members.length}명, 에이전트{" "}
-                      {agents.length}개
-                    </div>
-                  )}
                   <div className="grid grid-cols-2 gap-4">
                     {selectedTeam.members.map((member, index) => {
                       const agent = member.isUser
@@ -947,7 +936,7 @@ export default function HomePage() {
                                   {member.roles.map((role, index) => (
                                     <span
                                       key={index}
-                                      className="inline-block px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full"
+                                      className="text-sm px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg w-fit font-medium"
                                     >
                                       {role}
                                     </span>
