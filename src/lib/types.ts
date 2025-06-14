@@ -130,9 +130,10 @@ export interface CreateTeamData {
 // 아이디어 평가
 export interface Evaluation {
   evaluator: string; // '나' 또는 agentId
+  timestamp: string;
   scores: {
     relevance: number;
-    innovation: number;
+    actionable: number;
     insightful: number;
   };
   comment: string;

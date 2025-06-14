@@ -30,6 +30,7 @@ import {
   MessageSquareText,
 } from "lucide-react";
 import Link from "next/link";
+import IdeaDetailModal from "@/components/IdeaDetailModal";
 
 export default function IdeationPage() {
   const params = useParams();
@@ -96,6 +97,9 @@ export default function IdeationPage() {
   >(null);
   const [showMentionDropdown, setShowMentionDropdown] = useState(false);
 
+  // 평가 상태 추가
+  const [isSubmittingEvaluation, setIsSubmittingEvaluation] = useState(false);
+
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -119,6 +123,11 @@ export default function IdeationPage() {
     team?.members.find((m) => m.isUser)?.roles.includes("아이디어 생성하기") ||
     false;
 
+  // 현재 사용자가 아이디어 평가 롤을 가지고 있는지 확인
+  const userCanEvaluateIdeas =
+    team?.members.find((m) => m.isUser)?.roles.includes("아이디어 평가하기") ||
+    false;
+
   // 고유한 작성자 목록
   const uniqueAuthors = [
     "전체",
@@ -139,6 +148,18 @@ export default function IdeationPage() {
       )
     ),
   ];
+
+  // 아이디어 번호 매기기를 위한 생성순 정렬
+  const ideasSortedByCreation = [...ideas].sort((a, b) => a.id - b.id);
+
+  // 화면 표시를 위한 최신순 정렬
+  const filteredIdeas = ideas
+    .filter((idea) => {
+      if (authorFilter === "전체") return true;
+      const authorName = getAuthorName(idea.author);
+      return authorName === authorFilter;
+    })
+    .sort((a, b) => b.id - a.id);
 
   // 타임스탬프 포맷팅 함수
   const formatTimestamp = (timestamp: string) => {
@@ -166,53 +187,6 @@ export default function IdeationPage() {
 
     return authorId;
   };
-
-  // JSON 문자열을 키-값 쌍 배열로 변환
-  const parseJsonToPairs = (
-    jsonString: string
-  ): Array<{ key: string; value: string }> => {
-    try {
-      const parsed = JSON.parse(jsonString);
-      if (typeof parsed === "object" && parsed !== null) {
-        return Object.entries(parsed).map(([key, value]) => ({
-          key,
-          value: String(value),
-        }));
-      }
-    } catch (error) {
-      // JSON 파싱 실패 시 원본 텍스트를 단일 쌍으로 처리
-    }
-    return [{ key: "", value: jsonString }];
-  };
-
-  // 키-값 쌍 배열을 JSON 문자열로 변환
-  const pairsToJsonString = (
-    pairs: Array<{ key: string; value: string }>
-  ): string => {
-    const validPairs = pairs.filter(
-      (pair) => pair.key.trim() && pair.value.trim()
-    );
-    if (validPairs.length === 0) return "";
-
-    const obj = validPairs.reduce((acc, pair) => {
-      acc[pair.key] = pair.value;
-      return acc;
-    }, {} as Record<string, string>);
-
-    return JSON.stringify(obj);
-  };
-
-  // 아이디어 번호 매기기를 위한 생성순 정렬
-  const ideasSortedByCreation = [...ideas].sort((a, b) => a.id - b.id);
-
-  // 화면 표시를 위한 최신순 정렬
-  const filteredIdeas = ideas
-    .filter((idea) => {
-      if (authorFilter === "전체") return true;
-      const authorName = getAuthorName(idea.author);
-      return authorName === authorFilter;
-    })
-    .sort((a, b) => b.id - a.id);
 
   // 데이터 로드
   useEffect(() => {
@@ -711,6 +685,68 @@ export default function IdeationPage() {
       }
     } catch (error) {
       console.error("아이디어 추가 실패:", error);
+    }
+  };
+
+  // 아이디어 평가 제출
+  const handleSubmitEvaluationNew = async (evaluationData: {
+    insightful: number;
+    actionable: number;
+    relevance: number;
+    comment: string;
+  }) => {
+    if (!team || !ideaDetailModalData) return;
+
+    try {
+      setIsSubmittingEvaluation(true);
+
+      const response = await fetch(
+        `/api/teams/${team.id}/ideas/${ideaDetailModalData.id}/evaluate`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            evaluator: "나",
+            scores: {
+              insightful: evaluationData.insightful,
+              actionable: evaluationData.actionable,
+              relevance: evaluationData.relevance,
+            },
+            comment: evaluationData.comment || "",
+          }),
+        }
+      );
+
+      if (response.ok) {
+        console.log("✅ 아이디어 평가 완료 - 즉시 업데이트 시작");
+
+        // 즉시 아이디어 목록 새로고침
+        await loadIdeas(team.id);
+
+        // 현재 보고 있는 아이디어도 업데이트
+        const updatedIdeas = await fetch(
+          `/api/teams/${team.id}/ideas?t=${new Date().getTime()}`
+        );
+        if (updatedIdeas.ok) {
+          const data = await updatedIdeas.json();
+          const updatedIdea = data.ideas.find(
+            (i: any) => i.id === ideaDetailModalData.id
+          );
+          if (updatedIdea) {
+            setIdeaDetailModalData(updatedIdea);
+          }
+        }
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "평가 제출에 실패했습니다.");
+      }
+    } catch (error) {
+      console.error("아이디어 평가 실패:", error);
+      throw error; // 에러를 다시 던져서 모달에서 처리하도록
+    } finally {
+      setIsSubmittingEvaluation(false);
     }
   };
 
@@ -1236,29 +1272,6 @@ export default function IdeationPage() {
                   </Button>
                 </div>
               </div>
-
-              {/* 아이디어 생성 버튼 - 해당 롤을 가진 사용자만 표시 */}
-              {userCanGenerateIdeas && (
-                <div className="mt-3">
-                  <Button
-                    onClick={handleGenerateIdea}
-                    disabled={isGeneratingIdea || isAutoGenerating}
-                    className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white disabled:opacity-50"
-                  >
-                    {isGeneratingIdea ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        생성 중...
-                      </>
-                    ) : (
-                      <>
-                        <Lightbulb className="h-4 w-4 mr-2" />
-                        아이디어 생성하기
-                      </>
-                    )}
-                  </Button>
-                </div>
-              )}
             </div>
           </div>
 
@@ -1474,493 +1487,28 @@ export default function IdeationPage() {
 
       {/* 아이디어 상세 모달 */}
       {showIdeaDetailModal && ideaDetailModalData && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
-          onClick={() => {
+        <IdeaDetailModal
+          isOpen={showIdeaDetailModal}
+          onClose={() => {
             setShowIdeaDetailModal(false);
             setIsEditMode(false);
           }}
-        >
-          <div
-            className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-6">
-              {/* 헤더 */}
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => {
-                      const newIndex =
-                        currentIdeaIndex > 0
-                          ? currentIdeaIndex - 1
-                          : filteredIdeas.length - 1;
-                      setCurrentIdeaIndex(newIndex);
-                      setIdeaDetailModalData(filteredIdeas[newIndex]);
-                    }}
-                    className="px-2 py-1 w-10 hover:bg-gray-100 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={filteredIdeas.length <= 1 || isEditMode}
-                  >
-                    <span className="text-gray-400 w-6 h-6">
-                      <ArrowLeft />
-                    </span>
-                  </button>
-                  <h2 className="text-xl font-bold text-gray-900">
-                    Idea{" "}
-                    {(() => {
-                      // 아이디어 섹션과 동일한 방식으로 인덱스 계산
-                      const creationIndex = ideasSortedByCreation.findIndex(
-                        (i) => i.id === ideaDetailModalData.id
-                      );
-                      return creationIndex + 1;
-                    })()}
-                  </h2>
-                  <button
-                    onClick={() => {
-                      const newIndex =
-                        currentIdeaIndex < filteredIdeas.length - 1
-                          ? currentIdeaIndex + 1
-                          : 0;
-                      setCurrentIdeaIndex(newIndex);
-                      setIdeaDetailModalData(filteredIdeas[newIndex]);
-                    }}
-                    className="px-2 py-1 w-10 hover:bg-gray-100 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
-                    disabled={filteredIdeas.length <= 1 || isEditMode}
-                  >
-                    <span className="text-gray-400 w-6 h-6">
-                      <ArrowRight />
-                    </span>
-                  </button>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-gray-500">
-                      아이디어 제작자
-                    </span>
-                    <div
-                      className={`w-6 h-6 rounded-full flex items-center justify-center text-sm font-medium ${
-                        ideaDetailModalData.author === "나"
-                          ? "bg-green-500 text-white"
-                          : "bg-blue-500 text-white"
-                      }`}
-                    >
-                      {getAuthorName(ideaDetailModalData.author) === "나"
-                        ? "나"
-                        : getAuthorName(ideaDetailModalData.author)[0]}
-                    </div>
-                    <span className="font-medium text-gray-900">
-                      {getAuthorName(ideaDetailModalData.author)}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setShowIdeaDetailModal(false);
-                      setIsEditMode(false);
-                    }}
-                    className="p-2 w-10 hover:bg-gray-100 rounded-full text-gray-500 hover:text-gray-700"
-                  >
-                    <span className="text-xl">×</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                {/* Object */}
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500 mb-2">
-                    Object:
-                  </h3>
-                  {isEditMode ? (
-                    <textarea
-                      value={editFormData.object}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          object: e.target.value,
-                        })
-                      }
-                      className="w-full p-3 border border-gray-300 rounded-lg text-gray-900 bg-gray-50 resize-none"
-                      rows={2}
-                      placeholder="Object를 입력하세요..."
-                    />
-                  ) : (
-                    <h4 className="text-lg font-bold text-gray-900">
-                      {ideaDetailModalData.content.object}
-                    </h4>
-                  )}
-                </div>
-
-                {/* Function */}
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500 mb-2">
-                    Function:
-                  </h3>
-                  {isEditMode ? (
-                    <textarea
-                      value={editFormData.function}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          function: e.target.value,
-                        })
-                      }
-                      className="w-full p-3 border border-gray-300 rounded-lg text-gray-700 bg-gray-50 resize-none"
-                      rows={4}
-                      placeholder="Function을 입력하세요..."
-                    />
-                  ) : (
-                    <p className="text-gray-700 leading-relaxed">
-                      {ideaDetailModalData.content.function}
-                    </p>
-                  )}
-                </div>
-
-                {/* Behavior */}
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500 mb-2">
-                    Behavior:
-                  </h3>
-                  {isEditMode ? (
-                    <div className="space-y-3">
-                      {behaviorPairs.map((pair, index) => (
-                        <div key={index} className="flex gap-2 items-center">
-                          <input
-                            type="text"
-                            value={pair.key}
-                            onChange={(e) => {
-                              const newPairs = [...behaviorPairs];
-                              newPairs[index].key = e.target.value;
-                              setBehaviorPairs(newPairs);
-                            }}
-                            placeholder="키"
-                            className="w-1/3 p-2 border border-gray-300 rounded text-sm text-gray-900"
-                          />
-                          <span className="text-gray-500">:</span>
-                          <input
-                            type="text"
-                            value={pair.value}
-                            onChange={(e) => {
-                              const newPairs = [...behaviorPairs];
-                              newPairs[index].value = e.target.value;
-                              setBehaviorPairs(newPairs);
-                            }}
-                            placeholder="값"
-                            className="flex-1 p-2 border border-gray-300 rounded text-sm text-gray-900"
-                          />
-                          <button
-                            onClick={() => {
-                              const newPairs = behaviorPairs.filter(
-                                (_, i) => i !== index
-                              );
-                              setBehaviorPairs(newPairs);
-                            }}
-                            className="text-red-500 hover:text-red-700 px-2 py-1 text-sm"
-                          >
-                            삭제
-                          </button>
-                        </div>
-                      ))}
-                      <button
-                        onClick={() => {
-                          setBehaviorPairs([
-                            ...behaviorPairs,
-                            { key: "", value: "" },
-                          ]);
-                        }}
-                        className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                      >
-                        + 항목 추가
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="text-gray-700 leading-relaxed">
-                      {(() => {
-                        try {
-                          const behaviorObj = JSON.parse(
-                            ideaDetailModalData.content.behavior
-                          );
-                          return (
-                            <div className="space-y-2">
-                              {Object.entries(behaviorObj).map(
-                                ([key, value]) => (
-                                  <div key={key}>
-                                    <span className="font-medium text-gray-600">
-                                      {key}:
-                                    </span>
-                                    <span className="ml-2">
-                                      {value as string}
-                                    </span>
-                                  </div>
-                                )
-                              )}
-                            </div>
-                          );
-                        } catch {
-                          return <p>{ideaDetailModalData.content.behavior}</p>;
-                        }
-                      })()}
-                    </div>
-                  )}
-                </div>
-
-                {/* Structure */}
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500 mb-2">
-                    Structure:
-                  </h3>
-                  {isEditMode ? (
-                    <div className="space-y-3">
-                      {structurePairs.map((pair, index) => (
-                        <div key={index} className="flex gap-2 items-center">
-                          <input
-                            type="text"
-                            value={pair.key}
-                            onChange={(e) => {
-                              const newPairs = [...structurePairs];
-                              newPairs[index].key = e.target.value;
-                              setStructurePairs(newPairs);
-                            }}
-                            placeholder="키"
-                            className="w-1/3 p-2 border border-gray-300 rounded text-sm text-gray-900"
-                          />
-                          <span className="text-gray-500">:</span>
-                          <input
-                            type="text"
-                            value={pair.value}
-                            onChange={(e) => {
-                              const newPairs = [...structurePairs];
-                              newPairs[index].value = e.target.value;
-                              setStructurePairs(newPairs);
-                            }}
-                            placeholder="값"
-                            className="flex-1 p-2 border border-gray-300 rounded text-sm text-gray-900"
-                          />
-                          <button
-                            onClick={() => {
-                              const newPairs = structurePairs.filter(
-                                (_, i) => i !== index
-                              );
-                              setStructurePairs(newPairs);
-                            }}
-                            className="text-red-500 hover:text-red-700 px-2 py-1 text-sm"
-                          >
-                            삭제
-                          </button>
-                        </div>
-                      ))}
-                      <button
-                        onClick={() => {
-                          setStructurePairs([
-                            ...structurePairs,
-                            { key: "", value: "" },
-                          ]);
-                        }}
-                        className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                      >
-                        + 항목 추가
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="text-gray-700 leading-relaxed">
-                      {(() => {
-                        try {
-                          const structureObj = JSON.parse(
-                            ideaDetailModalData.content.structure
-                          );
-                          return (
-                            <div className="space-y-2">
-                              {Object.entries(structureObj).map(
-                                ([key, value]) => (
-                                  <div key={key}>
-                                    <span className="font-medium text-gray-600">
-                                      {key}:
-                                    </span>
-                                    <span className="ml-2">
-                                      {value as string}
-                                    </span>
-                                  </div>
-                                )
-                              )}
-                            </div>
-                          );
-                        } catch {
-                          return <p>{ideaDetailModalData.content.structure}</p>;
-                        }
-                      })()}
-                    </div>
-                  )}
-                </div>
-
-                {/* Evaluation */}
-                {ideaDetailModalData.evaluations.length > 0 && (
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-500 mb-3">
-                      Evaluation
-                    </h3>
-                    {ideaDetailModalData.evaluations.map(
-                      (evaluation: Evaluation, index: number) => (
-                        <div
-                          key={index}
-                          className="bg-gray-50 rounded-lg p-4 mb-3"
-                        >
-                          <div className="flex items-center justify-between mb-3">
-                            <span className="text-sm text-gray-600">from</span>
-                            <div className="flex items-center gap-2">
-                              <div
-                                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
-                                  evaluation.evaluator === "나"
-                                    ? "bg-green-500 text-white"
-                                    : "bg-blue-500 text-white"
-                                }`}
-                              >
-                                {evaluation.evaluator === "나"
-                                  ? "나"
-                                  : evaluation.evaluator[0]}
-                              </div>
-                              <span className="text-sm font-medium text-gray-900">
-                                {evaluation.evaluator}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-3 gap-4 mb-3">
-                            <div className="text-center">
-                              <div className="text-xs text-gray-500 mb-1">
-                                Relevance
-                              </div>
-                              <div className="text-lg font-bold text-gray-900">
-                                {evaluation.scores.relevance}
-                              </div>
-                            </div>
-                            <div className="text-center">
-                              <div className="text-xs text-gray-500 mb-1">
-                                Innovation
-                              </div>
-                              <div className="text-lg font-bold text-gray-900">
-                                {evaluation.scores.innovation}
-                              </div>
-                            </div>
-                            <div className="text-center">
-                              <div className="text-xs text-gray-500 mb-1">
-                                Insightful
-                              </div>
-                              <div className="text-lg font-bold text-gray-900">
-                                {evaluation.scores.insightful}
-                              </div>
-                            </div>
-                          </div>
-                          <div>
-                            <div className="text-xs text-gray-500 mb-1">
-                              comments
-                            </div>
-                            <p className="text-sm text-gray-700">
-                              {evaluation.comment}
-                            </p>
-                          </div>
-                        </div>
-                      )
-                    )}
-                  </div>
-                )}
-
-                {/* 액션 버튼 */}
-                <div className="flex gap-3 pt-4">
-                  {isEditMode ? (
-                    <>
-                      <button
-                        onClick={() => {
-                          setIsEditMode(false);
-                          // 새로운 아이디어 생성
-                          const newIdea: Idea = {
-                            id: ideas.length + 1,
-                            author: "나",
-                            timestamp: new Date().toISOString(),
-                            content: {
-                              object: editFormData.object,
-                              function: editFormData.function,
-                              behavior: pairsToJsonString(behaviorPairs),
-                              structure: pairsToJsonString(structurePairs),
-                            },
-                            evaluations: [],
-                          };
-
-                          // 새로운 아이디어를 목록에 추가
-                          const updatedIdeas = [...ideas, newIdea];
-                          setIdeas(updatedIdeas);
-
-                          // 새로 생성된 아이디어로 모달 전환
-                          setIdeaDetailModalData(newIdea);
-                          setCurrentIdeaIndex(updatedIdeas.length - 1);
-
-                          console.log("새로운 아이디어 생성됨:", newIdea);
-                        }}
-                        className="flex-1 bg-black text-white py-3 px-4 rounded-lg font-medium"
-                      >
-                        저장하기
-                      </button>
-                      <button
-                        onClick={() => {
-                          setIsEditMode(false);
-                          // 편집 취소 시 원래 데이터로 복원
-                          setEditFormData({
-                            object: ideaDetailModalData.content.object,
-                            function: ideaDetailModalData.content.function,
-                            behavior: ideaDetailModalData.content.behavior,
-                            structure: ideaDetailModalData.content.structure,
-                          });
-                          setBehaviorPairs(
-                            parseJsonToPairs(
-                              ideaDetailModalData.content.behavior
-                            )
-                          );
-                          setStructurePairs(
-                            parseJsonToPairs(
-                              ideaDetailModalData.content.structure
-                            )
-                          );
-                        }}
-                        className="flex-1 bg-gray-500 text-white py-3 px-4 rounded-lg font-medium"
-                      >
-                        취소
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        onClick={() => {
-                          setIsEditMode(true);
-                          // 편집 모드 진입 시 현재 데이터로 폼 초기화
-                          setEditFormData({
-                            object: ideaDetailModalData.content.object,
-                            function: ideaDetailModalData.content.function,
-                            behavior: ideaDetailModalData.content.behavior,
-                            structure: ideaDetailModalData.content.structure,
-                          });
-                          // behavior와 structure를 키-값 쌍으로 파싱
-                          setBehaviorPairs(
-                            parseJsonToPairs(
-                              ideaDetailModalData.content.behavior
-                            )
-                          );
-                          setStructurePairs(
-                            parseJsonToPairs(
-                              ideaDetailModalData.content.structure
-                            )
-                          );
-                        }}
-                        className="flex-1 bg-black text-white py-3 px-4 rounded-lg font-medium"
-                      >
-                        아이디어 업데이트
-                      </button>
-                      <button className="flex-1 bg-black text-white py-3 px-4 rounded-lg font-medium">
-                        아이디어 평가하기
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+          idea={ideaDetailModalData}
+          ideas={filteredIdeas}
+          currentIndex={currentIdeaIndex}
+          onIndexChange={(newIndex) => {
+            setCurrentIdeaIndex(newIndex);
+            setIdeaDetailModalData(filteredIdeas[newIndex]);
+          }}
+          team={team}
+          agents={agents}
+          userCanEvaluateIdeas={userCanEvaluateIdeas}
+          onEvaluate={(idea) => {
+            // 이제 사용하지 않음 - 모달 내에서 직접 처리
+          }}
+          onSubmitEvaluation={handleSubmitEvaluationNew}
+          isSubmittingEvaluation={isSubmittingEvaluation}
+        />
       )}
 
       {/* 아이디어 추가 모달 */}
