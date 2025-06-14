@@ -15,7 +15,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Team, AIAgent, Idea, ChatMessage, Evaluation } from "@/lib/types";
+import {
+  Team,
+  AIAgent,
+  Idea,
+  ChatMessage,
+  Evaluation,
+  AgentRole,
+} from "@/lib/types";
 import {
   User,
   Users,
@@ -132,6 +139,62 @@ export default function IdeationPage() {
   const userCanEvaluateIdeas =
     team?.members.find((m) => m.isUser)?.roles.includes("아이디어 평가하기") ||
     false;
+
+  // 에이전트가 특정 역할을 수행할 수 있는지 확인하는 함수
+  const canAgentPerformRole = (
+    agent: AIAgent,
+    requestType: string
+  ): boolean => {
+    const roleMap = {
+      generate: "아이디어 생성하기" as AgentRole,
+      evaluate: "아이디어 평가하기" as AgentRole,
+      feedback: "피드백하기" as AgentRole,
+    };
+
+    const requiredRole = roleMap[requestType as keyof typeof roleMap];
+    if (!requiredRole || !team) return false;
+
+    // 팀 멤버에서 해당 에이전트의 역할 찾기
+    const teamMember = team.members.find(
+      (member) => member.agentId === agent.id
+    );
+    return teamMember ? teamMember.roles.includes(requiredRole) : false;
+  };
+
+  // 선택된 요청 타입에 따라 필터링된 에이전트 목록
+  const getFilteredAgentsForRequest = () => {
+    if (chatMode !== "request" || !requestType) {
+      return teamAgents;
+    }
+
+    return teamAgents.filter((agent) =>
+      canAgentPerformRole(agent, requestType)
+    );
+  };
+
+  // 선택된 에이전트가 수행할 수 있는 요청 타입 목록
+  const getAvailableRequestTypes = () => {
+    if (!mentionedAgent) {
+      return [
+        { value: "generate", label: "아이디어 생성" },
+        { value: "evaluate", label: "아이디어 평가" },
+        { value: "feedback", label: "피드백" },
+      ];
+    }
+
+    const availableTypes = [];
+    if (canAgentPerformRole(mentionedAgent, "generate")) {
+      availableTypes.push({ value: "generate", label: "아이디어 생성" });
+    }
+    if (canAgentPerformRole(mentionedAgent, "evaluate")) {
+      availableTypes.push({ value: "evaluate", label: "아이디어 평가" });
+    }
+    if (canAgentPerformRole(mentionedAgent, "feedback")) {
+      availableTypes.push({ value: "feedback", label: "피드백" });
+    }
+
+    return availableTypes;
+  };
 
   // 고유한 작성자 목록
   const uniqueAuthors = [
@@ -1269,18 +1332,34 @@ export default function IdeationPage() {
                     </button>
                     {showMentionDropdown && (
                       <div className="absolute bottom-full left-0 mb-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-10">
-                        {teamAgents.map((agent) => (
+                        {getFilteredAgentsForRequest().map((agent) => (
                           <button
                             key={agent.id}
                             onClick={() => {
                               setMentionedAgent(agent);
                               setShowMentionDropdown(false);
+
+                              // 선택된 에이전트가 현재 요청 타입을 수행할 수 없다면 요청 타입 초기화
+                              if (
+                                chatMode === "request" &&
+                                requestType &&
+                                !canAgentPerformRole(agent, requestType)
+                              ) {
+                                setRequestType(null);
+                              }
                             }}
                             className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
                           >
                             {agent.name}
                           </button>
                         ))}
+                        {getFilteredAgentsForRequest().length === 0 &&
+                          chatMode === "request" &&
+                          requestType && (
+                            <div className="px-3 py-2 text-sm text-gray-500">
+                              해당 역할을 수행할 수 있는 에이전트가 없습니다.
+                            </div>
+                          )}
                       </div>
                     )}
                   </div>
@@ -1289,9 +1368,13 @@ export default function IdeationPage() {
 
                   <select
                     value={chatMode}
-                    onChange={(e) =>
-                      setChatMode(e.target.value as "feedback" | "request")
-                    }
+                    onChange={(e) => {
+                      setChatMode(e.target.value as "feedback" | "request");
+                      // 채팅 모드 변경 시 요청 타입과 멘션된 에이전트 초기화
+                      if (e.target.value === "feedback") {
+                        setRequestType(null);
+                      }
+                    }}
                     className="px-3 py-1.5 bg-gray-100 border-none rounded-md text-sm font-medium text-gray-700 focus:ring-0"
                   >
                     <option value="feedback">피드백</option>
@@ -1301,19 +1384,31 @@ export default function IdeationPage() {
                   {chatMode === "request" && (
                     <select
                       value={requestType || ""}
-                      onChange={(e) =>
-                        setRequestType(
-                          e.target.value as "generate" | "evaluate" | "feedback"
-                        )
-                      }
+                      onChange={(e) => {
+                        const newRequestType = e.target.value as
+                          | "generate"
+                          | "evaluate"
+                          | "feedback";
+                        setRequestType(newRequestType);
+
+                        // 요청 타입 변경 시, 현재 선택된 에이전트가 해당 역할을 수행할 수 없다면 초기화
+                        if (
+                          mentionedAgent &&
+                          !canAgentPerformRole(mentionedAgent, newRequestType)
+                        ) {
+                          setMentionedAgent(null);
+                        }
+                      }}
                       className="px-3 py-1.5 bg-gray-100 border-none rounded-md text-sm font-medium text-gray-700 focus:ring-0"
                     >
                       <option value="" disabled>
                         요청 선택
                       </option>
-                      <option value="generate">아이디어 생성</option>
-                      <option value="evaluate">아이디어 평가</option>
-                      <option value="feedback">피드백</option>
+                      {getAvailableRequestTypes().map((type) => (
+                        <option key={type.value} value={type.value}>
+                          {type.label}
+                        </option>
+                      ))}
                     </select>
                   )}
                 </div>
