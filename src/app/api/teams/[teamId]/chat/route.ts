@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { getChatHistory, addChatMessage } from "@/lib/redis";
-import { generateIdeaViaRequest } from "@/actions/ideation.actions";
+import {
+  generateIdeaViaRequest,
+  evaluateIdeaViaRequest,
+} from "@/actions/ideation.actions";
 
 export async function GET(
   request: NextRequest,
@@ -70,6 +73,30 @@ export async function POST(
         } else {
           console.error(
             `Failed to generate idea for agent ${messagePayload.mention}: ${result.error}`
+          );
+        }
+      });
+    }
+
+    // Check if it's an evaluation request and trigger the action
+    if (
+      messageType === "request" &&
+      messagePayload.requestType === "evaluate"
+    ) {
+      // Don't wait for the evaluation to finish, run it in the background
+      evaluateIdeaViaRequest({
+        teamId: teamId,
+        agentId: messagePayload.mention,
+        requestMessage: messagePayload.content,
+        requesterName: sender || session.user.email || "팀원",
+      }).then((result) => {
+        if (result.success) {
+          console.log(
+            `Successfully evaluated idea for agent ${messagePayload.mention}`
+          );
+        } else {
+          console.error(
+            `Failed to evaluate idea for agent ${messagePayload.mention}: ${result.error}`
           );
         }
       });

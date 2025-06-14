@@ -9,6 +9,9 @@ import {
   preIdeationPrompt,
   newIdeationPrompt,
   updateIdeationPrompt,
+  preEvaluationPrompt,
+  executeEvaluationPrompt,
+  alreadyEvaluatedResponsePrompt,
 } from "@/core/prompts";
 
 if (!process.env.OPENAI_API_KEY) {
@@ -124,7 +127,12 @@ export async function planNextAction(context: any) {
 
 export async function preIdeationAction(
   requestMessage: string,
-  ideaList: { object: string; function: string }[],
+  ideaList: {
+    ideaNumber: number;
+    authorName: string;
+    object: string;
+    function: string;
+  }[],
   agentProfile?: any
 ) {
   const prompt = preIdeationPrompt(requestMessage, ideaList);
@@ -147,5 +155,44 @@ export async function executeIdeationAction(
     }
     prompt = updateIdeationPrompt(referenceIdea, ideationStrategy, topic);
   }
+  return getJsonResponse(prompt, agentProfile);
+}
+
+// --- New 2-Stage Evaluation Action Functions ---
+
+export async function preEvaluationAction(
+  requestMessage: string,
+  ideaList: any[],
+  agentProfile?: any
+) {
+  const prompt = preEvaluationPrompt(requestMessage, ideaList);
+  return getJsonResponse(prompt, agentProfile);
+}
+
+export async function executeEvaluationAction(
+  selectedIdea: any,
+  evaluationStrategy: string,
+  agentProfile?: any
+) {
+  const prompt = executeEvaluationPrompt(selectedIdea, evaluationStrategy);
+  return getJsonResponse(prompt, agentProfile);
+}
+
+// --- Function for generating responses when already evaluated ---
+
+export async function generateAlreadyEvaluatedResponse(
+  requesterName: string,
+  selectedIdea: any,
+  previousEvaluation: any,
+  relationshipType: string | null,
+  agentProfile?: any
+) {
+  const prompt = alreadyEvaluatedResponsePrompt(
+    requesterName,
+    selectedIdea,
+    previousEvaluation,
+    relationshipType,
+    agentProfile
+  );
   return getJsonResponse(prompt, agentProfile);
 }

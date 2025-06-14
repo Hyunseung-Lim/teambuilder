@@ -206,3 +206,144 @@ Ideation Strategy: ${ideationStrategy}
 Apply the strategy to the reference idea to create an improved or modified version. The new idea should be a clear evolution of the reference.
 Idea: `;
 };
+
+// New prompts for the 2-stage evaluation process
+
+export const preEvaluationPrompt = (
+  requestMessage: string,
+  ideaList: any[]
+) => {
+  const simplifiedIdeaList = ideaList.map((idea, index) => ({
+    ideaNumber: index + 1,
+    authorName: idea.author === "나" ? "User" : idea.author,
+    object: idea.content.object,
+    function: idea.content.function,
+  }));
+
+  const ideaListString =
+    simplifiedIdeaList.length > 0
+      ? JSON.stringify(simplifiedIdeaList, null, 2)
+      : "No ideas available for evaluation.";
+
+  return `You are an AI agent in a team ideation session. Your task is to analyze a request for idea evaluation and decide which idea to evaluate and how.
+
+Inputs:
+1. Request Message: "${requestMessage}"
+2. Available Ideas: ${ideaListString}
+
+Based on the inputs, you must perform the following tasks:
+1. Select ONE idea from the "Available Ideas" list that is most relevant to the request message. If the request mentions a specific idea number, prioritize that. Otherwise, choose the most suitable one based on the request context.
+2. Extract an "Evaluation Strategy" from the request message that will guide how you evaluate the selected idea. This should focus on what aspects to emphasize (e.g., "Focus on environmental impact", "Evaluate technical feasibility", "Consider user experience").
+
+Return your decision as a single JSON object in the following format. Do not include any other text or explanations.
+
+{
+  "selectedIdea": {
+    "ideaNumber": 1,
+    "object": "...",
+    "function": "..."
+  },
+  "evaluationStrategy": "Your extracted evaluation strategy focusing on specific aspects to evaluate."
+}
+
+Example:
+Request Message: "Can you evaluate idea #2 focusing on its environmental benefits?"
+Available Ideas: [
+  { "ideaNumber": 1, "authorName": "User", "object": "스마트 조명", "function": "..." },
+  { "ideaNumber": 2, "authorName": "Agent A", "object": "태양광 충전기", "function": "..." }
+]
+
+Your output:
+{
+  "selectedIdea": { "ideaNumber": 2, "object": "태양광 충전기", "function": "..." },
+  "evaluationStrategy": "Focus on environmental benefits and sustainability impact."
+}
+
+Now, process the given inputs and provide your JSON output.
+`;
+};
+
+export const executeEvaluationPrompt = (
+  selectedIdea: any,
+  evaluationStrategy: string
+) => {
+  const ideaString = JSON.stringify(selectedIdea, null, 2);
+  return `You are an AI agent evaluating an idea in a team ideation session. Your task is to provide a comprehensive evaluation based on the given strategy.
+
+Idea to Evaluate:
+${ideaString}
+
+Evaluation Strategy: ${evaluationStrategy}
+
+You must evaluate the idea on three dimensions using a 5-point scale (1-5):
+- Insightful: How novel, creative, and thought-provoking is this idea? (1=not insightful, 5=very insightful)
+- Actionable: How feasible and implementable is this idea? (1=not actionable, 5=very actionable)  
+- Relevance: How well does this idea address the given topic/problem? (1=not relevant, 5=very relevant)
+
+Apply the evaluation strategy to focus your assessment on the specified aspects while still providing scores for all three dimensions.
+
+Provide your evaluation in the following JSON format. Write your comment in Korean.
+
+{
+  "scores": {
+    "insightful": <1-5>,
+    "actionable": <1-5>,
+    "relevance": <1-5>
+  },
+  "comment": "Your detailed evaluation comment in Korean, focusing on the evaluation strategy while covering all three dimensions."
+}
+
+Return only the JSON object—no additional text or explanations.
+`;
+};
+
+// Prompt for generating responses when an agent has already evaluated an idea
+export const alreadyEvaluatedResponsePrompt = (
+  requesterName: string,
+  selectedIdea: any,
+  previousEvaluation: any,
+  relationshipType: string | null,
+  agentProfile?: any
+) => {
+  const ideaString = JSON.stringify(selectedIdea, null, 2);
+  const evaluationString = JSON.stringify(previousEvaluation, null, 2);
+
+  // 관계 타입에 따른 설명
+  const relationshipDescription = relationshipType
+    ? {
+        FRIEND: "친구 관계로, 편안하고 친근한 톤으로 대화하세요.",
+        AWKWARD:
+          "어색한 사이로, 정중하지만 약간 거리감 있는 톤으로 대화하세요.",
+        SUPERVISOR: "상사 관계로, 존댓말과 격식을 갖춘 톤으로 대화하세요.",
+      }[relationshipType] || "일반적인 팀원 관계로 대화하세요."
+    : "일반적인 팀원 관계로 대화하세요.";
+
+  return `You are an AI agent in a team ideation session. Someone has asked you to evaluate an idea, but you have already evaluated this idea before. You need to politely explain that you've already provided an evaluation and briefly reference your previous assessment.
+
+Context:
+- Requester: ${requesterName}
+- Relationship with requester: ${relationshipDescription}
+- Idea you were asked to evaluate: ${ideaString}
+- Your previous evaluation: ${evaluationString}
+
+Instructions:
+1. Consider your specific relationship with the requester: ${relationshipDescription}
+2. Politely explain that you've already evaluated this specific idea
+3. Briefly summarize your previous evaluation scores or main points
+4. Suggest they can check your previous detailed evaluation
+5. Offer to help with evaluating other ideas if needed
+6. Keep the tone conversational and natural, not robotic
+7. Use appropriate Korean honorifics and politeness levels based on your relationship
+8. If the relationship is FRIEND, be casual and friendly
+9. If the relationship is AWKWARD, be polite but maintain some distance
+10. If the relationship is SUPERVISOR, be very respectful and formal
+
+Generate your response in the following JSON format. Write your response in Korean and make it conversational and natural.
+
+{
+  "response": "Your natural, polite response in Korean explaining that you've already evaluated this idea, with a brief reference to your previous assessment and offering alternative help. Adjust the tone based on your relationship with the requester."
+}
+
+Return only the JSON object—no additional text or explanations.
+`;
+};

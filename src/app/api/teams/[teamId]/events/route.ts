@@ -45,9 +45,9 @@ export async function GET(
 
       sendInitialData();
 
-      // 실시간 업데이트 체크 (5초마다)
-      let lastMessageCount = 0;
-      let lastIdeaCount = 0;
+      // 실시간 업데이트 체크 (2초마다 - 더 빠른 응답)
+      let lastMessageTimestamp = "";
+      let lastIdeaTimestamp = "";
 
       const checkForUpdates = async () => {
         try {
@@ -56,8 +56,25 @@ export async function GET(
             getIdeas(teamId),
           ]);
 
-          const messageChanged = messages.length !== lastMessageCount;
-          const ideaChanged = ideas.length !== lastIdeaCount;
+          // 메시지 변화 감지 (최신 메시지의 타임스탬프 비교)
+          const latestMessageTimestamp =
+            messages.length > 0 ? messages[messages.length - 1].timestamp : "";
+          const messageChanged =
+            latestMessageTimestamp !== lastMessageTimestamp;
+
+          // 아이디어 변화 감지 (아이디어 내용 및 평가 변화 포함)
+          const ideaContentHash = JSON.stringify(
+            ideas.map((idea) => ({
+              id: idea.id,
+              timestamp: idea.timestamp,
+              evaluationCount: idea.evaluations.length,
+              lastEvaluationTimestamp:
+                idea.evaluations.length > 0
+                  ? idea.evaluations[idea.evaluations.length - 1].timestamp
+                  : "",
+            }))
+          );
+          const ideaChanged = ideaContentHash !== lastIdeaTimestamp;
 
           if (messageChanged || ideaChanged) {
             console.log("🔄 변화 감지 - 업데이트 전송:", {
@@ -65,6 +82,7 @@ export async function GET(
               ideaChanged,
               messageCount: messages.length,
               ideaCount: ideas.length,
+              latestMessageTimestamp,
             });
 
             controller.enqueue(
@@ -76,16 +94,16 @@ export async function GET(
               })}\n\n`
             );
 
-            lastMessageCount = messages.length;
-            lastIdeaCount = ideas.length;
+            lastMessageTimestamp = latestMessageTimestamp;
+            lastIdeaTimestamp = ideaContentHash;
           }
         } catch (error) {
           console.error("업데이트 체크 실패:", error);
         }
       };
 
-      // 5초마다 변화 체크 (폴링보다 훨씬 효율적)
-      const interval = setInterval(checkForUpdates, 5000);
+      // 2초마다 변화 체크 (더 빠른 응답)
+      const interval = setInterval(checkForUpdates, 2000);
 
       // 연결 종료 시 정리
       request.signal.addEventListener("abort", () => {

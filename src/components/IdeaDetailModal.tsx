@@ -108,6 +108,18 @@ export default function IdeaDetailModal({
     return authorId;
   };
 
+  const getEvaluatorName = (evaluatorId: string) => {
+    if (evaluatorId === "나") return "나";
+
+    const member = team?.members.find((m) => m.agentId === evaluatorId);
+    if (member && !member.isUser) {
+      const agent = agents.find((a) => a.id === evaluatorId);
+      return agent?.name || `에이전트 ${evaluatorId}`;
+    }
+
+    return evaluatorId;
+  };
+
   // 아이디어 번호 매기기를 위한 생성순 정렬
   const ideasSortedByCreation = [...ideas].sort((a, b) => a.id - b.id);
 
@@ -210,7 +222,7 @@ export default function IdeaDetailModal({
         onClick={(e) => e.stopPropagation()}
       >
         {/* 고정 헤더 */}
-        <div className="sticky top-0 bg-white border-b border-gray-200 p-6 rounded-t-2xl z-10">
+        <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 rounded-t-2xl z-10">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <button
@@ -560,7 +572,7 @@ export default function IdeaDetailModal({
                           : evaluation.evaluator[0]}
                       </div>
                       <span className="text-sm font-medium text-gray-900">
-                        {evaluation.evaluator}
+                        {getEvaluatorName(evaluation.evaluator)}
                       </span>
                     </div>
                   </div>

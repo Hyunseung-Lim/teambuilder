@@ -100,6 +100,11 @@ export default function IdeationPage() {
   // 평가 상태 추가
   const [isSubmittingEvaluation, setIsSubmittingEvaluation] = useState(false);
 
+  // 평가 요청 추적 상태 추가
+  const [evaluatingViaRequestAgents, setEvaluatingViaRequestAgents] = useState<
+    Set<string>
+  >(new Set());
+
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -553,6 +558,39 @@ export default function IdeationPage() {
     }
   }, [messages, generatingViaRequestAgents, stopPolling]);
 
+  // Check for completion of request-based evaluation
+  useEffect(() => {
+    if (evaluatingViaRequestAgents.size === 0) return;
+
+    const completedAgents = new Set<string>();
+
+    messages.forEach((msg) => {
+      if (
+        msg.type === "system" &&
+        typeof msg.payload === "object" &&
+        msg.payload.content?.includes(
+          "요청에 따라 아이디어 평가를 완료했습니다"
+        )
+      ) {
+        if (evaluatingViaRequestAgents.has(msg.sender)) {
+          completedAgents.add(msg.sender);
+        }
+      }
+    });
+
+    if (completedAgents.size > 0) {
+      console.log(
+        "🎉 요청 기반 아이디어 평가 완료:",
+        completedAgents.size + "개"
+      );
+      setEvaluatingViaRequestAgents((prev) => {
+        const newSet = new Set(prev);
+        completedAgents.forEach((agentId) => newSet.delete(agentId));
+        return newSet;
+      });
+    }
+  }, [messages, evaluatingViaRequestAgents]);
+
   // 메시지 전송
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !team || !mentionedAgent) return;
@@ -570,6 +608,14 @@ export default function IdeationPage() {
     if (messageType === "request" && requestType === "generate") {
       console.log("🔄 아이디어 생성 요청 - 추적 시작:", mentionedAgent.id);
       setGeneratingViaRequestAgents((prev) =>
+        new Set(prev).add(mentionedAgent.id)
+      );
+    }
+
+    // Trigger evaluation tracking
+    if (messageType === "request" && requestType === "evaluate") {
+      console.log("🔄 아이디어 평가 요청 - 추적 시작:", mentionedAgent.id);
+      setEvaluatingViaRequestAgents((prev) =>
         new Set(prev).add(mentionedAgent.id)
       );
     }
@@ -874,6 +920,20 @@ export default function IdeationPage() {
                                 아이디어 생성중...
                               </span>
                             )}
+                          {!member.isUser &&
+                            member.agentId &&
+                            generatingViaRequestAgents.has(member.agentId) && (
+                              <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full animate-pulse flex-shrink-0">
+                                요청 아이디어 생성중...
+                              </span>
+                            )}
+                          {!member.isUser &&
+                            member.agentId &&
+                            evaluatingViaRequestAgents.has(member.agentId) && (
+                              <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full animate-pulse flex-shrink-0">
+                                아이디어 평가중...
+                              </span>
+                            )}
                         </div>
                         <div className="flex flex-wrap gap-1 mt-1">
                           {member.roles.map((role, roleIndex) => (
@@ -913,7 +973,11 @@ export default function IdeationPage() {
                     "content" in message.payload &&
                     typeof message.payload.content === "string"
                   ) {
-                    return !message.payload.content.includes("생성중입니다");
+                    // "생성중입니다" 메시지만 필터링 (평가 관련 메시지는 모두 표시)
+                    return (
+                      !message.payload.content.includes("생성중입니다") &&
+                      !message.payload.content.includes("생성하고 있습니다")
+                    );
                   }
                   return true;
                 })
@@ -937,27 +1001,42 @@ export default function IdeationPage() {
                   const senderName = getSenderName(message.sender);
 
                   if (message.type === "system") {
-                    // 시스템 메시지 (아이디어 생성 알림)
+                    // 시스템 메시지 (아이디어 생성/평가 알림)
                     const isGeneratingMessage =
                       typeof message.payload === "object" &&
                       message.payload &&
                       typeof message.payload.content === "string" &&
                       (message.payload.content.includes("생성중입니다") ||
-                        message.payload.content.includes("생성하고 있습니다"));
-                    const isCompletedMessage =
+                        message.payload.content.includes("생성하고 있습니다") ||
+                        message.payload.content.includes("평가하고 있습니다"));
+
+                    const isIdeaCompletedMessage =
                       typeof message.payload === "object" &&
                       message.payload?.content?.includes("생성했습니다");
 
+                    const isEvaluationCompletedMessage =
+                      typeof message.payload === "object" &&
+                      message.payload?.content?.includes("평가를 완료했습니다");
+
+                    const messageContent =
+                      (typeof message.payload === "object" &&
+                        message.payload?.content) ||
+                      "작업을 완료했습니다.";
+
+                    // 평가 완료 메시지는 다른 색상으로 표시
+                    const messageStyle = isEvaluationCompletedMessage
+                      ? "bg-orange-50 text-orange-600"
+                      : "bg-blue-50 text-blue-600";
+
                     return (
                       <div key={message.id} className="flex justify-center">
-                        <div className="bg-blue-50 text-blue-600 px-7 py-2 rounded-full text-sm font-medium flex items-center gap-3">
+                        <div
+                          className={`${messageStyle} px-7 py-2 rounded-full text-sm font-medium flex items-center gap-3`}
+                        >
                           <span>
-                            {senderName}가{" "}
-                            {(typeof message.payload === "object" &&
-                              message.payload?.content) ||
-                              "작업을 완료했습니다."}
+                            {senderName}가 {messageContent}
                           </span>
-                          {isCompletedMessage && (
+                          {isIdeaCompletedMessage && (
                             <div
                               className="underline cursor-pointer border-blue-300 text-blue-600 text-xs h-auto"
                               onClick={() => {
