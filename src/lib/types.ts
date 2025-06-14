@@ -176,8 +176,54 @@ export interface ChatMessage {
   payload: ChatMessagePayload | SystemMessagePayload | string;
 }
 
-// AI 에이전트 메모리
+// --- 에이전트 메모리 시스템 ---
+
+// Short-term Memory
+export interface ShortTermMemory {
+  lastAction: {
+    type: string;
+    timestamp: string;
+    payload?: any;
+  } | null;
+  activeChat: {
+    targetAgentId: string;
+    messages: ChatMessage[];
+  } | null;
+}
+
+// Long-term Memory - Self
+export interface SelfReflection {
+  reflection: string;
+  triggeringEvent: string; // 예: "idea_evaluation", "received_feedback"
+  relatedIdeaId?: number;
+  timestamp: string;
+}
+
+// Long-term Memory - Relation
+export interface InteractionRecord {
+  timestamp: string;
+  action: string; // 예: "gave_feedback", "received_request"
+  content: string;
+}
+
+export interface RelationalMemory {
+  agentInfo: Pick<
+    AIAgent,
+    "id" | "name" | "professional" | "personality" | "skills"
+  >; // Static
+  relationship: RelationshipType; // Static
+  interactionHistory: InteractionRecord[]; // Dynamic
+  myOpinion: string; // Dynamic
+}
+
+export interface LongTermMemory {
+  self: SelfReflection[];
+  relations: Record<string, RelationalMemory>; // key: agentId
+}
+
+// Main Agent Memory Structure
 export interface AgentMemory {
-  lastAction: any;
-  recentMessages: ChatMessage[];
+  agentId: string;
+  shortTerm: ShortTermMemory;
+  longTerm: LongTermMemory;
 }

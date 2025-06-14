@@ -9,6 +9,9 @@ import {
   getUserByEmail,
   getUserAgents,
   updateIdea,
+  getAgentMemory,
+  updateAgentMemory,
+  initializeAgentMemory,
 } from "@/lib/redis";
 import {
   preIdeationAction,
@@ -17,7 +20,7 @@ import {
   executeEvaluationAction,
   generateAlreadyEvaluatedResponse,
 } from "@/lib/openai";
-import { Idea } from "@/lib/types";
+import { Idea, AgentMemory } from "@/lib/types";
 import { getServerSession } from "next-auth";
 
 // 한국어 조사 선택 함수
@@ -55,11 +58,20 @@ export async function generateIdeaViaRequest({
 }) {
   try {
     const session = await getServerSession();
-    const [agentProfile, allIdeas, team] = await Promise.all([
+    // 1. 에이전트 프로필과 아이디어, 팀 정보, 메모리 병렬 로드
+    const [agentProfile, allIdeas, team, agentMemory] = await Promise.all([
       getAgentById(agentId),
       getIdeas(teamId) as Promise<Idea[]>,
       getTeamById(teamId),
+      getAgentMemory(agentId),
     ]);
+
+    // 만약 메모리가 없다면 초기화
+    let currentMemory = agentMemory;
+    if (!currentMemory) {
+      if (!team) throw new Error("메모리 초기화를 위한 팀 정보가 없습니다.");
+      currentMemory = await initializeAgentMemory(agentId, team);
+    }
 
     const user = session?.user?.email
       ? await getUserByEmail(session.user.email)
@@ -73,7 +85,25 @@ export async function generateIdeaViaRequest({
     const agentNameMap = new Map<string, string>();
     allUserAgents.forEach((agent) => agentNameMap.set(agent.id, agent.name));
 
-    // 현재 평가하는 에이전트 정보도 맵에 추가
+    // 팀의 모든 에이전트 정보를 가져와서 맵에 추가
+    if (team) {
+      for (const member of team.members) {
+        if (!member.isUser && member.agentId) {
+          const agentInfo = await getAgentById(member.agentId);
+          if (agentInfo) {
+            agentNameMap.set(agentInfo.id, agentInfo.name);
+            console.log(
+              "팀 에이전트 정보를 맵에 추가:",
+              agentInfo.id,
+              "->",
+              agentInfo.name
+            );
+          }
+        }
+      }
+    }
+
+    // 현재 평가하는 에이전트 정보도 맵에 추가 (중복 방지)
     if (agentProfile && agentProfile.id && agentProfile.name) {
       agentNameMap.set(agentProfile.id, agentProfile.name);
       console.log(
@@ -89,7 +119,12 @@ export async function generateIdeaViaRequest({
 
     const getAuthorNameForPrompt = (authorId: string): string => {
       if (authorId === "나" || authorId === session?.user?.email) return "나";
-      return agentNameMap.get(authorId) || `에이전트`;
+      const name = agentNameMap.get(authorId);
+      if (!name) {
+        console.warn(`에이전트 이름을 찾을 수 없음: ${authorId}`);
+        return `에이전트 ${authorId}`;
+      }
+      return name;
     };
 
     const sortedIdeas = [...allIdeas].sort((a, b) => a.id - b.id);
@@ -109,7 +144,8 @@ export async function generateIdeaViaRequest({
     const preIdeationResult = await preIdeationAction(
       requestMessage,
       simplifiedIdeaList,
-      agentProfile
+      agentProfile,
+      currentMemory
     );
     const { decision, referenceIdea, ideationStrategy } = preIdeationResult;
 
@@ -123,7 +159,8 @@ export async function generateIdeaViaRequest({
       ideationStrategy,
       topic || "Carbon Emission Reduction",
       finalReferenceIdea,
-      agentProfile
+      agentProfile,
+      currentMemory
     );
 
     const newIdea = await addIdea(teamId, {
@@ -143,6 +180,17 @@ export async function generateIdeaViaRequest({
       },
       evaluations: [],
     });
+
+    // 3. 메모리 업데이트 (Short-term)
+    currentMemory.shortTerm.lastAction = {
+      type: "generate_idea_via_request",
+      timestamp: new Date().toISOString(),
+      payload: {
+        requestMessage,
+        generatedIdeaId: newIdea.id,
+      },
+    };
+    await updateAgentMemory(agentId, currentMemory);
 
     await addChatMessage(teamId, {
       sender: agentId,
@@ -181,24 +229,21 @@ export async function evaluateIdeaViaRequest({
 }) {
   try {
     const session = await getServerSession();
-    const [agentProfile, allIdeas] = await Promise.all([
+    // 1. 병렬로 데이터 로드
+    const [agentProfile, allIdeas, team, agentMemory] = await Promise.all([
       getAgentById(agentId),
       getIdeas(teamId) as Promise<Idea[]>,
+      getTeamById(teamId),
+      getAgentMemory(agentId),
     ]);
 
-    if (allIdeas.length === 0) {
-      await addChatMessage(teamId, {
-        sender: agentId,
-        type: "system",
-        payload: { content: "평가할 아이디어가 없습니다." },
-      });
-      return {
-        success: false,
-        error: "평가할 아이디어가 없습니다.",
-      };
+    // 메모리 초기화 (필요 시)
+    let currentMemory = agentMemory;
+    if (!currentMemory) {
+      if (!team) throw new Error("메모리 초기화를 위한 팀 정보가 없습니다.");
+      currentMemory = await initializeAgentMemory(agentId, team);
     }
 
-    // 에이전트 이름 변환을 위한 맵 생성
     const user = session?.user?.email
       ? await getUserByEmail(session.user.email)
       : null;
@@ -211,7 +256,25 @@ export async function evaluateIdeaViaRequest({
     const agentNameMap = new Map<string, string>();
     allUserAgents.forEach((agent) => agentNameMap.set(agent.id, agent.name));
 
-    // 현재 평가하는 에이전트 정보도 맵에 추가
+    // 팀의 모든 에이전트 정보를 가져와서 맵에 추가
+    if (team) {
+      for (const member of team.members) {
+        if (!member.isUser && member.agentId) {
+          const agentInfo = await getAgentById(member.agentId);
+          if (agentInfo) {
+            agentNameMap.set(agentInfo.id, agentInfo.name);
+            console.log(
+              "팀 에이전트 정보를 맵에 추가:",
+              agentInfo.id,
+              "->",
+              agentInfo.name
+            );
+          }
+        }
+      }
+    }
+
+    // 현재 평가하는 에이전트 정보도 맵에 추가 (중복 방지)
     if (agentProfile && agentProfile.id && agentProfile.name) {
       agentNameMap.set(agentProfile.id, agentProfile.name);
       console.log(
@@ -227,7 +290,12 @@ export async function evaluateIdeaViaRequest({
 
     const getAuthorNameForPrompt = (authorId: string): string => {
       if (authorId === "나" || authorId === session?.user?.email) return "나";
-      return agentNameMap.get(authorId) || `에이전트`;
+      const name = agentNameMap.get(authorId);
+      if (!name) {
+        console.warn(`에이전트 이름을 찾을 수 없음: ${authorId}`);
+        return `에이전트 ${authorId}`;
+      }
+      return name;
     };
 
     // 아이디어 목록을 에이전트 이름으로 변환하고, 평가하는 에이전트가 만든 아이디어는 제외
@@ -276,7 +344,8 @@ export async function evaluateIdeaViaRequest({
     const preEvaluationResult = await preEvaluationAction(
       requestMessage,
       simplifiedIdeaList,
-      agentProfile
+      agentProfile,
+      currentMemory
     );
     const { selectedIdea, evaluationStrategy } = preEvaluationResult;
 
@@ -315,15 +384,6 @@ export async function evaluateIdeaViaRequest({
       let relationshipType = null;
 
       if (team && requesterName) {
-        console.log("=== 관계 찾기 디버깅 ===");
-        console.log("agentId (평가자):", agentId);
-        console.log("requesterName (요청자):", requesterName);
-        console.log("session?.user?.email:", session?.user?.email);
-        console.log(
-          "팀 관계 목록:",
-          JSON.stringify(team.relationships, null, 2)
-        );
-
         // 에이전트 ID를 이름으로 변환
         const agentName = agentNameMap.get(agentId) || agentId;
         console.log("agentName (평가자 이름):", agentName);
@@ -374,9 +434,15 @@ export async function evaluateIdeaViaRequest({
       }
 
       try {
+        // targetIdea의 author를 에이전트 이름으로 변환
+        const ideaForResponse = {
+          ...targetIdea,
+          authorName: getAuthorNameForPrompt(targetIdea.author),
+        };
+
         const responseData = await generateAlreadyEvaluatedResponse(
           displayRequesterName,
-          targetIdea,
+          ideaForResponse,
           previousEvaluation,
           relationshipType,
           agentProfile
@@ -418,10 +484,17 @@ export async function evaluateIdeaViaRequest({
     }
 
     // 2단계: 실제 평가 수행
+    // targetIdea의 author를 에이전트 이름으로 변환
+    const ideaForEvaluation = {
+      ...targetIdea,
+      authorName: getAuthorNameForPrompt(targetIdea.author),
+    };
+
     const evaluationResult = await executeEvaluationAction(
-      targetIdea,
+      ideaForEvaluation,
       evaluationStrategy,
-      agentProfile
+      agentProfile,
+      currentMemory
     );
 
     // 평가 결과를 아이디어에 추가
@@ -447,13 +520,20 @@ export async function evaluateIdeaViaRequest({
     // 약간의 지연을 두어 Redis 업데이트가 완전히 반영되도록 함
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    // 평가 완료 알림
+    // 3. 메모리 업데이트
+    const updatedMemory = await updateMemoryAfterEvaluation(
+      currentMemory,
+      agentId,
+      targetIdea.author,
+      evaluation,
+      targetIdea.id
+    );
+    await updateAgentMemory(agentId, updatedMemory);
+
     await addChatMessage(teamId, {
       sender: agentId,
       type: "system",
-      payload: {
-        content: "요청에 따라 아이디어 평가를 완료했습니다",
-      },
+      payload: { content: "요청에 따라 아이디어 평가를 완료했습니다" },
     });
 
     return { success: true, evaluation };
@@ -472,4 +552,55 @@ export async function evaluateIdeaViaRequest({
       error: "요청 기반 아이디어 평가에 실패했습니다.",
     };
   }
+}
+
+// 평가 후 메모리를 업데이트하는 헬퍼 함수
+async function updateMemoryAfterEvaluation(
+  memory: AgentMemory,
+  evaluatorId: string,
+  authorId: string,
+  evaluation: any,
+  ideaId: number
+): Promise<AgentMemory> {
+  // Short-term memory 업데이트
+  memory.shortTerm.lastAction = {
+    type: "evaluate_idea",
+    timestamp: new Date().toISOString(),
+    payload: {
+      ideaId: ideaId,
+      authorId,
+      scores: evaluation.scores,
+    },
+  };
+
+  // Long-term memory 업데이트
+  // 1. 자기 성찰 추가
+  memory.longTerm.self.push({
+    reflection: `내가 ${authorId}의 아이디어를 "${evaluation.scores.insightful}"점으로 평가했다. 코멘트: ${evaluation.comment}`,
+    triggeringEvent: "evaluated_idea",
+    relatedIdeaId: ideaId,
+    timestamp: new Date().toISOString(),
+  });
+
+  // 2. 상호작용 기록 추가
+  if (memory.longTerm.relations[authorId]) {
+    memory.longTerm.relations[authorId].interactionHistory.push({
+      action: "evaluated_their_idea",
+      content: `평가 점수: ${JSON.stringify(evaluation.scores)}. 코멘트: ${
+        evaluation.comment
+      }`,
+      timestamp: new Date().toISOString(),
+    });
+
+    // 3. 관계에 대한 의견 업데이트 (간단한 예시)
+    memory.longTerm.relations[
+      authorId
+    ].myOpinion = `최근 그의 아이디어를 평가했다. ${
+      evaluation.scores.insightful > 3
+        ? "꽤나 통찰력 있는 아이디어를 내는 것 같다."
+        : "조금 더 분발해야 할 것 같다."
+    }`;
+  }
+
+  return memory;
 }

@@ -22,6 +22,7 @@ import {
   ChatMessage,
   Evaluation,
   AgentRole,
+  AgentMemory,
 } from "@/lib/types";
 import {
   User,
@@ -890,22 +891,10 @@ export default function IdeationPage() {
     const lastChar = name.charAt(name.length - 1);
     const lastCharCode = lastChar.charCodeAt(0);
 
-    console.log("lastChar:", lastChar);
-    console.log("lastCharCode:", lastCharCode);
-    console.log("0xAC00:", 0xac00);
-    console.log("0xD7A3:", 0xd7a3);
-
-    // 한글 범위 확인 (가-힣)
     if (lastCharCode >= 0xac00 && lastCharCode <= 0xd7a3) {
       // 받침 있는지 확인 (유니코드 계산)
       const hasJongseong = (lastCharCode - 0xac00) % 28 !== 0;
-      console.log("한글 범위 내:", hasJongseong ? "받침 있음" : "받침 없음");
-      console.log(
-        "계산:",
-        `(${lastCharCode} - ${0xac00}) % 28 = ${(lastCharCode - 0xac00) % 28}`
-      );
       const result = hasJongseong ? hasConsonant : noConsonant;
-      console.log("최종 결과:", result);
       return result;
     }
 
@@ -913,6 +902,37 @@ export default function IdeationPage() {
     console.log("한글이 아님, hasConsonant 반환:", hasConsonant);
     return hasConsonant;
   }
+
+  const [hoveredAgentId, setHoveredAgentId] = useState<string | null>(null);
+  const [agentMemory, setAgentMemory] = useState<AgentMemory | null>(null);
+  const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0 });
+
+  const handleMouseEnter = async (e: React.MouseEvent, agentId: string) => {
+    if (!team) return;
+    setHoveredAgentId(agentId);
+    const rect = e.currentTarget.getBoundingClientRect();
+    setPopoverPosition({ top: rect.top, left: rect.right + 10 });
+
+    try {
+      const response = await fetch(
+        `/api/teams/${team.id}/agents/${agentId}/memory`
+      );
+      if (response.ok) {
+        const memoryData = await response.json();
+        setAgentMemory(memoryData);
+      } else {
+        setAgentMemory(null);
+      }
+    } catch (error) {
+      console.error("Failed to fetch agent memory:", error);
+      setAgentMemory(null);
+    }
+  };
+
+  const handleMouseLeave = () => {
+    setHoveredAgentId(null);
+    setAgentMemory(null);
+  };
 
   if (loading) {
     return (
@@ -1007,6 +1027,12 @@ export default function IdeationPage() {
                     <div
                       key={member.isUser ? "user" : member.agentId || index}
                       className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors"
+                      onMouseEnter={(e) =>
+                        !member.isUser &&
+                        member.agentId &&
+                        handleMouseEnter(e, member.agentId)
+                      }
+                      onMouseLeave={handleMouseLeave}
                     >
                       <div
                         className={`w-10 h-10 rounded-full flex items-center justify-center ${
@@ -1507,7 +1533,7 @@ export default function IdeationPage() {
           </div>
 
           {/* 오른쪽: 아이디어 목록 */}
-          <div className="w-96 bg-gray-50 border-l border-gray-200 flex flex-col">
+          <div className="w-[28rem] bg-gray-50 border-l border-gray-200 flex flex-col">
             {/* Topic 섹션 */}
             <div className="p-4 bg-white border-b border-gray-200">
               <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
@@ -1670,9 +1696,6 @@ export default function IdeationPage() {
                           {generationProgress.total} 완료
                         </p>
                       )}
-                      <p className="text-xs text-gray-400 mt-1">
-                        잠시만 기다려주세요
-                      </p>
                     </>
                   ) : ideas.length > 0 && authorFilter !== "전체" ? (
                     <>
@@ -1874,6 +1897,52 @@ export default function IdeationPage() {
                     취소
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 메모리 팝오버 */}
+      {hoveredAgentId && agentMemory && (
+        <div
+          className="absolute bg-white border border-gray-200 rounded-lg shadow-xl p-4 w-96 z-50"
+          style={{ top: popoverPosition.top, left: popoverPosition.left }}
+        >
+          <h3 className="font-bold text-lg mb-2">
+            Memory of {getAuthorName(hoveredAgentId)}
+          </h3>
+          {/* 단기 기억 */}
+          <div className="mb-4">
+            <h4 className="font-semibold text-md mb-1">Short-term Memory</h4>
+            <div className="text-sm bg-gray-50 p-2 rounded">
+              <p>
+                <strong>Last Action:</strong>{" "}
+                {agentMemory.shortTerm?.lastAction?.type || "None"}
+              </p>
+            </div>
+          </div>
+          {/* 장기 기억 */}
+          <div>
+            <h4 className="font-semibold text-md mb-1">Long-term Memory</h4>
+            <div className="space-y-2 text-sm bg-gray-50 p-2 rounded">
+              <p>
+                <strong>Reflections:</strong>{" "}
+                {agentMemory.longTerm?.self?.length || 0} items
+              </p>
+              <div>
+                <strong>Relations:</strong>
+                <ul className="list-disc pl-5 mt-1">
+                  {agentMemory.longTerm?.relations &&
+                    Object.entries(agentMemory.longTerm.relations).map(
+                      ([agentId, relation]) => (
+                        <li key={agentId}>
+                          {getAuthorName(agentId)}:{" "}
+                          {relation?.myOpinion || "No opinion"}
+                        </li>
+                      )
+                    )}
+                </ul>
               </div>
             </div>
           </div>

@@ -1,3 +1,5 @@
+import { AgentMemory, InteractionRecord } from "@/lib/types";
+
 export const generateIdeaPrompt = (context?: string, agentProfile?: any) => {
   // 주제를 안전하게 처리하되 한글은 보존
   const safeContext = context || "Carbon Emission Reduction";
@@ -121,12 +123,21 @@ export const preIdeationPrompt = (
     authorName: string;
     object: string;
     function: string;
-  }[]
+  }[],
+  memory?: AgentMemory
 ) => {
   const simplifiedIdeaList =
     ideaList.length > 0 ? JSON.stringify(ideaList, null, 2) : "No ideas yet.";
-  return `You are an AI agent in a team ideation session. Your task is to analyze a request for an idea and decide the best way to generate it.
 
+  const memoryContext = memory
+    ? `
+**Your Memory:**
+- Your last action was: ${memory.shortTerm.lastAction?.type || "none"}.
+`
+    : "";
+
+  return `You are an AI agent in a team ideation session. Your task is to analyze a request for an idea and decide the best way to generate it.
+${memoryContext}
 Inputs:
 1. Request Message: "${requestMessage}"
 2. Existing Ideas: ${simplifiedIdeaList}
@@ -179,9 +190,21 @@ const baseIdeationPromptText = `Generate one idea based on the provided instruct
 - structure: The object's components and their relationships, as a JSON object.
 Write all content in Korean. Return only the JSON object.`;
 
-export const newIdeationPrompt = (ideationStrategy: string, topic: string) => {
-  return `${baseIdeationPromptText}
+export const newIdeationPrompt = (
+  ideationStrategy: string,
+  topic: string,
+  memory?: AgentMemory
+) => {
+  const memoryContext = memory
+    ? `
+**Your Memory Context:**
+- Your last action was: ${memory.shortTerm.lastAction?.type || "none"}.
+- You have reflections on ${memory.longTerm.self.length} past events.
+`
+    : "";
 
+  return `${baseIdeationPromptText}
+${memoryContext}
 Task: ${topic}
 Ideation Strategy: ${ideationStrategy}
 
@@ -192,11 +215,30 @@ Idea: `;
 export const updateIdeationPrompt = (
   referenceIdea: any,
   ideationStrategy: string,
-  topic: string
+  topic: string,
+  memory?: AgentMemory
 ) => {
   const ideaString = JSON.stringify(referenceIdea, null, 2);
-  return `${baseIdeationPromptText}
+  const authorName = referenceIdea.authorName || "a team member";
 
+  const memoryContext =
+    memory && memory.longTerm.relations[authorName]
+      ? `
+**Your Memory Context:**
+- Your opinion of ${authorName}: ${
+          memory.longTerm.relations[authorName].myOpinion
+        }
+- Recent interactions with ${authorName}: ${
+          memory.longTerm.relations[authorName].interactionHistory
+            .slice(-2)
+            .map((i: InteractionRecord) => i.content)
+            .join(", ") || "none"
+        }
+`
+      : "";
+
+  return `${baseIdeationPromptText}
+${memoryContext}
 Task: ${topic}
 Reference Idea to Update:
 ${ideaString}
@@ -216,15 +258,23 @@ export const preEvaluationPrompt = (
     authorName: string;
     object: string;
     function: string;
-  }[]
+  }[],
+  memory?: AgentMemory
 ) => {
   const ideaListString =
     ideaList.length > 0
       ? JSON.stringify(ideaList, null, 2)
       : "No ideas available for evaluation.";
 
-  return `You are an AI agent in a team ideation session. Your task is to analyze a request for idea evaluation and decide which idea to evaluate and how.
+  const memoryContext = memory
+    ? `
+**Your Memory:**
+- Your last action was: ${memory.shortTerm.lastAction?.type || "none"}.
+`
+    : "";
 
+  return `You are an AI agent in a team ideation session. Your task is to analyze a request for idea evaluation and decide which idea to evaluate and how.
+${memoryContext}
 Inputs:
 1. Request Message: "${requestMessage}"
 2. Available Ideas: ${ideaListString}
@@ -263,11 +313,30 @@ Now, process the given inputs and provide your JSON output.
 
 export const executeEvaluationPrompt = (
   selectedIdea: any,
-  evaluationStrategy: string
+  evaluationStrategy: string,
+  memory?: AgentMemory
 ) => {
   const ideaString = JSON.stringify(selectedIdea, null, 2);
-  return `You are an AI agent evaluating an idea in a team ideation session. Your task is to provide a comprehensive evaluation based on the given strategy.
+  const authorName = selectedIdea.authorName || "a team member";
 
+  const memoryContext =
+    memory && memory.longTerm.relations[authorName]
+      ? `
+**Your Memory Context:**
+- Your opinion of ${authorName}: ${
+          memory.longTerm.relations[authorName].myOpinion
+        }
+- Recent interactions with ${authorName}: ${
+          memory.longTerm.relations[authorName].interactionHistory
+            .slice(-2)
+            .map((i: InteractionRecord) => i.content)
+            .join(", ") || "none"
+        }
+`
+      : "";
+
+  return `You are an AI agent evaluating an idea in a team ideation session. Your task is to provide a comprehensive evaluation based on the given strategy.
+${memoryContext}
 Idea to Evaluate:
 ${ideaString}
 

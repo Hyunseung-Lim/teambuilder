@@ -1,5 +1,13 @@
 import { Redis } from "@upstash/redis";
-import { User, AIAgent, Team, Idea, ChatMessage, AgentMemory } from "./types";
+import {
+  User,
+  AIAgent,
+  Team,
+  Idea,
+  ChatMessage,
+  AgentMemory,
+  RelationalMemory,
+} from "./types";
 import { nanoid } from "nanoid";
 
 if (
@@ -151,60 +159,33 @@ export async function getUserAgents(userId: string): Promise<AIAgent[]> {
 export async function createTeam(
   teamData: Omit<Team, "id" | "createdAt"> & { ownerId: string }
 ): Promise<Team> {
-  const team: Team = {
-    id: `team_${nanoid()}`,
-    teamName: teamData.teamName || "",
-    topic: teamData.topic || undefined,
-    members: Array.isArray(teamData.members) ? teamData.members : [],
-    relationships: Array.isArray(teamData.relationships)
-      ? teamData.relationships
-      : [],
-    ownerId: teamData.ownerId || "",
-    createdAt: new Date().toISOString(),
+  const teamId = `team_${nanoid()}`;
+  const { teamName, members, ownerId } = teamData;
+
+  const newTeam = {
+    id: teamId,
+    ownerId: ownerId,
+    teamName,
+    members,
+    relationships: [], // 관계 정보는 팀 생성 후 설정
+    createdAt: new Date(),
   };
 
-  // 안전하게 저장할 객체 생성 - 각 필드를 명시적으로 검증
-  const safeTeam: { [key: string]: string } = {};
+  await redis.hset(keys.team(teamId), newTeam);
+  await redis.sadd(keys.userTeams(ownerId), teamId);
 
-  // 문자열 필드들
-  safeTeam.id = String(team.id);
-  safeTeam.teamName = String(team.teamName);
-  safeTeam.ownerId = String(team.ownerId);
-  safeTeam.createdAt = String(team.createdAt);
-
-  // 토픽 필드 추가 (선택적)
-  if (team.topic) {
-    safeTeam.topic = String(team.topic);
+  // 각 에이전트의 메모리 초기화
+  for (const member of members) {
+    if (!member.isUser && member.agentId) {
+      await initializeAgentMemory(member.agentId, newTeam as Team);
+    }
   }
 
-  // JSON 필드들 - 안전하게 직렬화
-  try {
-    safeTeam.members = JSON.stringify(team.members);
-  } catch (error) {
-    console.error("Members 직렬화 오류:", error);
-    safeTeam.members = JSON.stringify([]);
-  }
-
-  try {
-    safeTeam.relationships = JSON.stringify(team.relationships);
-  } catch (error) {
-    console.error("Relationships 직렬화 오류:", error);
-    safeTeam.relationships = JSON.stringify([]);
-  }
-
-  console.log("🔧 저장할 팀 데이터:", safeTeam);
-
-  await redis.hset(keys.team(team.id), safeTeam);
-  await redis.sadd(keys.userTeams(teamData.ownerId), team.id);
-
-  console.log("✅ 팀 저장 완료:", team.id);
-  return team;
+  return newTeam as Team;
 }
 
 export async function getTeamById(id: string): Promise<Team | null> {
-  const teamData = await redis.hgetall<
-    Team & { members: string; relationships: string }
-  >(keys.team(id));
+  const teamData = (await redis.hgetall(keys.team(id))) as any;
   if (!teamData) return null;
 
   // ownerId가 배열 형태로 잘못 저장된 경우 복구
@@ -475,7 +456,15 @@ export async function getAgentMemory(
 ): Promise<AgentMemory | null> {
   const memoryJson = await redis.get<string>(keys.agentMemory(agentId));
   if (!memoryJson) return null;
-  return JSON.parse(memoryJson);
+
+  try {
+    return JSON.parse(memoryJson);
+  } catch (error) {
+    console.warn(`손상된 메모리 데이터 발견 (${agentId}):`, memoryJson);
+    // 손상된 데이터 삭제
+    await redis.del(keys.agentMemory(agentId));
+    return null;
+  }
 }
 
 export async function updateAgentMemory(
@@ -487,13 +476,15 @@ export async function updateAgentMemory(
 
 // 디버깅용 함수들 (개발 환경에서만 사용)
 export async function debugGetAllTeamKeys(): Promise<string[]> {
-  try {
-    const allKeys = await redis.keys("team:*");
-    return allKeys.filter((key) => key.includes("team:team_")); // team:team_xxx 형태의 팀 키만
-  } catch (error) {
-    console.error("팀 키 조회 오류:", error);
-    return [];
+  const stream = redis.scanStream({
+    match: "team:*",
+  });
+
+  const keys: string[] = [];
+  for await (const key of stream) {
+    keys.push(key);
   }
+  return keys;
 }
 
 export async function debugGetTeamData(teamKey: string): Promise<any> {
@@ -624,4 +615,82 @@ export async function cleanupCorruptedData(teamId: string) {
   } catch (error) {
     console.error(`팀 ${teamId} 데이터 정리 중 오류:`, error);
   }
+}
+
+export async function initializeAgentMemory(
+  agentId: string,
+  team: Team
+): Promise<AgentMemory> {
+  console.log(`에이전트 ${agentId}의 메모리를 초기화합니다.`);
+
+  // 자신을 제외한 팀원 정보로 관계 메모리 초기화
+  const relations: Record<string, RelationalMemory> = {};
+  const agentProfile = await getAgentById(agentId);
+
+  for (const member of team.members) {
+    // 자기 자신은 제외
+    if (member.agentId === agentId) continue;
+
+    let otherAgentId: string;
+    let otherAgentName: string;
+    let otherAgentProfile: any;
+
+    if (member.isUser) {
+      // TODO: 사용자의 프로필 정보를 어떻게 가져올지 정의 필요
+      // 우선은 '나'로 하드코딩
+      otherAgentId = "나";
+      otherAgentName = "나";
+      otherAgentProfile = {
+        id: "나",
+        name: "나",
+        professional: "팀 리더",
+        personality: "알 수 없음",
+        skills: "리더십",
+      };
+    } else {
+      otherAgentId = member.agentId!;
+      const otherAgent = await getAgentById(otherAgentId);
+      if (!otherAgent) continue;
+
+      otherAgentName = otherAgent.name;
+      otherAgentProfile = {
+        id: otherAgent.id,
+        name: otherAgent.name,
+        professional: otherAgent.professional,
+        personality: otherAgent.personality,
+        skills: otherAgent.skills,
+      };
+    }
+
+    // 두 사람 간의 관계 찾기
+    const relationship = team.relationships.find(
+      (rel) =>
+        (rel.from === agentProfile?.name && rel.to === otherAgentName) ||
+        (rel.from === otherAgentName && rel.to === agentProfile?.name)
+    );
+
+    relations[otherAgentId] = {
+      agentInfo: otherAgentProfile,
+      relationship: relationship ? relationship.type : "AWKWARD", // 기본값
+      interactionHistory: [],
+      myOpinion: "아직 상호작용이 없어 의견이 없습니다.", // 초기 의견
+    };
+  }
+
+  const initialMemory: AgentMemory = {
+    agentId,
+    shortTerm: {
+      lastAction: null,
+      activeChat: null,
+    },
+    longTerm: {
+      self: [],
+      relations,
+    },
+  };
+
+  await updateAgentMemory(agentId, initialMemory);
+  console.log(`에이전트 ${agentId}의 메모리 초기화 완료.`);
+
+  return initialMemory;
 }

@@ -13,6 +13,7 @@ import {
   executeEvaluationPrompt,
   alreadyEvaluatedResponsePrompt,
 } from "@/core/prompts";
+import { AgentMemory } from "@/lib/types";
 
 if (!process.env.OPENAI_API_KEY) {
   throw new Error("OPENAI_API_KEY is not set in the environment variables.");
@@ -133,9 +134,10 @@ export async function preIdeationAction(
     object: string;
     function: string;
   }[],
-  agentProfile?: any
+  agentProfile?: any,
+  memory?: AgentMemory
 ) {
-  const prompt = preIdeationPrompt(requestMessage, ideaList);
+  const prompt = preIdeationPrompt(requestMessage, ideaList, memory);
   return getJsonResponse(prompt, agentProfile);
 }
 
@@ -144,16 +146,22 @@ export async function executeIdeationAction(
   ideationStrategy: string,
   topic: string,
   referenceIdea?: any,
-  agentProfile?: any
+  agentProfile?: any,
+  memory?: AgentMemory
 ) {
   let prompt;
   if (decision === "New") {
-    prompt = newIdeationPrompt(ideationStrategy, topic);
+    prompt = newIdeationPrompt(ideationStrategy, topic, memory);
   } else {
     if (!referenceIdea) {
       throw new Error("Reference idea is required for 'Update' decision.");
     }
-    prompt = updateIdeationPrompt(referenceIdea, ideationStrategy, topic);
+    prompt = updateIdeationPrompt(
+      referenceIdea,
+      ideationStrategy,
+      topic,
+      memory
+    );
   }
   return getJsonResponse(prompt, agentProfile);
 }
@@ -168,18 +176,24 @@ export async function preEvaluationAction(
     object: string;
     function: string;
   }[],
-  agentProfile?: any
+  agentProfile?: any,
+  memory?: AgentMemory
 ) {
-  const prompt = preEvaluationPrompt(requestMessage, ideaList);
+  const prompt = preEvaluationPrompt(requestMessage, ideaList, memory);
   return getJsonResponse(prompt, agentProfile);
 }
 
 export async function executeEvaluationAction(
   selectedIdea: any,
   evaluationStrategy: string,
-  agentProfile?: any
+  agentProfile?: any,
+  memory?: AgentMemory
 ) {
-  const prompt = executeEvaluationPrompt(selectedIdea, evaluationStrategy);
+  const prompt = executeEvaluationPrompt(
+    selectedIdea,
+    evaluationStrategy,
+    memory
+  );
   return getJsonResponse(prompt, agentProfile);
 }
 
