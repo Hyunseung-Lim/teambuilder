@@ -36,9 +36,335 @@ import {
   ArrowRight,
   ClipboardCheck,
   MessageSquareText,
+  Star,
+  Clock,
+  Brain,
+  Zap,
+  Timer,
 } from "lucide-react";
 import Link from "next/link";
 import IdeaDetailModal from "@/components/IdeaDetailModal";
+
+// 에이전트 상태 타입 정의 (확장)
+interface AgentStateInfo {
+  agentId: string;
+  currentState: "idle" | "plan" | "action";
+  lastStateChange: string;
+  isProcessing: boolean;
+  currentTask?: {
+    type: "generate_idea" | "evaluate_idea" | "planning" | "thinking";
+    description: string;
+    startTime: string;
+    estimatedDuration: number;
+    trigger?: "autonomous" | "user_request" | "ai_request";
+    requestInfo?: {
+      requesterName: string;
+      requestMessage: string;
+    };
+  };
+  idleTimer?: {
+    startTime: string;
+    plannedDuration: number;
+    remainingTime: number;
+  };
+}
+
+// 에이전트 상태를 주기적으로 가져오는 커스텀 훅
+function useAgentStates(teamId: string) {
+  const [agentStates, setAgentStates] = useState<Map<string, AgentStateInfo>>(
+    new Map()
+  );
+  const [timers, setTimers] = useState<Map<string, number>>(new Map());
+  const [notifications, setNotifications] = useState<
+    Array<{
+      id: string;
+      agentId: string;
+      agentName: string;
+      message: string;
+      type: "task_completed" | "state_changed";
+      timestamp: string;
+    }>
+  >([]);
+
+  useEffect(() => {
+    if (!teamId) return;
+
+    const fetchAgentStates = async () => {
+      try {
+        const response = await fetch(`/api/teams/${teamId}/agent-states`);
+        if (response.ok) {
+          const data = await response.json();
+          const statesMap = new Map<string, AgentStateInfo>();
+          const prevStates = new Map(agentStates);
+
+          data.agentStates.forEach((state: AgentStateInfo) => {
+            statesMap.set(state.agentId, state);
+
+            // 상태 변화 감지 및 알림 생성
+            const prevState = prevStates.get(state.agentId);
+            if (prevState) {
+              // 작업 완료 감지 (action/plan -> idle)
+              if (
+                (prevState.currentState === "action" ||
+                  prevState.currentState === "plan") &&
+                state.currentState === "idle"
+              ) {
+                const taskType = prevState.currentTask?.type;
+                let completionMessage = "작업을 완료했습니다";
+
+                if (taskType === "generate_idea") {
+                  completionMessage = "아이디어 생성을 완료했습니다";
+                } else if (taskType === "evaluate_idea") {
+                  completionMessage = "아이디어 평가를 완료했습니다";
+                } else if (taskType === "planning") {
+                  completionMessage = "계획 수립을 완료했습니다";
+                }
+
+                setNotifications((prev) => [
+                  ...prev,
+                  {
+                    id: `${state.agentId}-${Date.now()}`,
+                    agentId: state.agentId,
+                    agentName: state.agentId, // 실제로는 에이전트 이름으로 변경 필요
+                    message: completionMessage,
+                    type: "task_completed",
+                    timestamp: new Date().toISOString(),
+                  },
+                ]);
+              }
+            }
+          });
+
+          setAgentStates(statesMap);
+        }
+      } catch (error) {
+        console.error("에이전트 상태 조회 실패:", error);
+      }
+    };
+
+    // 초기 로드
+    fetchAgentStates();
+
+    // 10초마다 상태 업데이트 (더 현실적인 빈도)
+    const interval = setInterval(fetchAgentStates, 10000);
+
+    return () => clearInterval(interval);
+  }, [teamId, agentStates]);
+
+  // 타이머 계산 (실시간 업데이트)
+  useEffect(() => {
+    const updateTimers = () => {
+      const newTimers = new Map<string, number>();
+
+      agentStates.forEach((state, agentId) => {
+        if (state.currentState === "idle" && state.idleTimer) {
+          // 서버에서 계산된 remainingTime 사용
+          newTimers.set(agentId, state.idleTimer.remainingTime);
+        } else if (state.currentTask) {
+          // 작업 진행 시간 계산
+          const elapsed = Math.floor(
+            (Date.now() - new Date(state.currentTask.startTime).getTime()) /
+              1000
+          );
+          const remaining = Math.max(
+            0,
+            state.currentTask.estimatedDuration - elapsed
+          );
+          newTimers.set(agentId, remaining);
+        }
+      });
+
+      setTimers(newTimers);
+    };
+
+    updateTimers();
+    const interval = setInterval(updateTimers, 1000);
+
+    return () => clearInterval(interval);
+  }, [agentStates]);
+
+  // 알림 자동 제거 (5초 후)
+  useEffect(() => {
+    notifications.forEach((notification) => {
+      const timer = setTimeout(() => {
+        setNotifications((prev) =>
+          prev.filter((n) => n.id !== notification.id)
+        );
+      }, 5000);
+
+      return () => clearTimeout(timer);
+    });
+  }, [notifications]);
+
+  return {
+    agentStates,
+    timers,
+    notifications,
+    clearNotification: (id: string) => {
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+    },
+  };
+}
+
+// 향상된 상태 표시 컴포넌트
+function AgentStateIndicator({
+  state,
+  timer,
+  agentName,
+}: {
+  state: AgentStateInfo | undefined;
+  timer: number | undefined;
+  agentName: string;
+}) {
+  if (!state) return null;
+
+  const getStateInfo = () => {
+    switch (state.currentState) {
+      case "idle":
+        return {
+          icon: <Clock className="h-3 w-3" />,
+          text: timer && timer > 0 ? `대기 (${timer}초)` : "대기중",
+          color: "bg-gray-100 text-gray-600",
+          tooltip: state.idleTimer
+            ? `${Math.floor((timer || 0) / 60)}분 ${
+                (timer || 0) % 60
+              }초 후 다음 행동 계획`
+            : "대기 중",
+        };
+      case "plan":
+        return {
+          icon: <Brain className="h-3 w-3" />,
+          text: "계획중",
+          color: "bg-yellow-100 text-yellow-700",
+          tooltip:
+            state.currentTask?.description || "다음 행동을 계획하고 있습니다",
+        };
+      case "action":
+        // 작업 타입에 따른 구체적인 표시
+        const getActionText = () => {
+          const taskType = state.currentTask?.type;
+          const trigger = state.currentTask?.trigger;
+          const requester = state.currentTask?.requestInfo?.requesterName;
+
+          let baseText = "";
+          switch (taskType) {
+            case "generate_idea":
+              baseText = "아이디어 생성중";
+              break;
+            case "evaluate_idea":
+              baseText = "아이디어 평가중";
+              break;
+            case "planning":
+              baseText = "계획중";
+              break;
+            case "thinking":
+              baseText = "사고중";
+              break;
+            default:
+              baseText = "작업중";
+          }
+
+          // 트리거에 따라 추가 정보 표시
+          if (trigger === "user_request" && requester) {
+            return `${baseText} (${requester} 요청)`;
+          } else if (trigger === "ai_request" && requester) {
+            return `${baseText} (${requester} 요청)`;
+          }
+
+          return baseText;
+        };
+
+        const getActionColor = () => {
+          const trigger = state.currentTask?.trigger;
+          switch (trigger) {
+            case "user_request":
+              return "bg-purple-100 text-purple-700"; // 사용자 요청
+            case "ai_request":
+              return "bg-blue-100 text-blue-700"; // AI 요청
+            default:
+              return "bg-green-100 text-green-700"; // 자율적 작업
+          }
+        };
+
+        const getActionTooltip = () => {
+          const trigger = state.currentTask?.trigger;
+          const requester = state.currentTask?.requestInfo?.requesterName;
+          const message = state.currentTask?.requestInfo?.requestMessage;
+
+          let tooltip =
+            state.currentTask?.description || "작업을 수행하고 있습니다";
+
+          if (trigger === "user_request" && requester) {
+            tooltip += `\n요청자: ${requester}`;
+            if (message) {
+              tooltip += `\n요청 내용: ${message}`;
+            }
+          } else if (trigger === "ai_request" && requester) {
+            tooltip += `\n요청자: ${requester}`;
+            if (message) {
+              tooltip += `\n요청 내용: ${message}`;
+            }
+          } else if (trigger === "autonomous") {
+            tooltip += "\n(자율적 계획에 의한 작업)";
+          }
+
+          return tooltip;
+        };
+
+        return {
+          icon: <Zap className="h-3 w-3" />,
+          text: getActionText(),
+          color: getActionColor(),
+          tooltip: getActionTooltip(),
+        };
+      default:
+        return {
+          icon: <Clock className="h-3 w-3" />,
+          text: "알 수 없음",
+          color: "bg-gray-100 text-gray-600",
+          tooltip: "상태를 확인할 수 없습니다",
+        };
+    }
+  };
+
+  const stateInfo = getStateInfo();
+
+  return (
+    <div className="relative group">
+      <span
+        className={`text-xs px-2 py-1 rounded-full flex items-center gap-1 ${stateInfo.color} flex-shrink-0 cursor-help`}
+      >
+        {stateInfo.icon}
+        {stateInfo.text}
+      </span>
+
+      {/* 툴팁 */}
+      <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 w-52">
+        <div className="font-medium">{agentName}</div>
+        <div className="whitespace-pre-line">{stateInfo.tooltip}</div>
+        {state.currentState === "idle" &&
+          state.idleTimer &&
+          timer &&
+          timer > 0 && (
+            <div className="text-gray-300 mt-1">
+              예상 완료: {Math.ceil(timer)}초 후
+            </div>
+          )}
+        {state.currentState === "action" &&
+          state.currentTask?.trigger &&
+          state.currentTask.trigger !== "autonomous" && (
+            <div className="text-gray-300 mt-1">
+              {state.currentTask.trigger === "user_request"
+                ? "👤 사용자 요청"
+                : "🤖 AI 요청"}
+            </div>
+          )}
+        {/* 툴팁 화살표 */}
+        <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
+      </div>
+    </div>
+  );
+}
 
 export default function IdeationPage() {
   const params = useParams();
@@ -934,6 +1260,42 @@ export default function IdeationPage() {
     setAgentMemory(null);
   };
 
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [showMemoryModal, setShowMemoryModal] = useState(false);
+
+  const handleAgentClick = async (agentId: string) => {
+    if (!team) return;
+    setSelectedAgentId(agentId);
+    setShowMemoryModal(true);
+
+    try {
+      const response = await fetch(
+        `/api/teams/${team.id}/agents/${agentId}/memory`
+      );
+      if (response.ok) {
+        const memoryData = await response.json();
+        setAgentMemory(memoryData);
+      } else {
+        setAgentMemory(null);
+      }
+    } catch (error) {
+      console.error("Failed to fetch agent memory:", error);
+      setAgentMemory(null);
+    }
+  };
+
+  const closeMemoryModal = () => {
+    setShowMemoryModal(false);
+    setSelectedAgentId(null);
+    setAgentMemory(null);
+  };
+
+  const teamId = params.teamId as string;
+
+  // 에이전트 상태 훅 사용
+  const { agentStates, timers, notifications, clearNotification } =
+    useAgentStates(teamId);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -964,6 +1326,47 @@ export default function IdeationPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* 알림 컨테이너 */}
+      <div className="fixed top-4 right-4 z-50 space-y-2">
+        {notifications.map((notification) => {
+          const agentName = getAuthorName(notification.agentId);
+          return (
+            <div
+              key={notification.id}
+              className="bg-white border border-gray-200 rounded-lg shadow-lg p-4 max-w-sm animate-slide-in-right"
+              style={{
+                animation: "slideInRight 0.3s ease-out",
+              }}
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-sm font-medium">
+                      {agentName === "나" ? "나" : agentName[0]}
+                    </span>
+                  </div>
+                  <div>
+                    <div className="font-medium text-gray-900">{agentName}</div>
+                    <div className="text-sm text-gray-600">
+                      {notification.message}
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      {formatTimestamp(notification.timestamp)}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => clearNotification(notification.id)}
+                  className="text-gray-400 hover:text-gray-600 ml-2"
+                >
+                  <span className="text-lg">×</span>
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
       {/* 헤더 */}
       <header className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
@@ -1026,13 +1429,16 @@ export default function IdeationPage() {
                   return (
                     <div
                       key={member.isUser ? "user" : member.agentId || index}
-                      className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors"
-                      onMouseEnter={(e) =>
+                      className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${
+                        !member.isUser && member.agentId
+                          ? "hover:bg-gray-50 cursor-pointer"
+                          : "hover:bg-gray-50"
+                      }`}
+                      onClick={() =>
                         !member.isUser &&
                         member.agentId &&
-                        handleMouseEnter(e, member.agentId)
+                        handleAgentClick(member.agentId)
                       }
-                      onMouseLeave={handleMouseLeave}
                     >
                       <div
                         className={`w-10 h-10 rounded-full flex items-center justify-center ${
@@ -1057,27 +1463,15 @@ export default function IdeationPage() {
                           {member.isLeader && (
                             <Crown className="h-3 w-3 text-yellow-600 flex-shrink-0" />
                           )}
-                          {!member.isUser &&
-                            member.agentId &&
-                            generatingAgents.has(member.agentId) && (
-                              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full animate-pulse flex-shrink-0">
-                                아이디어 생성중...
-                              </span>
-                            )}
-                          {!member.isUser &&
-                            member.agentId &&
-                            generatingViaRequestAgents.has(member.agentId) && (
-                              <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full animate-pulse flex-shrink-0">
-                                요청 아이디어 생성중...
-                              </span>
-                            )}
-                          {!member.isUser &&
-                            member.agentId &&
-                            evaluatingViaRequestAgents.has(member.agentId) && (
-                              <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full animate-pulse flex-shrink-0">
-                                아이디어 평가중...
-                              </span>
-                            )}
+
+                          {/* 에이전트 상태 표시 */}
+                          {!member.isUser && member.agentId && (
+                            <AgentStateIndicator
+                              state={agentStates.get(member.agentId)}
+                              timer={timers.get(member.agentId)}
+                              agentName={memberName}
+                            />
+                          )}
                         </div>
                         <div className="flex flex-wrap gap-1 mt-1">
                           {member.roles.map((role, roleIndex) => (
@@ -1906,43 +2300,308 @@ export default function IdeationPage() {
       {/* 메모리 팝오버 */}
       {hoveredAgentId && agentMemory && (
         <div
-          className="absolute bg-white border border-gray-200 rounded-lg shadow-xl p-4 w-96 z-50"
+          className="absolute bg-white border border-gray-200 rounded-lg shadow-xl p-4 w-[600px] z-50 max-h-[80vh] overflow-y-auto"
           style={{ top: popoverPosition.top, left: popoverPosition.left }}
         >
-          <h3 className="font-bold text-lg mb-2">
-            Memory of {getAuthorName(hoveredAgentId)}
+          <h3 className="font-bold text-lg mb-4 text-blue-600 border-b pb-2">
+            🧠 Memory of {getAuthorName(hoveredAgentId)}
           </h3>
-          {/* 단기 기억 */}
-          <div className="mb-4">
-            <h4 className="font-semibold text-md mb-1">Short-term Memory</h4>
-            <div className="text-sm bg-gray-50 p-2 rounded">
-              <p>
-                <strong>Last Action:</strong>{" "}
-                {agentMemory.shortTerm?.lastAction?.type || "None"}
-              </p>
+
+          {/* Short-term Memory */}
+          <div className="mb-6">
+            <h4 className="font-semibold text-md mb-3 text-green-600">
+              📋 Short-term Memory
+            </h4>
+            <div className="space-y-3">
+              {/* Last Action */}
+              <div className="bg-green-50 p-3 rounded-lg">
+                <h5 className="font-medium text-sm mb-2 text-green-800">
+                  Last Action:
+                </h5>
+                {agentMemory.shortTerm?.lastAction ? (
+                  <div className="text-sm space-y-1">
+                    <p>
+                      <strong>Type:</strong>{" "}
+                      {agentMemory.shortTerm.lastAction.type}
+                    </p>
+                    <p>
+                      <strong>Timestamp:</strong>{" "}
+                      {new Date(
+                        agentMemory.shortTerm.lastAction.timestamp
+                      ).toLocaleString()}
+                    </p>
+                    {agentMemory.shortTerm.lastAction.payload && (
+                      <div>
+                        <strong>Payload:</strong>
+                        <pre className="mt-1 text-xs bg-white p-2 rounded border overflow-x-auto">
+                          {JSON.stringify(
+                            agentMemory.shortTerm.lastAction.payload,
+                            null,
+                            2
+                          )}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">No recent actions</p>
+                )}
+              </div>
+
+              {/* Active Chat */}
+              <div className="bg-green-50 p-3 rounded-lg">
+                <h5 className="font-medium text-sm mb-2 text-green-800">
+                  Active Chat:
+                </h5>
+                {agentMemory.shortTerm?.activeChat ? (
+                  <div className="text-sm space-y-1">
+                    <p>
+                      <strong>Target:</strong>{" "}
+                      {getAuthorName(
+                        agentMemory.shortTerm.activeChat.targetAgentId
+                      )}
+                    </p>
+                    <p>
+                      <strong>Messages:</strong>{" "}
+                      {agentMemory.shortTerm.activeChat.messages?.length || 0}{" "}
+                      messages
+                    </p>
+                    {agentMemory.shortTerm.activeChat.messages &&
+                      agentMemory.shortTerm.activeChat.messages.length > 0 && (
+                        <div className="mt-2">
+                          <strong>Recent Messages:</strong>
+                          <div className="max-h-32 overflow-y-auto mt-1">
+                            {agentMemory.shortTerm.activeChat.messages
+                              .slice(-3)
+                              .map((msg, idx) => (
+                                <div
+                                  key={idx}
+                                  className="text-xs bg-white p-2 rounded border mb-1"
+                                >
+                                  <div>
+                                    <strong>
+                                      {getAuthorName(msg.sender)}:
+                                    </strong>
+                                  </div>
+                                  <div>
+                                    {typeof msg.payload === "string"
+                                      ? msg.payload
+                                      : JSON.stringify(msg.payload)}
+                                  </div>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">No active chat</p>
+                )}
+              </div>
             </div>
           </div>
-          {/* 장기 기억 */}
+
+          {/* Long-term Memory */}
           <div>
-            <h4 className="font-semibold text-md mb-1">Long-term Memory</h4>
-            <div className="space-y-2 text-sm bg-gray-50 p-2 rounded">
-              <p>
-                <strong>Reflections:</strong>{" "}
-                {agentMemory.longTerm?.self?.length || 0} items
-              </p>
-              <div>
-                <strong>Relations:</strong>
-                <ul className="list-disc pl-5 mt-1">
-                  {agentMemory.longTerm?.relations &&
-                    Object.entries(agentMemory.longTerm.relations).map(
+            <h4 className="font-semibold text-md mb-3 text-purple-600">
+              🧩 Long-term Memory
+            </h4>
+
+            {/* Self Reflections */}
+            <div className="mb-4">
+              <h5 className="font-medium text-sm mb-2 text-purple-800">
+                🪞 Self Reflections ({agentMemory.longTerm?.self?.length || 0})
+              </h5>
+              <div className="bg-purple-50 p-3 rounded-lg max-h-48 overflow-y-auto">
+                {agentMemory.longTerm?.self &&
+                agentMemory.longTerm.self.length > 0 ? (
+                  <div className="space-y-3">
+                    {agentMemory.longTerm.self.map((reflection, idx) => (
+                      <div key={idx} className="bg-white p-3 rounded border">
+                        <div className="text-sm space-y-1">
+                          <p>
+                            <strong>Reflection:</strong> {reflection.reflection}
+                          </p>
+                          <p>
+                            <strong>Triggering Event:</strong>{" "}
+                            {reflection.triggeringEvent}
+                          </p>
+                          {reflection.relatedIdeaId && (
+                            <p>
+                              <strong>Related Idea ID:</strong>{" "}
+                              {reflection.relatedIdeaId}
+                            </p>
+                          )}
+                          <p>
+                            <strong>Timestamp:</strong>{" "}
+                            {new Date(reflection.timestamp).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    No self-reflections yet
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Relations */}
+            <div>
+              <h5 className="font-medium text-sm mb-2 text-purple-800">
+                👥 Relations (
+                {Object.keys(agentMemory.longTerm?.relations || {}).length})
+              </h5>
+              <div className="bg-purple-50 p-3 rounded-lg max-h-64 overflow-y-auto">
+                {agentMemory.longTerm?.relations &&
+                Object.keys(agentMemory.longTerm.relations).length > 0 ? (
+                  <div className="space-y-4">
+                    {Object.entries(agentMemory.longTerm.relations).map(
                       ([agentId, relation]) => (
-                        <li key={agentId}>
-                          {getAuthorName(agentId)}:{" "}
-                          {relation?.myOpinion || "No opinion"}
-                        </li>
+                        <div
+                          key={agentId}
+                          className="bg-white p-3 rounded border"
+                        >
+                          <div className="space-y-2">
+                            {/* Agent Info */}
+                            <div className="border-b pb-2">
+                              <h6 className="font-semibold text-sm text-gray-800">
+                                {getAuthorName(agentId)} ({agentId})
+                              </h6>
+                              <div className="text-xs text-gray-600 mt-1">
+                                <p>
+                                  <strong>Professional:</strong>{" "}
+                                  {relation.agentInfo?.professional || "N/A"}
+                                </p>
+                                <p>
+                                  <strong>Personality:</strong>{" "}
+                                  {relation.agentInfo?.personality || "N/A"}
+                                </p>
+                                <p>
+                                  <strong>Skills:</strong>{" "}
+                                  {relation.agentInfo?.skills || "N/A"}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Relationship */}
+                            <div>
+                              <p className="text-sm">
+                                <strong>Relationship:</strong>{" "}
+                                {relation.relationship}
+                              </p>
+                            </div>
+
+                            {/* My Opinion */}
+                            <div>
+                              <p className="text-sm">
+                                <strong>My Opinion:</strong>
+                              </p>
+                              <p className="text-xs text-gray-700 bg-gray-50 p-2 rounded mt-1">
+                                {relation.myOpinion || "No opinion yet"}
+                              </p>
+                            </div>
+
+                            {/* Interaction History */}
+                            <div>
+                              <p className="text-sm">
+                                <strong>
+                                  Interaction History (
+                                  {relation.interactionHistory?.length || 0}):
+                                </strong>
+                              </p>
+                              {relation.interactionHistory &&
+                              relation.interactionHistory.length > 0 ? (
+                                <div className="max-h-32 overflow-y-auto mt-1">
+                                  {relation.interactionHistory.map(
+                                    (interaction, idx) => (
+                                      <div
+                                        key={idx}
+                                        className="text-xs bg-gray-50 p-2 rounded mb-1"
+                                      >
+                                        <p>
+                                          <strong>Action:</strong>{" "}
+                                          {interaction.action}
+                                        </p>
+                                        <p>
+                                          <strong>Content:</strong>{" "}
+                                          {interaction.content}
+                                        </p>
+                                        <p>
+                                          <strong>Time:</strong>{" "}
+                                          {new Date(
+                                            interaction.timestamp
+                                          ).toLocaleString()}
+                                        </p>
+                                      </div>
+                                    )
+                                  )}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-gray-500 mt-1">
+                                  No interactions yet
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       )
                     )}
-                </ul>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">
+                    No relations established
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Raw Memory Data (for debugging) */}
+          <div className="mt-4 pt-4 border-t">
+            <details className="text-xs">
+              <summary className="cursor-pointer text-gray-600 hover:text-gray-800 font-medium">
+                🔍 Raw Memory Data (Debug)
+              </summary>
+              <pre className="mt-2 bg-gray-100 p-3 rounded text-xs overflow-x-auto max-h-48 overflow-y-auto">
+                {JSON.stringify(agentMemory, null, 2)}
+              </pre>
+            </details>
+          </div>
+        </div>
+      )}
+
+      {/* Memory Modal */}
+      {showMemoryModal && selectedAgentId && agentMemory && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+          onClick={closeMemoryModal}
+        >
+          <div
+            className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              {/* 헤더 */}
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold text-gray-900">
+                  🧠 Memory of {getAuthorName(selectedAgentId)}
+                </h2>
+                <button
+                  onClick={closeMemoryModal}
+                  className="p-2 hover:bg-gray-100 rounded-full text-gray-500 hover:text-gray-700"
+                >
+                  <span className="text-xl">×</span>
+                </button>
+              </div>
+
+              {/* Raw JSON Display */}
+              <div>
+                <pre className="bg-gray-100 p-4 rounded text-sm overflow-x-auto max-h-[70vh] overflow-y-auto font-mono whitespace-pre-wrap">
+                  {JSON.stringify(agentMemory, null, 2)}
+                </pre>
               </div>
             </div>
           </div>

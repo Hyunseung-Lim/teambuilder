@@ -414,3 +414,83 @@ Generate your response in the following JSON format. Write your response in Kore
 Return only the JSON object—no additional text or explanations.
 `;
 };
+
+// Planning 프롬프트 - 에이전트가 다음 행동을 스스로 결정
+export function createPlanningPrompt(
+  agentProfile: any,
+  teamContext: {
+    teamName: string;
+    topic: string;
+    currentIdeasCount: number;
+    recentMessages: any[];
+    teamMembers: string[];
+    existingIdeas: Array<{
+      ideaNumber: number;
+      authorName: string;
+      object: string;
+      function: string;
+    }>;
+  }
+): string {
+  const existingIdeasText =
+    teamContext.existingIdeas.length > 0
+      ? teamContext.existingIdeas
+          .map(
+            (idea) =>
+              `${idea.ideaNumber}. "${idea.object}" (작성자: ${idea.authorName}) - ${idea.function}`
+          )
+          .join("\n")
+      : "아직 생성된 아이디어가 없습니다.";
+
+  return `당신은 "${teamContext.teamName}" 팀의 AI 에이전트 ${
+    agentProfile.name
+  }입니다.
+
+당신의 프로필:
+- 나이: ${agentProfile.age}세
+- 직업: ${agentProfile.professional}
+- 기술: ${agentProfile.skills}
+- 성격: ${agentProfile.personality || "명시되지 않음"}
+- 역할: ${agentProfile.roles?.join(", ") || "명시되지 않음"}
+
+현재 팀 상황:
+- 주제: ${teamContext.topic}
+- 현재 아이디어 개수: ${teamContext.currentIdeasCount}개
+- 팀원: ${teamContext.teamMembers.join(", ")}
+
+기존 아이디어 목록:
+${existingIdeasText}
+
+최근 팀 활동 (최근 5개 메시지):
+${teamContext.recentMessages
+  .map(
+    (msg) =>
+      `- ${msg.sender}: ${
+        typeof msg.payload === "object" ? msg.payload.content : msg.payload
+      }`
+  )
+  .join("\n")}
+
+당신은 현재 계획 단계에 있습니다. 당신의 역할, 성격, 그리고 현재 팀 상황을 바탕으로 다음에 무엇을 할지 결정하세요.
+
+선택 가능한 행동:
+1. "generate_idea" - 주제에 대한 새로운 아이디어 생성
+2. "evaluate_idea" - 기존 아이디어 평가 (평가할 아이디어가 있을 때만)
+3. "give_feedback" - 팀원에게 피드백 제공
+4. "wait" - 대기 상태로 돌아가기
+
+고려사항:
+- 당신에게 할당된 역할과 책임
+- 현재 팀 역학과 최근 대화 내용
+- 팀에 더 많은 아이디어가 필요한지, 아니면 더 많은 평가가 필요한지
+- 당신의 성격과 작업 스타일
+- 같은 행동을 너무 자주 반복하지 마세요
+- 기존 아이디어들과 중복되지 않는 새로운 관점 제시
+
+다음 JSON 형식으로만 응답하세요. 모든 텍스트는 한국어로 작성하세요:
+{
+  "action": "generate_idea" | "evaluate_idea" | "give_feedback" | "wait",
+  "reasoning": "이 행동을 선택한 이유에 대한 간단한 설명 (한국어)",
+  "target": "피드백을 줄 경우 팀원 이름 (선택사항)"
+}`;
+}

@@ -12,6 +12,7 @@ import {
   preIdeationAction,
   executeIdeationAction,
 } from "@/lib/openai";
+import { startAgentStateSystem } from "@/actions/ideation.actions";
 
 export async function GET(
   request: NextRequest,
@@ -135,123 +136,137 @@ export async function POST(
     }
 
     if (action === "auto_generate") {
-      // AI 에이전트들이 자동으로 아이디어 생성
-      try {
-        const team = await getTeamById(teamId);
-        if (!team) {
-          return NextResponse.json(
-            { error: "팀을 찾을 수 없습니다." },
-            { status: 404 }
-          );
-        }
-
-        // 현재 아이디어 개수 확인
-        const existingIdeas = await getIdeas(teamId);
-
-        // "아이디어 생성하기" 롤을 가진 AI 에이전트들 찾기
-        const ideaGenerators = team.members.filter(
-          (member) =>
-            !member.isUser && member.roles.includes("아이디어 생성하기")
-        );
-
-        // 실제로 생성할 에이전트들 (이미 아이디어가 있는 에이전트 제외)
-        const agentsToGenerate = ideaGenerators.filter((member) => {
-          if (!member.agentId) return false;
-          const agentHasIdea = existingIdeas.some(
-            (idea) => idea.author === member.agentId
-          );
-          return !agentHasIdea;
-        });
-
-        const generatingAgentIds = agentsToGenerate
-          .map((member) => member.agentId)
-          .filter((agentId): agentId is string => agentId !== null);
-
-        // 각 에이전트의 아이디어 생성을 병렬로 실행
-        const generationPromises = agentsToGenerate.map(async (member) => {
-          if (!member.agentId) {
-            return null;
-          }
-
-          try {
-            const agentProfile = await getAgentById(member.agentId);
-
-            // 아이디어 생성 시작 메시지
-            await addChatMessage(teamId, {
-              sender: member.agentId,
-              type: "system",
-              payload: {
-                content: "아이디어를 생성중입니다...",
-              },
-            });
-
-            const generatedContent = await generateIdeaAction(
-              topic || "Carbon Emission Reduction",
-              agentProfile
-            );
-
-            const newIdea = await addIdea(teamId, {
-              author: member.agentId,
-              timestamp: new Date().toISOString(),
-              content: {
-                object: generatedContent.object || "생성된 아이디어",
-                function: generatedContent.function || "기능 설명",
-                behavior:
-                  typeof generatedContent.behavior === "object"
-                    ? JSON.stringify(generatedContent.behavior)
-                    : generatedContent.behavior || "동작 설명",
-                structure:
-                  typeof generatedContent.structure === "object"
-                    ? JSON.stringify(generatedContent.structure)
-                    : generatedContent.structure || "구조 설명",
-              },
-              evaluations: [],
-            });
-
-            // 시스템 메시지로 아이디어 생성 완료 알림
-            await addChatMessage(teamId, {
-              sender: member.agentId,
-              type: "system",
-              payload: {
-                content: "새로운 아이디어를 생성했습니다",
-              },
-            });
-
-            return newIdea;
-          } catch (error) {
-            console.error(`${member.agentId} 아이디어 생성 오류:`, error);
-
-            // 오류 발생 시 메시지
-            await addChatMessage(teamId, {
-              sender: member.agentId,
-              type: "system",
-              payload: {
-                content: "아이디어 생성 중 오류가 발생했습니다",
-              },
-            });
-
-            return null;
-          }
-        });
-
-        // 모든 생성 작업이 완료될 때까지 기다리지 않고 즉시 응답
-        // 백그라운드에서 생성 작업 계속 진행
-        Promise.allSettled(generationPromises).then((results) => {
-          console.log("모든 아이디어 생성 작업 완료:", results.length);
-        });
-
-        return NextResponse.json({
-          message: "아이디어 생성을 시작했습니다",
-          agentCount: generatingAgentIds.length,
-          generatingAgentIds,
-        });
-      } catch (error) {
-        console.error("자동 아이디어 생성 오류:", error);
+      // 자동 아이디어 생성
+      const team = await getTeamById(teamId);
+      if (!team) {
         return NextResponse.json(
-          { error: "자동 아이디어 생성에 실패했습니다." },
-          { status: 500 }
+          { error: "팀을 찾을 수 없습니다." },
+          { status: 404 }
         );
       }
+
+      // 아이디어 생성 역할을 가진 에이전트들 찾기
+      const ideaGenerators = team.members.filter(
+        (member) => !member.isUser && member.roles.includes("아이디어 생성하기")
+      );
+
+      if (ideaGenerators.length === 0) {
+        return NextResponse.json(
+          { error: "아이디어 생성 역할을 가진 에이전트가 없습니다." },
+          { status: 400 }
+        );
+      }
+
+      console.log(
+        `🚀 ${ideaGenerators.length}명의 에이전트가 아이디어 생성 시작`
+      );
+
+      // 모든 에이전트에 대해 병렬로 아이디어 생성
+      const generationPromises = ideaGenerators.map(async (member) => {
+        if (!member.agentId) return null;
+
+        try {
+          const agentProfile = await getAgentById(member.agentId);
+
+          // 1. 계획 상태로 변경
+          await updateAgentState(
+            teamId,
+            member.agentId,
+            "plan",
+            "planning",
+            "아이디어 생성을 계획하고 있습니다",
+            15
+          );
+
+          // 계획 시간 대기 (15초)
+          await new Promise((resolve) => setTimeout(resolve, 15000));
+
+          // 2. 작업 상태로 변경
+          await updateAgentState(
+            teamId,
+            member.agentId,
+            "action",
+            "generate_idea",
+            "창의적인 아이디어를 생성하고 있습니다",
+            60
+          );
+
+          const generatedContent = await generateIdeaAction(
+            topic || "Carbon Emission Reduction",
+            agentProfile
+          );
+
+          const newIdea = await addIdea(teamId, {
+            author: member.agentId,
+            timestamp: new Date().toISOString(),
+            content: {
+              object: generatedContent.object || "생성된 아이디어",
+              function: generatedContent.function || "기능 설명",
+              behavior:
+                typeof generatedContent.behavior === "object"
+                  ? JSON.stringify(generatedContent.behavior)
+                  : generatedContent.behavior || "동작 설명",
+              structure:
+                typeof generatedContent.structure === "object"
+                  ? JSON.stringify(generatedContent.structure)
+                  : generatedContent.structure || "구조 설명",
+            },
+            evaluations: [],
+          });
+
+          // 3. 완료 후 idle 상태로 변경
+          await updateAgentState(teamId, member.agentId, "idle");
+
+          // 시스템 메시지로 아이디어 생성 완료 알림
+          await addChatMessage(teamId, {
+            sender: member.agentId,
+            type: "system",
+            payload: {
+              content: "새로운 아이디어를 생성했습니다",
+            },
+          });
+
+          return { success: true, idea: newIdea };
+        } catch (error) {
+          console.error(
+            `에이전트 ${member.agentId} 아이디어 생성 실패:`,
+            error
+          );
+
+          // 오류 발생 시 idle 상태로 복구
+          await updateAgentState(teamId, member.agentId, "idle");
+
+          // 오류 발생 시 메시지
+          await addChatMessage(teamId, {
+            sender: member.agentId,
+            type: "system",
+            payload: {
+              content: "아이디어 생성 중 오류가 발생했습니다",
+            },
+          });
+
+          return { success: false, error: error };
+        }
+      });
+
+      // 모든 생성 완료 대기
+      const results = await Promise.all(generationPromises);
+      const successCount = results.filter(
+        (result: any) => result?.success
+      ).length;
+
+      console.log(
+        `✅ 자동 아이디어 생성 완료: ${successCount}/${ideaGenerators.length}`
+      );
+
+      return NextResponse.json({
+        success: true,
+        message: `${successCount}개의 아이디어가 생성되었습니다.`,
+        agentCount: ideaGenerators.length,
+        generatingAgentIds: ideaGenerators
+          .map((m) => m.agentId)
+          .filter(Boolean),
+      });
     }
 
     return NextResponse.json({ error: "잘못된 액션입니다." }, { status: 400 });
@@ -261,5 +276,38 @@ export async function POST(
       { error: "아이디어 API 처리 중 오류가 발생했습니다." },
       { status: 500 }
     );
+  }
+}
+
+// 에이전트 상태 업데이트 함수 추가
+async function updateAgentState(
+  teamId: string,
+  agentId: string,
+  state: "idle" | "plan" | "action",
+  taskType?: string,
+  taskDescription?: string,
+  estimatedDuration?: number
+) {
+  try {
+    await fetch(
+      `${
+        process.env.NEXTAUTH_URL || "http://localhost:3000"
+      }/api/teams/${teamId}/agent-states`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          agentId,
+          currentState: state,
+          taskType,
+          taskDescription,
+          estimatedDuration,
+        }),
+      }
+    );
+  } catch (error) {
+    console.error(`에이전트 ${agentId} 상태 업데이트 실패:`, error);
   }
 }

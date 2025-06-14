@@ -12,8 +12,10 @@ import {
   preEvaluationPrompt,
   executeEvaluationPrompt,
   alreadyEvaluatedResponsePrompt,
+  createPlanningPrompt,
 } from "@/core/prompts";
 import { AgentMemory } from "@/lib/types";
+import OpenAI from "openai";
 
 if (!process.env.OPENAI_API_KEY) {
   throw new Error("OPENAI_API_KEY is not set in the environment variables.");
@@ -22,6 +24,10 @@ if (!process.env.OPENAI_API_KEY) {
 const llm = new ChatOpenAI({
   model: "gpt-4o",
   temperature: 0.5,
+});
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 async function getJsonResponse(prompt: string, agentProfile?: any) {
@@ -97,8 +103,31 @@ async function getJsonResponse(prompt: string, agentProfile?: any) {
 
 // --- Action Functions ---
 
-export async function generateIdeaAction(context?: string, agentProfile?: any) {
-  const prompt = generateIdeaPrompt(context, agentProfile);
+export async function generateIdeaAction(
+  context?: string,
+  agentProfile?: any,
+  existingIdeas?: Array<{
+    ideaNumber: number;
+    authorName: string;
+    object: string;
+    function: string;
+  }>
+) {
+  // 기존 아이디어가 있으면 프롬프트에 포함
+  let enhancedContext = context || "Carbon Emission Reduction";
+
+  if (existingIdeas && existingIdeas.length > 0) {
+    const existingIdeasText = existingIdeas
+      .map(
+        (idea) =>
+          `${idea.ideaNumber}. "${idea.object}" (작성자: ${idea.authorName}) - ${idea.function}`
+      )
+      .join("\n");
+
+    enhancedContext += `\n\n기존에 생성된 아이디어들:\n${existingIdeasText}\n\n위 아이디어들과 중복되지 않는 새로운 관점의 아이디어를 생성하세요.`;
+  }
+
+  const prompt = generateIdeaPrompt(enhancedContext, agentProfile);
   return getJsonResponse(prompt, agentProfile);
 }
 
@@ -112,6 +141,46 @@ export async function feedbackAction(target: string, context: string) {
   return getJsonResponse(prompt);
 }
 
+// 새로운 구체적인 피드백 함수
+export async function giveFeedbackOnIdea(
+  targetIdea: any,
+  agentProfile: any,
+  teamContext: any
+) {
+  const ideaAuthor =
+    targetIdea.author === "나"
+      ? "나"
+      : (() => {
+          const member = teamContext.teamMembers.find(
+            (m: any) => m.agentId === targetIdea.author
+          );
+          return member?.name || targetIdea.author;
+        })();
+
+  const prompt = `당신은 ${agentProfile.name}입니다. 팀 아이디어 세션에서 다음 아이디어에 대해 구어체로 자연스러운 피드백을 주세요.
+
+평가할 아이디어:
+- 제목: ${targetIdea.content.object}
+- 기능: ${targetIdea.content.function}
+- 작성자: ${ideaAuthor}
+
+주제: ${teamContext.topic}
+
+피드백 가이드라인:
+1. 구어체로 자연스럽게 작성 (예: "이 아이디어 정말 좋네요!", "~하면 어떨까요?")
+2. 구체적인 개선점이나 확장 아이디어 제시
+3. 긍정적이면서도 건설적인 톤 유지
+4. 작성자를 직접 언급하며 대화하듯 작성
+5. 200자 내외로 간결하게
+
+다음 JSON 형식으로 응답하세요:
+{
+  "feedback": "구어체로 작성된 자연스러운 피드백 내용"
+}`;
+
+  return getJsonResponse(prompt, agentProfile);
+}
+
 export async function requestAction(target: string, context: string) {
   const prompt = requestPrompt(target, context);
   return getJsonResponse(prompt);
@@ -119,9 +188,100 @@ export async function requestAction(target: string, context: string) {
 
 // --- Planning Function ---
 
-export async function planNextAction(context: any) {
-  const prompt = planNextActionPrompt(context);
-  return getJsonResponse(prompt);
+export async function planNextAction(
+  agentProfile: any,
+  teamContext: {
+    teamName: string;
+    topic: string;
+    currentIdeasCount: number;
+    recentMessages: any[];
+    teamMembers: string[];
+    existingIdeas: Array<{
+      ideaNumber: number;
+      authorName: string;
+      object: string;
+      function: string;
+    }>;
+  }
+): Promise<{
+  action: "generate_idea" | "evaluate_idea" | "give_feedback" | "wait";
+  reasoning: string;
+  target?: string;
+}> {
+  try {
+    const prompt = createPlanningPrompt(agentProfile, teamContext);
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are an AI agent planning your next action in a team ideation session. Respond only with valid JSON.",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      temperature: 0.8, // 약간의 창의성 허용
+      max_tokens: 200,
+    });
+
+    const response = completion.choices[0]?.message?.content?.trim();
+    if (!response) {
+      throw new Error("No response from OpenAI");
+    }
+
+    // JSON 파싱
+    const cleanedResponse = response.replace(/```json\n?|```/g, "").trim();
+
+    const planResult = JSON.parse(cleanedResponse);
+
+    // 유효성 검사
+    const validActions = [
+      "generate_idea",
+      "evaluate_idea",
+      "give_feedback",
+      "wait",
+    ];
+    if (!validActions.includes(planResult.action)) {
+      throw new Error(`Invalid action: ${planResult.action}`);
+    }
+
+    console.log(`🧠 ${agentProfile.name} 계획 결과:`, planResult);
+
+    return {
+      action: planResult.action,
+      reasoning: planResult.reasoning || "No reasoning provided",
+      target: planResult.target,
+    };
+  } catch (error) {
+    console.error("Planning 실패:", error);
+
+    // 실패 시 기본 행동 (역할에 따라)
+    if (agentProfile.roles?.includes("아이디어 생성하기")) {
+      return {
+        action: "generate_idea",
+        reasoning:
+          "Default action due to planning error - generating idea based on role",
+      };
+    } else if (
+      agentProfile.roles?.includes("아이디어 평가하기") &&
+      teamContext.currentIdeasCount > 0
+    ) {
+      return {
+        action: "evaluate_idea",
+        reasoning:
+          "Default action due to planning error - evaluating ideas based on role",
+      };
+    } else {
+      return {
+        action: "wait",
+        reasoning: "Default action due to planning error - waiting",
+      };
+    }
+  }
 }
 
 // --- New 2-Stage Ideation Action Functions ---

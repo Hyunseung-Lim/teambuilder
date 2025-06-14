@@ -43,7 +43,7 @@ export async function GET(
         );
       }
 
-      const newMemory = initializeAgentMemory(agentId, team);
+      const newMemory = await initializeAgentMemory(agentId, team);
       await updateAgentMemory(agentId, newMemory);
       console.log(`✅ Memory initialized and saved for agent ${agentId}.`);
       memory = newMemory;

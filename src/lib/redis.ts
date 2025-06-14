@@ -471,7 +471,19 @@ export async function updateAgentMemory(
   agentId: string,
   memory: AgentMemory
 ): Promise<void> {
-  await redis.set(keys.agentMemory(agentId), JSON.stringify(memory));
+  console.log(`=== Redis에 메모리 저장 시작: ${agentId} ===`);
+  console.log("저장할 메모리:", JSON.stringify(memory, null, 2));
+
+  const memoryJson = JSON.stringify(memory);
+  console.log("JSON 문자열 길이:", memoryJson.length);
+
+  await redis.set(keys.agentMemory(agentId), memoryJson);
+  console.log(`Redis 저장 완료: ${keys.agentMemory(agentId)}`);
+
+  // 저장 후 바로 확인
+  const savedMemory = await redis.get(keys.agentMemory(agentId));
+  console.log("저장 후 확인 - 저장된 데이터 존재:", !!savedMemory);
+  console.log("=== Redis 메모리 저장 완료 ===");
 }
 
 // 디버깅용 함수들 (개발 환경에서만 사용)
@@ -621,23 +633,32 @@ export async function initializeAgentMemory(
   agentId: string,
   team: Team
 ): Promise<AgentMemory> {
-  console.log(`에이전트 ${agentId}의 메모리를 초기화합니다.`);
+  console.log(`=== 에이전트 ${agentId}의 메모리 초기화 시작 ===`);
+  console.log("팀 정보:", JSON.stringify(team, null, 2));
 
   // 자신을 제외한 팀원 정보로 관계 메모리 초기화
   const relations: Record<string, RelationalMemory> = {};
   const agentProfile = await getAgentById(agentId);
+  console.log("에이전트 프로필:", JSON.stringify(agentProfile, null, 2));
+
+  if (!agentProfile) {
+    console.error(`에이전트 프로필을 찾을 수 없음: ${agentId}`);
+    throw new Error(`에이전트 프로필을 찾을 수 없습니다: ${agentId}`);
+  }
 
   for (const member of team.members) {
     // 자기 자신은 제외
-    if (member.agentId === agentId) continue;
+    if (member.agentId === agentId) {
+      console.log("자기 자신 제외:", member);
+      continue;
+    }
 
     let otherAgentId: string;
     let otherAgentName: string;
     let otherAgentProfile: any;
 
     if (member.isUser) {
-      // TODO: 사용자의 프로필 정보를 어떻게 가져올지 정의 필요
-      // 우선은 '나'로 하드코딩
+      // 사용자의 경우
       otherAgentId = "나";
       otherAgentName = "나";
       otherAgentProfile = {
@@ -647,10 +668,14 @@ export async function initializeAgentMemory(
         personality: "알 수 없음",
         skills: "리더십",
       };
+      console.log("사용자 멤버 처리:", otherAgentProfile);
     } else {
       otherAgentId = member.agentId!;
       const otherAgent = await getAgentById(otherAgentId);
-      if (!otherAgent) continue;
+      if (!otherAgent) {
+        console.log("다른 에이전트 정보를 찾을 수 없음:", otherAgentId);
+        continue;
+      }
 
       otherAgentName = otherAgent.name;
       otherAgentProfile = {
@@ -660,21 +685,31 @@ export async function initializeAgentMemory(
         personality: otherAgent.personality,
         skills: otherAgent.skills,
       };
+      console.log("다른 에이전트 처리:", otherAgentProfile);
     }
 
-    // 두 사람 간의 관계 찾기
+    // 두 사람 간의 관계 찾기 - 이름으로 매칭
     const relationship = team.relationships.find(
       (rel) =>
-        (rel.from === agentProfile?.name && rel.to === otherAgentName) ||
-        (rel.from === otherAgentName && rel.to === agentProfile?.name)
+        (rel.from === agentProfile.name && rel.to === otherAgentName) ||
+        (rel.from === otherAgentName && rel.to === agentProfile.name)
+    );
+    console.log(
+      `${agentProfile.name} <-> ${otherAgentName} 관계:`,
+      relationship
     );
 
-    relations[otherAgentId] = {
+    // relations의 키를 에이전트 이름으로 사용 (ID 대신)
+    // 단, 사용자는 "나"로, 에이전트는 ID로 키를 사용
+    const relationKey = member.isUser ? "나" : otherAgentId;
+
+    relations[relationKey] = {
       agentInfo: otherAgentProfile,
       relationship: relationship ? relationship.type : "AWKWARD", // 기본값
       interactionHistory: [],
       myOpinion: "아직 상호작용이 없어 의견이 없습니다.", // 초기 의견
     };
+    console.log(`관계 추가: ${relationKey}`, relations[relationKey]);
   }
 
   const initialMemory: AgentMemory = {
@@ -689,8 +724,9 @@ export async function initializeAgentMemory(
     },
   };
 
+  console.log("초기 메모리 구조:", JSON.stringify(initialMemory, null, 2));
   await updateAgentMemory(agentId, initialMemory);
-  console.log(`에이전트 ${agentId}의 메모리 초기화 완료.`);
+  console.log(`=== 에이전트 ${agentId}의 메모리 초기화 완료 ===`);
 
   return initialMemory;
 }

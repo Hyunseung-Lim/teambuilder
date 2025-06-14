@@ -227,3 +227,35 @@ export interface AgentMemory {
   shortTerm: ShortTermMemory;
   longTerm: LongTermMemory;
 }
+
+// AI Agent State System Types
+export type AgentState = "idle" | "plan" | "action";
+
+export interface AgentRequest {
+  id: string;
+  type: "generate_idea" | "evaluate_idea";
+  requesterName: string;
+  payload: {
+    message: string;
+    ideaId?: number; // for evaluation requests
+    [key: string]: any;
+  };
+  timestamp: string;
+  teamId: string;
+}
+
+export interface AgentStateInfo {
+  agentId: string;
+  currentState: AgentState;
+  lastStateChange: string;
+  idleTimer?: NodeJS.Timeout;
+  isProcessing: boolean;
+  requestQueue: AgentRequest[];
+}
+
+export interface PlanDecision {
+  shouldAct: boolean;
+  actionType?: "generate_idea" | "evaluate_idea";
+  reasoning: string;
+  targetIdeaId?: number; // for evaluation
+}
