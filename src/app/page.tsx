@@ -390,6 +390,12 @@ export default function HomePage() {
                                     ).toLocaleDateString()}
                                   </span>
                                 </div>
+                                {currentTeam.topic && (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-lg">💡</span>
+                                    <span>주제: {currentTeam.topic}</span>
+                                  </div>
+                                )}
                               </div>
                             </div>
                             <div className="flex flex-row gap-3">
@@ -464,7 +470,7 @@ export default function HomePage() {
                                             <p className="text-sm text-gray-600 mb-2">
                                               사용자 본인
                                             </p>
-                                            <div className="flex flex-col gap-1">
+                                            <div className="flex flex-wrap gap-1">
                                               {member.roles.map(
                                                 (role, index) => (
                                                   <span
@@ -598,6 +604,7 @@ export default function HomePage() {
                                       {new Date(
                                         team.createdAt
                                       ).toLocaleDateString()}
+                                      {team.topic && ` • 주제: ${team.topic}`}
                                     </p>
                                   </div>
                                 </div>

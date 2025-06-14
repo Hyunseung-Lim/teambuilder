@@ -14,13 +14,14 @@ export async function createTeamAction(formData: FormData) {
   }
 
   const teamName = formData.get("teamName") as string;
+  const topic = formData.get("topic") as string;
   const selectedAgents = JSON.parse(formData.get("selectedAgents") as string);
   const relationships = JSON.parse(
     (formData.get("relationships") as string) || "[]"
   );
 
-  if (!teamName || selectedAgents.length === 0) {
-    throw new Error("팀 이름과 에이전트를 선택해주세요.");
+  if (!teamName || !topic || selectedAgents.length === 0) {
+    throw new Error("팀 이름, 주제, 에이전트를 모두 입력해주세요.");
   }
 
   // 각 멤버가 최소 하나의 역할을 가지는지 확인
@@ -33,6 +34,7 @@ export async function createTeamAction(formData: FormData) {
   try {
     await createTeam({
       teamName,
+      topic,
       members: selectedAgents,
       relationships,
       ownerId: session.user.email,

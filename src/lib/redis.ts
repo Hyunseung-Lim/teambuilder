@@ -154,6 +154,7 @@ export async function createTeam(
   const team: Team = {
     id: `team_${nanoid()}`,
     teamName: teamData.teamName || "",
+    topic: teamData.topic || undefined,
     members: Array.isArray(teamData.members) ? teamData.members : [],
     relationships: Array.isArray(teamData.relationships)
       ? teamData.relationships
@@ -170,6 +171,11 @@ export async function createTeam(
   safeTeam.teamName = String(team.teamName);
   safeTeam.ownerId = String(team.ownerId);
   safeTeam.createdAt = String(team.createdAt);
+
+  // 토픽 필드 추가 (선택적)
+  if (team.topic) {
+    safeTeam.topic = String(team.topic);
+  }
 
   // JSON 필드들 - 안전하게 직렬화
   try {
@@ -239,7 +245,42 @@ export async function getTeamById(id: string): Promise<Team | null> {
     ownerId: ownerId as string,
     members,
     relationships,
+    topic: teamData.topic || undefined,
   };
+}
+
+export async function updateTeam(
+  teamId: string,
+  teamData: Partial<Team>
+): Promise<void> {
+  const existingTeam = await getTeamById(teamId);
+  if (!existingTeam) {
+    throw new Error("Team not found");
+  }
+
+  // 업데이트할 데이터 준비
+  const updateData: { [key: string]: string } = {};
+
+  if (teamData.teamName) {
+    updateData.teamName = teamData.teamName;
+  }
+
+  if (teamData.topic !== undefined) {
+    updateData.topic = teamData.topic;
+  }
+
+  if (teamData.members) {
+    updateData.members = JSON.stringify(teamData.members);
+  }
+
+  if (teamData.relationships) {
+    updateData.relationships = JSON.stringify(teamData.relationships);
+  }
+
+  // Redis에 업데이트
+  if (Object.keys(updateData).length > 0) {
+    await redis.hset(keys.team(teamId), updateData);
+  }
 }
 
 export async function getUserTeams(userId: string): Promise<Team[]> {

@@ -54,6 +54,7 @@ export default function NewTeamPage() {
   // 1단계: 팀 기본 정보
   const [teamName, setTeamName] = useState("");
   const [teamSize, setTeamSize] = useState(4); // 나 + AI 3명 = 총 4명 기본값
+  const [topic, setTopic] = useState(""); // 아이디에이션 주제 추가
 
   // 2-4단계: 팀원 슬롯
   const [memberSlots, setMemberSlots] = useState<TeamMemberSlot[]>([]);
@@ -159,7 +160,10 @@ export default function NewTeamPage() {
 
   // 단계별 진행 가능 여부 체크
   const canProceedToStep2 =
-    teamName.trim().length > 0 && teamSize >= 3 && teamSize <= 6;
+    teamName.trim().length > 0 &&
+    topic.trim().length > 0 &&
+    teamSize >= 3 &&
+    teamSize <= 6;
 
   // 모든 팀원이 최소 1개 역할을 가지고, 최소 1명은 '아이디어 생성하기' 역할을 가져야 함
   const hasAllRoles = memberSlots.every((member) => member.roles.length > 0);
@@ -238,6 +242,7 @@ export default function NewTeamPage() {
       // 4. 팀 생성 액션 호출
       const teamFormData = new FormData();
       teamFormData.append("teamName", teamName.trim());
+      teamFormData.append("topic", topic.trim());
       teamFormData.append("selectedAgents", JSON.stringify(teamMembers));
       teamFormData.append("relationships", JSON.stringify(relationships));
 
@@ -374,6 +379,20 @@ export default function NewTeamPage() {
                 placeholder="예: 크리에이티브 디자인 팀"
                 className="text-lg"
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="topic">아이디에이션 주제 *</Label>
+              <Input
+                id="topic"
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                placeholder="예: Carbon Emission Reduction, 미래의 교육 시스템"
+                className="text-lg"
+              />
+              <p className="text-sm text-gray-600">
+                팀이 함께 토론하고 아이디어를 생성할 주제를 입력해주세요
+              </p>
             </div>
 
             <div className="space-y-4">

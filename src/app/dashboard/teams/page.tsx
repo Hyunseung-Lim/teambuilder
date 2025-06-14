@@ -104,6 +104,12 @@ export default async function TeamsPage() {
                   </div>
                   <CardDescription>
                     생성일: {new Date(team.createdAt).toLocaleDateString()}
+                    {team.topic && (
+                      <>
+                        <br />
+                        주제: {team.topic}
+                      </>
+                    )}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4 flex-grow">

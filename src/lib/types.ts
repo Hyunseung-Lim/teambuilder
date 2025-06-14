@@ -31,6 +31,7 @@ export interface Team {
   teamName: string;
   members: TeamMember[];
   relationships: Relationship[];
+  topic?: string; // 아이디에이션 주제
   createdAt: Date;
 }
 

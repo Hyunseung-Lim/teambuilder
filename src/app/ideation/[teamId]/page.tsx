@@ -71,9 +71,7 @@ export default function IdeationPage() {
     structure: "",
   });
   const [isAutoGenerating, setIsAutoGenerating] = useState(false);
-  const [showTopicModal, setShowTopicModal] = useState(true);
   const [topic, setTopic] = useState("");
-  const [topicFormData, setTopicFormData] = useState("");
   const [generationProgress, setGenerationProgress] = useState({
     completed: 0,
     total: 0,
@@ -272,13 +270,15 @@ export default function IdeationPage() {
         // 아이디어와 채팅 메시지 로드
         await Promise.all([loadIdeas(teamId), loadMessages(teamId)]);
 
-        // 아이디어가 있으면 주제 설정 모달 숨기기
-        if (ideas.length > 0) {
-          setShowTopicModal(false);
-          // 기존 아이디어에서 주제 추정 (첫 번째 아이디어의 object를 주제로 사용하거나 기본값)
-          if (!topic) {
-            setTopic("기존 아이디에이션 세션");
-          }
+        // 팀에서 토픽 설정
+        if (teamData.topic) {
+          setTopic(teamData.topic);
+        } else {
+          // 토픽이 없으면 에러 표시
+          setError(
+            "이 팀에는 아이디에이션 주제가 설정되지 않았습니다. 팀을 다시 생성해주세요."
+          );
+          return;
         }
       } catch (error) {
         setError("팀 정보를 불러올 수 없습니다.");
@@ -291,6 +291,40 @@ export default function IdeationPage() {
       loadData();
     }
   }, [params.teamId, session]);
+
+  // 자동 아이디어 생성 - 팀 데이터와 토픽이 준비되면 실행
+  useEffect(() => {
+    if (!team || !topic || !agents.length || isAutoGenerating) return;
+
+    // 이미 아이디어가 있으면 자동 생성하지 않음
+    if (ideas.length > 0) {
+      console.log("💡 이미 아이디어가 존재하므로 자동 생성 건너뜀");
+      return;
+    }
+
+    // 아이디어 생성 역할을 가진 에이전트가 있는지 확인
+    const ideaGenerators = team.members.filter(
+      (member) => !member.isUser && member.roles.includes("아이디어 생성하기")
+    );
+
+    if (ideaGenerators.length === 0) {
+      console.log("💡 아이디어 생성 역할을 가진 에이전트가 없음");
+      return;
+    }
+
+    console.log("🚀 자동 아이디어 생성 시작:", {
+      teamId: team.id,
+      topic,
+      generators: ideaGenerators.length,
+    });
+
+    // 3초 후에 자동 생성 시작 (페이지 로딩 완료 후)
+    const timer = setTimeout(() => {
+      triggerAutoIdeaGeneration(team.id, topic);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [team, topic, agents, ideas.length, isAutoGenerating]);
 
   // 아이디어 로드 - useCallback으로 메모화
   const loadIdeas = useCallback(async (teamId: string) => {
@@ -438,26 +472,9 @@ export default function IdeationPage() {
     // SSE를 사용하므로 폴링 불필요
   }, []);
 
-  // 아이디어가 로드되면 주제 모달 상태 체크
-  useEffect(() => {
-    if (ideas.length > 0 && showTopicModal) {
-      setShowTopicModal(false);
-      if (!topic) {
-        setTopic("기존 아이디에이션 세션");
-      }
-    }
-  }, [ideas.length, showTopicModal, topic]);
+  // 아이디어가 로드되면 주제 모달 상태 체크 - 제거됨
 
-  // 주제 제출 핸들러
-  const handleTopicSubmit = async () => {
-    if (!topicFormData.trim() || !team) return;
-
-    setTopic(topicFormData.trim());
-    setShowTopicModal(false);
-
-    // 주제가 설정된 후 AI 에이전트 자동 아이디어 생성 트리거
-    await triggerAutoIdeaGeneration(team.id, topicFormData.trim());
-  };
+  // 주제 제출 핸들러 - 제거됨
 
   // AI 에이전트 자동 아이디어 생성
   const triggerAutoIdeaGeneration = async (
@@ -859,6 +876,44 @@ export default function IdeationPage() {
     }
   };
 
+  // 한국어 조사 선택 함수
+  function getKoreanParticle(
+    name: string,
+    hasConsonant: string,
+    noConsonant: string
+  ): string {
+    if (!name) {
+      console.log("이름이 없어서 hasConsonant 반환:", hasConsonant);
+      return hasConsonant;
+    }
+
+    const lastChar = name.charAt(name.length - 1);
+    const lastCharCode = lastChar.charCodeAt(0);
+
+    console.log("lastChar:", lastChar);
+    console.log("lastCharCode:", lastCharCode);
+    console.log("0xAC00:", 0xac00);
+    console.log("0xD7A3:", 0xd7a3);
+
+    // 한글 범위 확인 (가-힣)
+    if (lastCharCode >= 0xac00 && lastCharCode <= 0xd7a3) {
+      // 받침 있는지 확인 (유니코드 계산)
+      const hasJongseong = (lastCharCode - 0xac00) % 28 !== 0;
+      console.log("한글 범위 내:", hasJongseong ? "받침 있음" : "받침 없음");
+      console.log(
+        "계산:",
+        `(${lastCharCode} - ${0xac00}) % 28 = ${(lastCharCode - 0xac00) % 28}`
+      );
+      const result = hasJongseong ? hasConsonant : noConsonant;
+      console.log("최종 결과:", result);
+      return result;
+    }
+
+    // 한글이 아닌 경우 기본값
+    console.log("한글이 아님, hasConsonant 반환:", hasConsonant);
+    return hasConsonant;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -927,8 +982,8 @@ export default function IdeationPage() {
         </div>
       </header>
 
-      {/* 주제가 설정되지 않으면 메인 컨텐츠 숨기기 */}
-      {!showTopicModal && (
+      {/* 메인 컨텐츠 */}
+      {topic && (
         <div className="flex h-[calc(100vh-80px)]">
           {/* 왼쪽: 팀원 목록 */}
           <div className="w-72 bg-white border-r border-gray-200 flex flex-col">
@@ -1097,7 +1152,9 @@ export default function IdeationPage() {
                           className={`${messageStyle} px-7 py-2 rounded-full text-sm font-medium flex items-center gap-3`}
                         >
                           <span>
-                            {senderName}가 {messageContent}
+                            {senderName}
+                            {getKoreanParticle(senderName, "이", "가")}{" "}
+                            {messageContent}
                           </span>
                           {isIdeaCompletedMessage && (
                             <div
@@ -1815,54 +1872,6 @@ export default function IdeationPage() {
                     className="flex-1 bg-gray-500 text-white py-3 px-4 rounded-lg font-medium hover:bg-gray-600 transition-colors"
                   >
                     취소
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 주제 입력 모달 */}
-      {showTopicModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full">
-            <div className="p-6">
-              {/* 헤더 */}
-              <div className="text-center mb-6">
-                <h2 className="text-xl font-bold text-gray-900 mb-2">
-                  아이디에이션 주제 설정
-                </h2>
-                <p className="text-sm text-gray-600">
-                  AI 에이전트들과 함께 토론할 주제를 입력해주세요
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                {/* 주제 입력 */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    주제 *
-                  </label>
-                  <input
-                    type="text"
-                    value={topicFormData}
-                    onChange={(e) => setTopicFormData(e.target.value)}
-                    className="w-full p-3 text-gray-500 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="예: Carbon Emission Reduction, 미래의 교육 시스템, ..."
-                    onKeyPress={(e) => e.key === "Enter" && handleTopicSubmit()}
-                    autoFocus
-                  />
-                </div>
-
-                {/* 액션 버튼 */}
-                <div className="pt-4">
-                  <button
-                    onClick={handleTopicSubmit}
-                    disabled={!topicFormData.trim()}
-                    className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg font-medium disabled:bg-gray-400 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
-                  >
-                    아이디에이션 시작하기
                   </button>
                 </div>
               </div>

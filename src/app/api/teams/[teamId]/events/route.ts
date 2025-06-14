@@ -3,9 +3,10 @@ import { getChatHistory, getIdeas } from "@/lib/redis";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { teamId: string } }
+  { params }: { params: Promise<{ teamId: string }> }
 ) {
-  const teamId = params.teamId;
+  const resolvedParams = await params;
+  const teamId = resolvedParams.teamId;
 
   // SSE 헤더 설정
   const headers = new Headers({

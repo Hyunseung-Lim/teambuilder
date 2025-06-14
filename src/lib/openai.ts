@@ -162,7 +162,12 @@ export async function executeIdeationAction(
 
 export async function preEvaluationAction(
   requestMessage: string,
-  ideaList: any[],
+  ideaList: {
+    ideaNumber: number;
+    authorName: string;
+    object: string;
+    function: string;
+  }[],
   agentProfile?: any
 ) {
   const prompt = preEvaluationPrompt(requestMessage, ideaList);

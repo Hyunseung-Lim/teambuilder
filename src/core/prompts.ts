@@ -211,18 +211,16 @@ Idea: `;
 
 export const preEvaluationPrompt = (
   requestMessage: string,
-  ideaList: any[]
+  ideaList: {
+    ideaNumber: number;
+    authorName: string;
+    object: string;
+    function: string;
+  }[]
 ) => {
-  const simplifiedIdeaList = ideaList.map((idea, index) => ({
-    ideaNumber: index + 1,
-    authorName: idea.author === "나" ? "User" : idea.author,
-    object: idea.content.object,
-    function: idea.content.function,
-  }));
-
   const ideaListString =
-    simplifiedIdeaList.length > 0
-      ? JSON.stringify(simplifiedIdeaList, null, 2)
+    ideaList.length > 0
+      ? JSON.stringify(ideaList, null, 2)
       : "No ideas available for evaluation.";
 
   return `You are an AI agent in a team ideation session. Your task is to analyze a request for idea evaluation and decide which idea to evaluate and how.
@@ -311,12 +309,15 @@ export const alreadyEvaluatedResponsePrompt = (
   // 관계 타입에 따른 설명
   const relationshipDescription = relationshipType
     ? {
-        FRIEND: "친구 관계로, 편안하고 친근한 톤으로 대화하세요.",
+        FRIEND: "As friends, communicate in a comfortable and friendly tone.",
         AWKWARD:
-          "어색한 사이로, 정중하지만 약간 거리감 있는 톤으로 대화하세요.",
-        SUPERVISOR: "상사 관계로, 존댓말과 격식을 갖춘 톤으로 대화하세요.",
-      }[relationshipType] || "일반적인 팀원 관계로 대화하세요."
-    : "일반적인 팀원 관계로 대화하세요.";
+          "As someone with an awkward relationship, be polite but maintain some distance in your tone.",
+        SUPERVISOR:
+          "As this person's supervisor, communicate in a friendly yet guiding tone. Use informal speech (반말) as is appropriate for a superior addressing a subordinate in Korean workplace culture.",
+        SUBORDINATE:
+          "As this person's subordinate, use respectful language and maintain a formal tone.",
+      }[relationshipType] || "Communicate as general team members."
+    : "Communicate as general team members.";
 
   return `You are an AI agent in a team ideation session. Someone has asked you to evaluate an idea, but you have already evaluated this idea before. You need to politely explain that you've already provided an evaluation and briefly reference your previous assessment.
 
@@ -334,14 +335,11 @@ Instructions:
 5. Offer to help with evaluating other ideas if needed
 6. Keep the tone conversational and natural, not robotic
 7. Use appropriate Korean honorifics and politeness levels based on your relationship
-8. If the relationship is FRIEND, be casual and friendly
-9. If the relationship is AWKWARD, be polite but maintain some distance
-10. If the relationship is SUPERVISOR, be very respectful and formal
 
 Generate your response in the following JSON format. Write your response in Korean and make it conversational and natural.
 
 {
-  "response": "Your natural, polite response in Korean explaining that you've already evaluated this idea, with a brief reference to your previous assessment and offering alternative help. Adjust the tone based on your relationship with the requester."
+  "response": "Your natural response in Korean explaining that you've already evaluated this idea, with a brief reference to your previous assessment and offering alternative help. Adjust the tone based on your relationship with the requester."
 }
 
 Return only the JSON object—no additional text or explanations.
