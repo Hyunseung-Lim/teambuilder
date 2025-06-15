@@ -7,10 +7,17 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ teamId: string; ideaId: string }> }
 ) {
-  const session = await getServerSession();
+  // 시스템 내부 호출 확인 (AI 에이전트의 자율적 평가)
+  const isSystemCall = request.headers.get("x-system-internal") === "true";
 
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
+  if (!isSystemCall) {
+    const session = await getServerSession();
+    if (!session?.user?.email) {
+      return NextResponse.json(
+        { error: "인증이 필요합니다." },
+        { status: 401 }
+      );
+    }
   }
 
   try {

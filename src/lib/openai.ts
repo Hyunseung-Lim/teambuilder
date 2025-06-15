@@ -13,6 +13,8 @@ import {
   executeEvaluationPrompt,
   alreadyEvaluatedResponsePrompt,
   createPlanningPrompt,
+  preRequestPrompt,
+  executeRequestPrompt,
 } from "@/core/prompts";
 import { AgentMemory } from "@/lib/types";
 import OpenAI from "openai";
@@ -105,7 +107,7 @@ async function getJsonResponse(prompt: string, agentProfile?: any) {
 
 export async function generateIdeaAction(
   context?: string,
-  agentProfile?: any,
+  userProfile?: any,
   existingIdeas?: Array<{
     ideaNumber: number;
     authorName: string;
@@ -127,8 +129,8 @@ export async function generateIdeaAction(
     enhancedContext += `\n\n기존에 생성된 아이디어들:\n${existingIdeasText}\n\n위 아이디어들과 중복되지 않는 새로운 관점의 아이디어를 생성하세요.`;
   }
 
-  const prompt = generateIdeaPrompt(enhancedContext, agentProfile);
-  return getJsonResponse(prompt, agentProfile);
+  const prompt = generateIdeaPrompt(enhancedContext, userProfile);
+  return getJsonResponse(prompt, userProfile);
 }
 
 export async function evaluateIdeaAction(idea: any, context?: string) {
@@ -144,7 +146,7 @@ export async function feedbackAction(target: string, context: string) {
 // 새로운 구체적인 피드백 함수
 export async function giveFeedbackOnIdea(
   targetIdea: any,
-  agentProfile: any,
+  userProfile: any,
   teamContext: any
 ) {
   const ideaAuthor =
@@ -157,7 +159,7 @@ export async function giveFeedbackOnIdea(
           return member?.name || targetIdea.author;
         })();
 
-  const prompt = `당신은 ${agentProfile.name}입니다. 팀 아이디어 세션에서 다음 아이디어에 대해 구어체로 자연스러운 피드백을 주세요.
+  const prompt = `당신은 ${userProfile.name}입니다. 팀 아이디어 세션에서 다음 아이디어에 대해 구어체로 자연스러운 피드백을 주세요.
 
 평가할 아이디어:
 - 제목: ${targetIdea.content.object}
@@ -178,7 +180,7 @@ export async function giveFeedbackOnIdea(
   "feedback": "구어체로 작성된 자연스러운 피드백 내용"
 }`;
 
-  return getJsonResponse(prompt, agentProfile);
+  return getJsonResponse(prompt, userProfile);
 }
 
 export async function requestAction(target: string, context: string) {
@@ -189,7 +191,7 @@ export async function requestAction(target: string, context: string) {
 // --- Planning Function ---
 
 export async function planNextAction(
-  agentProfile: any,
+  userProfile: any,
   teamContext: {
     teamName: string;
     topic: string;
@@ -204,21 +206,21 @@ export async function planNextAction(
     }>;
   }
 ): Promise<{
-  action: "generate_idea" | "evaluate_idea" | "give_feedback" | "wait";
+  action:
+    | "generate_idea"
+    | "evaluate_idea"
+    | "give_feedback"
+    | "make_request"
+    | "wait";
   reasoning: string;
   target?: string;
 }> {
   try {
-    const prompt = createPlanningPrompt(agentProfile, teamContext);
+    const prompt = createPlanningPrompt(userProfile, teamContext);
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
-        {
-          role: "system",
-          content:
-            "You are an AI agent planning your next action in a team ideation session. Respond only with valid JSON.",
-        },
         {
           role: "user",
           content: prompt,
@@ -243,13 +245,14 @@ export async function planNextAction(
       "generate_idea",
       "evaluate_idea",
       "give_feedback",
+      "make_request",
       "wait",
     ];
     if (!validActions.includes(planResult.action)) {
       throw new Error(`Invalid action: ${planResult.action}`);
     }
 
-    console.log(`🧠 ${agentProfile.name} 계획 결과:`, planResult);
+    console.log(`🧠 ${userProfile.name} 계획 결과:`, planResult);
 
     return {
       action: planResult.action,
@@ -260,20 +263,26 @@ export async function planNextAction(
     console.error("Planning 실패:", error);
 
     // 실패 시 기본 행동 (역할에 따라)
-    if (agentProfile.roles?.includes("아이디어 생성하기")) {
+    if (userProfile.roles?.includes("아이디어 생성하기")) {
       return {
         action: "generate_idea",
         reasoning:
           "Default action due to planning error - generating idea based on role",
       };
     } else if (
-      agentProfile.roles?.includes("아이디어 평가하기") &&
+      userProfile.roles?.includes("아이디어 평가하기") &&
       teamContext.currentIdeasCount > 0
     ) {
       return {
         action: "evaluate_idea",
         reasoning:
           "Default action due to planning error - evaluating ideas based on role",
+      };
+    } else if (userProfile.roles?.includes("요청하기")) {
+      return {
+        action: "make_request",
+        reasoning:
+          "Default action due to planning error - making request based on role",
       };
     } else {
       return {
@@ -294,11 +303,11 @@ export async function preIdeationAction(
     object: string;
     function: string;
   }[],
-  agentProfile?: any,
+  userProfile?: any,
   memory?: AgentMemory
 ) {
   const prompt = preIdeationPrompt(requestMessage, ideaList, memory);
-  return getJsonResponse(prompt, agentProfile);
+  return getJsonResponse(prompt, userProfile);
 }
 
 export async function executeIdeationAction(
@@ -306,7 +315,7 @@ export async function executeIdeationAction(
   ideationStrategy: string,
   topic: string,
   referenceIdea?: any,
-  agentProfile?: any,
+  userProfile?: any,
   memory?: AgentMemory
 ) {
   let prompt;
@@ -323,7 +332,7 @@ export async function executeIdeationAction(
       memory
     );
   }
-  return getJsonResponse(prompt, agentProfile);
+  return getJsonResponse(prompt, userProfile);
 }
 
 // --- New 2-Stage Evaluation Action Functions ---
@@ -336,17 +345,17 @@ export async function preEvaluationAction(
     object: string;
     function: string;
   }[],
-  agentProfile?: any,
+  userProfile?: any,
   memory?: AgentMemory
 ) {
   const prompt = preEvaluationPrompt(requestMessage, ideaList, memory);
-  return getJsonResponse(prompt, agentProfile);
+  return getJsonResponse(prompt, userProfile);
 }
 
 export async function executeEvaluationAction(
   selectedIdea: any,
   evaluationStrategy: string,
-  agentProfile?: any,
+  userProfile?: any,
   memory?: AgentMemory
 ) {
   const prompt = executeEvaluationPrompt(
@@ -354,7 +363,7 @@ export async function executeEvaluationAction(
     evaluationStrategy,
     memory
   );
-  return getJsonResponse(prompt, agentProfile);
+  return getJsonResponse(prompt, userProfile);
 }
 
 // --- Function for generating responses when already evaluated ---
@@ -364,14 +373,125 @@ export async function generateAlreadyEvaluatedResponse(
   selectedIdea: any,
   previousEvaluation: any,
   relationshipType: string | null,
-  agentProfile?: any
+  userProfile?: any
 ) {
   const prompt = alreadyEvaluatedResponsePrompt(
     requesterName,
     selectedIdea,
     previousEvaluation,
     relationshipType,
-    agentProfile
+    userProfile
   );
-  return getJsonResponse(prompt, agentProfile);
+  return getJsonResponse(prompt, userProfile);
+}
+
+// New request-related functions
+
+export async function preRequestAction(
+  triggerContext: string,
+  teamMembers: Array<{
+    name: string;
+    roles: string[];
+    isUser: boolean;
+    agentId?: string;
+  }>,
+  currentIdeas: Array<{
+    ideaNumber: number;
+    authorName: string;
+    object: string;
+    function: string;
+  }>,
+  userProfile?: any,
+  memory?: AgentMemory
+) {
+  const prompt = preRequestPrompt(
+    triggerContext,
+    teamMembers,
+    currentIdeas,
+    memory
+  );
+  return getJsonResponse(prompt, userProfile);
+}
+
+export async function executeRequestAction(
+  targetMember: string,
+  requestType: string,
+  requestStrategy: string,
+  contextToProvide: string,
+  targetMemberRoles: string[],
+  relationshipType?: string,
+  userProfile?: any,
+  memory?: AgentMemory,
+  originalRequest?: string,
+  originalRequester?: string
+) {
+  const prompt = executeRequestPrompt(
+    targetMember,
+    requestType,
+    requestStrategy,
+    contextToProvide,
+    targetMemberRoles,
+    relationshipType,
+    memory,
+    originalRequest,
+    originalRequester
+  );
+  return getJsonResponse(prompt, userProfile);
+}
+
+// Unified request function for both users and AI agents
+export async function makeRequestAction(
+  triggerContext: string,
+  teamMembers: Array<{
+    name: string;
+    roles: string[];
+    isUser: boolean;
+    agentId?: string;
+  }>,
+  currentIdeas: Array<{
+    ideaNumber: number;
+    authorName: string;
+    object: string;
+    function: string;
+  }>,
+  userProfile?: any,
+  memory?: AgentMemory,
+  originalRequest?: string,
+  originalRequester?: string
+) {
+  // Step 1: Analyze request
+  const requestAnalysis = await preRequestAction(
+    triggerContext,
+    teamMembers,
+    currentIdeas,
+    userProfile,
+    memory
+  );
+
+  // Step 2: Execute request
+  const targetMemberInfo = teamMembers.find(
+    (member) => member.name === requestAnalysis.targetMember
+  );
+
+  if (!targetMemberInfo) {
+    throw new Error(`Target member ${requestAnalysis.targetMember} not found`);
+  }
+
+  const requestMessage = await executeRequestAction(
+    requestAnalysis.targetMember,
+    requestAnalysis.requestType,
+    requestAnalysis.requestStrategy,
+    requestAnalysis.contextToProvide,
+    targetMemberInfo.roles,
+    undefined, // No relationship info for users
+    userProfile,
+    memory,
+    originalRequest,
+    originalRequester
+  );
+
+  return {
+    analysis: requestAnalysis,
+    message: requestMessage,
+  };
 }

@@ -139,7 +139,7 @@ export const preIdeationPrompt = (
 `
     : "";
 
-  return `You are an AI agent in a team ideation session. Your task is to analyze a request for an idea and decide the best way to generate it.
+  return `You are in a team ideation session. Your task is to analyze a request for an idea and decide the best way to generate it.
 ${memoryContext}
 Inputs:
 1. Request Message: "${requestMessage}"
@@ -276,7 +276,7 @@ export const preEvaluationPrompt = (
 `
     : "";
 
-  return `You are an AI agent in a team ideation session. Your task is to analyze a request for idea evaluation and decide which idea to evaluate and how.
+  return `You are in a team ideation session. Your task is to analyze a request for idea evaluation and decide which idea to evaluate and how.
 
 IMPORTANT: You should only evaluate ideas created by other team members, not your own ideas. The available ideas list already excludes your own ideas.
 
@@ -379,7 +379,7 @@ export const alreadyEvaluatedResponsePrompt = (
   selectedIdea: any,
   previousEvaluation: any,
   relationshipType: string | null,
-  agentProfile?: any
+  userProfile?: any
 ) => {
   const ideaString = JSON.stringify(selectedIdea, null, 2);
   const evaluationString = JSON.stringify(previousEvaluation, null, 2);
@@ -397,7 +397,7 @@ export const alreadyEvaluatedResponsePrompt = (
       }[relationshipType] || "Communicate as general team members."
     : "Communicate as general team members.";
 
-  return `You are an AI agent in a team ideation session. Someone has asked you to evaluate an idea, but you have already evaluated this idea before. You need to politely explain that you've already provided an evaluation and briefly reference your previous assessment.
+  return `You are in a team ideation session. Someone has asked you to evaluate an idea, but you have already evaluated this idea before. You need to politely explain that you've already provided an evaluation and briefly reference your previous assessment.
 
 Context:
 - Requester: ${requesterName}
@@ -446,31 +446,31 @@ export function createPlanningPrompt(
       ? teamContext.existingIdeas
           .map(
             (idea) =>
-              `${idea.ideaNumber}. "${idea.object}" (작성자: ${idea.authorName}) - ${idea.function}`
+              `${idea.ideaNumber}. "${idea.object}" (Author: ${idea.authorName}) - ${idea.function}`
           )
           .join("\n")
-      : "아직 생성된 아이디어가 없습니다.";
+      : "No ideas have been generated yet.";
 
-  return `당신은 "${teamContext.teamName}" 팀의 AI 에이전트 ${
-    agentProfile.name
-  }입니다.
+  return `You are AI agent ${agentProfile.name} in the "${
+    teamContext.teamName
+  }" team.
 
-당신의 프로필:
-- 나이: ${agentProfile.age}세
-- 직업: ${agentProfile.professional}
-- 기술: ${agentProfile.skills}
-- 성격: ${agentProfile.personality || "명시되지 않음"}
-- 역할: ${agentProfile.roles?.join(", ") || "명시되지 않음"}
+Your Profile:
+- Age: ${agentProfile.age} years old
+- Occupation: ${agentProfile.professional}
+- Skills: ${agentProfile.skills}
+- Personality: ${agentProfile.personality || "Not specified"}
+- Roles: ${agentProfile.roles?.join(", ") || "Not specified"}
 
-현재 팀 상황:
-- 주제: ${teamContext.topic}
-- 현재 아이디어 개수: ${teamContext.currentIdeasCount}개
-- 팀원: ${teamContext.teamMembers.join(", ")}
+Current Team Situation:
+- Topic: ${teamContext.topic}
+- Current number of ideas: ${teamContext.currentIdeasCount}
+- Team members: ${teamContext.teamMembers.join(", ")}
 
-기존 아이디어 목록:
+Existing Ideas:
 ${existingIdeasText}
 
-최근 팀 활동 (최근 5개 메시지):
+Recent Team Activity (Last 5 messages):
 ${teamContext.recentMessages
   .map(
     (msg) =>
@@ -480,26 +480,213 @@ ${teamContext.recentMessages
   )
   .join("\n")}
 
-당신은 현재 계획 단계에 있습니다. 당신의 역할, 성격, 그리고 현재 팀 상황을 바탕으로 다음에 무엇을 할지 결정하세요.
+You are currently in the planning phase. Based on your role, personality, and current team situation, decide what to do next.
 
-선택 가능한 행동:
-1. "generate_idea" - 주제에 대한 새로운 아이디어 생성
-2. "evaluate_idea" - 기존 아이디어 평가 (평가할 아이디어가 있을 때만)
-3. "give_feedback" - 팀원에게 피드백 제공
-4. "wait" - 대기 상태로 돌아가기
+Available Actions:
+1. "generate_idea" - Generate new ideas for the topic
+2. "evaluate_idea" - Evaluate existing ideas (only when there are ideas to evaluate)
+3. "give_feedback" - Provide feedback to team members
+4. "make_request" - Request work from other team members (only if your role includes 'Request')
+5. "wait" - Return to waiting state
 
-고려사항:
-- 당신에게 할당된 역할과 책임
-- 현재 팀 역학과 최근 대화 내용
-- 팀에 더 많은 아이디어가 필요한지, 아니면 더 많은 평가가 필요한지
-- 당신의 성격과 작업 스타일
-- 같은 행동을 너무 자주 반복하지 마세요
-- 기존 아이디어들과 중복되지 않는 새로운 관점 제시
+Considerations:
+- Your assigned roles and responsibilities
+- Current team dynamics and recent conversation content
+- Whether the team needs more ideas or more evaluations
+- Your personality and working style
+- Don't repeat the same action too frequently
+- Present new perspectives that don't duplicate existing ideas
 
-다음 JSON 형식으로만 응답하세요. 모든 텍스트는 한국어로 작성하세요:
+Respond only in the following JSON format. Write all text in Korean:
 {
-  "action": "generate_idea" | "evaluate_idea" | "give_feedback" | "wait",
-  "reasoning": "이 행동을 선택한 이유에 대한 간단한 설명 (한국어)",
-  "target": "피드백을 줄 경우 팀원 이름 (선택사항)"
+  "action": "generate_idea" | "evaluate_idea" | "give_feedback" | "make_request" | "wait",
+  "reasoning": "Brief explanation of why you chose this action (in Korean)",
+  "target": "Team member name if giving feedback or making a request (optional)"
 }`;
 }
+
+// New prompts for the 2-stage request process
+
+export const preRequestPrompt = (
+  triggerContext: string, // Context that triggered the request (received direct request or decided in plan)
+  teamMembers: Array<{
+    name: string;
+    roles: string[];
+    isUser: boolean;
+    agentId?: string;
+  }>,
+  currentIdeas: Array<{
+    ideaNumber: number;
+    authorName: string;
+    object: string;
+    function: string;
+  }>,
+  memory?: AgentMemory
+) => {
+  const teamMembersInfo = teamMembers
+    .map(
+      (member) =>
+        `- ${member.name} (${
+          member.isUser ? "User" : "AI Agent"
+        }): Roles - ${member.roles.join(", ")}`
+    )
+    .join("\n");
+
+  const currentIdeasInfo =
+    currentIdeas.length > 0
+      ? currentIdeas
+          .map(
+            (idea) =>
+              `${idea.ideaNumber}. "${idea.object}" (Author: ${idea.authorName})`
+          )
+          .join("\n")
+      : "No ideas have been generated yet.";
+
+  const memoryContext = memory
+    ? `
+**Your Memory:**
+- Last action: ${memory.shortTerm.lastAction?.type || "none"}
+- Relationship info: Formed relationships with ${
+        Object.keys(memory.longTerm.relations).length
+      } members
+`
+    : "";
+
+  return `You are making a request to another team member in the team ideation session. Strategically analyze who to request and what to request.
+
+${memoryContext}
+
+**Request Context:**
+${triggerContext}
+
+**Team Member Information:**
+${teamMembersInfo}
+
+**Current Ideas Status:**
+${currentIdeasInfo}
+
+**Analysis Required:**
+1. Choose who to request (only within the roles that team member can perform)
+2. Decide what to request (choose from "Idea Generation", "Idea Evaluation", "Give Feedback")
+3. Develop request strategy (why request this work from this team member, what context to provide)
+
+**Important Constraints:**
+- Can only request within the scope of roles that team member has
+- Request must be specific and actionable
+- Consider avoiding duplicate work
+
+Respond only in the following JSON format:
+{
+  "targetMember": "Name of team member to request",
+  "requestType": "Idea Generation" | "Idea Evaluation" | "Give Feedback",
+  "requestStrategy": "Explanation of request strategy (why request this work from this team member, what perspective to approach from)",
+  "contextToProvide": "Specific context or background information to provide with the request"
+}
+
+Start your analysis now and respond only in JSON format.`;
+};
+
+export const executeRequestPrompt = (
+  targetMember: string,
+  requestType: string,
+  requestStrategy: string,
+  contextToProvide: string,
+  targetMemberRoles: string[],
+  relationshipType?: string,
+  memory?: AgentMemory,
+  originalRequest?: string,
+  originalRequester?: string
+) => {
+  const relationshipDescription = relationshipType
+    ? {
+        FRIEND: "As friends, communicate in a comfortable and friendly tone.",
+        AWKWARD:
+          "As someone with an awkward relationship, be polite but maintain some distance in your tone.",
+        SUPERVISOR:
+          "As this person's supervisor, communicate in a friendly yet guiding tone. Use informal speech as is appropriate for a superior addressing a subordinate in Korean workplace culture.",
+        SUBORDINATE:
+          "As this person's subordinate, use respectful language and maintain a formal tone.",
+      }[relationshipType] || "Communicate as general team members."
+    : "Communicate as general team members.";
+
+  const memoryContext =
+    memory && memory.longTerm.relations[targetMember]
+      ? `
+**Relationship Memory:**
+- My opinion of ${targetMember}: ${
+          memory.longTerm.relations[targetMember].myOpinion
+        }
+- Recent interactions: ${
+          memory.longTerm.relations[targetMember].interactionHistory
+            .slice(-2)
+            .map((i: any) => i.content)
+            .join(", ") || "none"
+        }
+`
+      : "";
+
+  const isDelegation = originalRequest && originalRequester;
+
+  if (isDelegation) {
+    return `You are delegating a request received from ${originalRequester} to ${targetMember}.
+
+${memoryContext}
+
+**Original Request:** ${originalRequest}
+**Original Requester:** ${originalRequester}
+**Delegation Target:** ${targetMember} (Roles: ${targetMemberRoles.join(", ")})
+**Request Strategy:** ${requestStrategy}
+**Context to Provide:** ${contextToProvide}
+**Relationship:** ${relationshipDescription}
+
+**Delegation Message Guidelines:**
+1. Accurately convey the context of the original request
+2. Provide clear reasons why delegating to this team member
+3. Specify the original requester for transparency
+4. Write naturally and conversationally
+5. Acknowledge the other person's expertise and role when making the request
+6. Show respectful attitude that acknowledges they can decline
+7. Use appropriate honorifics/casual speech based on relationship
+
+Respond in the following JSON format. Write all content in Korean:
+{
+  "message": "Natural and specific message delegating the original request (Korean, conversational)"
+}
+
+Write the delegation message now.`;
+  } else {
+    return `You are requesting ${requestType} work from ${targetMember} in the team ideation session.
+
+${memoryContext}
+
+**Request Target:** ${targetMember} (Roles: ${targetMemberRoles.join(", ")})
+**Request Content:** ${requestType}
+**Request Strategy:** ${requestStrategy}
+**Context to Provide:** ${contextToProvide}
+**Relationship:** ${relationshipDescription}
+
+**Request Writing Guidelines:**
+1. Write naturally and conversationally (not too formal)
+2. Acknowledge the other person's role and expertise when making the request
+3. Include specific work content and background explanation
+4. Show respectful attitude that acknowledges they can decline
+5. Use appropriate honorifics/casual speech based on relationship
+6. Emphasize cooperation for team goal achievement
+
+**Request Type Specifics:**
+${
+  requestType === "Idea Generation"
+    ? "- Request idea generation from a specific perspective or topic\n- Suggest directions that can differentiate from existing ideas"
+    : requestType === "Idea Evaluation"
+    ? "- Request evaluation of specific ideas or idea groups\n- Suggest perspectives to focus on during evaluation"
+    : "- Request feedback on specific ideas or situations\n- Specify what aspects you want feedback on"
+}
+
+Respond in the following JSON format. Write all content in Korean:
+{
+  "message": "Natural and specific request message (Korean, conversational)"
+}
+
+Write the request message now.`;
+  }
+};

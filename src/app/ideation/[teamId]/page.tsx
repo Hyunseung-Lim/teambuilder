@@ -52,7 +52,12 @@ interface AgentStateInfo {
   lastStateChange: string;
   isProcessing: boolean;
   currentTask?: {
-    type: "generate_idea" | "evaluate_idea" | "planning" | "thinking";
+    type:
+      | "generate_idea"
+      | "evaluate_idea"
+      | "planning"
+      | "thinking"
+      | "give_feedback";
     description: string;
     startTime: string;
     estimatedDuration: number;
@@ -75,16 +80,6 @@ function useAgentStates(teamId: string) {
     new Map()
   );
   const [timers, setTimers] = useState<Map<string, number>>(new Map());
-  const [notifications, setNotifications] = useState<
-    Array<{
-      id: string;
-      agentId: string;
-      agentName: string;
-      message: string;
-      type: "task_completed" | "state_changed";
-      timestamp: string;
-    }>
-  >([]);
 
   useEffect(() => {
     if (!teamId) return;
@@ -95,44 +90,9 @@ function useAgentStates(teamId: string) {
         if (response.ok) {
           const data = await response.json();
           const statesMap = new Map<string, AgentStateInfo>();
-          const prevStates = new Map(agentStates);
 
           data.agentStates.forEach((state: AgentStateInfo) => {
             statesMap.set(state.agentId, state);
-
-            // 상태 변화 감지 및 알림 생성
-            const prevState = prevStates.get(state.agentId);
-            if (prevState) {
-              // 작업 완료 감지 (action/plan -> idle)
-              if (
-                (prevState.currentState === "action" ||
-                  prevState.currentState === "plan") &&
-                state.currentState === "idle"
-              ) {
-                const taskType = prevState.currentTask?.type;
-                let completionMessage = "작업을 완료했습니다";
-
-                if (taskType === "generate_idea") {
-                  completionMessage = "아이디어 생성을 완료했습니다";
-                } else if (taskType === "evaluate_idea") {
-                  completionMessage = "아이디어 평가를 완료했습니다";
-                } else if (taskType === "planning") {
-                  completionMessage = "계획 수립을 완료했습니다";
-                }
-
-                setNotifications((prev) => [
-                  ...prev,
-                  {
-                    id: `${state.agentId}-${Date.now()}`,
-                    agentId: state.agentId,
-                    agentName: state.agentId, // 실제로는 에이전트 이름으로 변경 필요
-                    message: completionMessage,
-                    type: "task_completed",
-                    timestamp: new Date().toISOString(),
-                  },
-                ]);
-              }
-            }
           });
 
           setAgentStates(statesMap);
@@ -183,26 +143,9 @@ function useAgentStates(teamId: string) {
     return () => clearInterval(interval);
   }, [agentStates]);
 
-  // 알림 자동 제거 (5초 후)
-  useEffect(() => {
-    notifications.forEach((notification) => {
-      const timer = setTimeout(() => {
-        setNotifications((prev) =>
-          prev.filter((n) => n.id !== notification.id)
-        );
-      }, 5000);
-
-      return () => clearTimeout(timer);
-    });
-  }, [notifications]);
-
   return {
     agentStates,
     timers,
-    notifications,
-    clearNotification: (id: string) => {
-      setNotifications((prev) => prev.filter((n) => n.id !== id));
-    },
   };
 }
 
@@ -259,6 +202,9 @@ function AgentStateIndicator({
               break;
             case "thinking":
               baseText = "사고중";
+              break;
+            case "give_feedback":
+              baseText = "피드백중";
               break;
             default:
               baseText = "작업중";
@@ -422,10 +368,12 @@ export default function IdeationPage() {
   const [sseConnected, setSseConnected] = useState(false);
 
   // New state for chat functionality
-  const [chatMode, setChatMode] = useState<"feedback" | "request">("feedback");
+  const [chatMode, setChatMode] = useState<"give_feedback" | "request">(
+    "give_feedback"
+  );
   const [mentionedAgent, setMentionedAgent] = useState<AIAgent | null>(null);
   const [requestType, setRequestType] = useState<
-    "generate" | "evaluate" | "feedback" | null
+    "generate" | "evaluate" | "give_feedback" | null
   >(null);
   const [showMentionDropdown, setShowMentionDropdown] = useState(false);
 
@@ -436,6 +384,10 @@ export default function IdeationPage() {
   const [evaluatingViaRequestAgents, setEvaluatingViaRequestAgents] = useState<
     Set<string>
   >(new Set());
+
+  // 자율적 평가 추적 상태 추가
+  const [evaluatingAutonomouslyAgents, setEvaluatingAutonomouslyAgents] =
+    useState<Set<string>>(new Set());
 
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -473,7 +425,7 @@ export default function IdeationPage() {
     const roleMap = {
       generate: "아이디어 생성하기" as AgentRole,
       evaluate: "아이디어 평가하기" as AgentRole,
-      feedback: "피드백하기" as AgentRole,
+      give_feedback: "피드백하기" as AgentRole,
     };
 
     const requiredRole = roleMap[requestType as keyof typeof roleMap];
@@ -503,7 +455,7 @@ export default function IdeationPage() {
       return [
         { value: "generate", label: "아이디어 생성" },
         { value: "evaluate", label: "아이디어 평가" },
-        { value: "feedback", label: "피드백" },
+        { value: "give_feedback", label: "피드백" },
       ];
     }
 
@@ -514,8 +466,8 @@ export default function IdeationPage() {
     if (canAgentPerformRole(mentionedAgent, "evaluate")) {
       availableTypes.push({ value: "evaluate", label: "아이디어 평가" });
     }
-    if (canAgentPerformRole(mentionedAgent, "feedback")) {
-      availableTypes.push({ value: "feedback", label: "피드백" });
+    if (canAgentPerformRole(mentionedAgent, "give_feedback")) {
+      availableTypes.push({ value: "give_feedback", label: "피드백" });
     }
 
     return availableTypes;
@@ -998,6 +950,31 @@ export default function IdeationPage() {
     }
   }, [messages, evaluatingViaRequestAgents]);
 
+  // Check for completion of autonomous evaluation
+  useEffect(() => {
+    const completedAgents = new Set<string>();
+
+    messages.forEach((msg) => {
+      if (
+        msg.type === "system" &&
+        typeof msg.payload === "object" &&
+        msg.payload.content?.includes("스스로 계획하여") &&
+        msg.payload.content?.includes("평가했습니다")
+      ) {
+        completedAgents.add(msg.sender);
+        console.log("🎉 자율적 아이디어 평가 완료:", msg.sender);
+      }
+    });
+
+    if (completedAgents.size > 0) {
+      setEvaluatingAutonomouslyAgents((prev) => {
+        const newSet = new Set(prev);
+        completedAgents.forEach((agentId) => newSet.delete(agentId));
+        return newSet;
+      });
+    }
+  }, [messages]);
+
   // 메시지 전송
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !team || !mentionedAgent) return;
@@ -1048,7 +1025,7 @@ export default function IdeationPage() {
     // 3. 입력 필드 초기화
     setNewMessage("");
     setMentionedAgent(null);
-    setChatMode("feedback");
+    setChatMode("give_feedback");
     setRequestType(null);
 
     // 4. 백그라운드에서 서버로 실제 데이터 전송
@@ -1293,8 +1270,7 @@ export default function IdeationPage() {
   const teamId = params.teamId as string;
 
   // 에이전트 상태 훅 사용
-  const { agentStates, timers, notifications, clearNotification } =
-    useAgentStates(teamId);
+  const { agentStates, timers } = useAgentStates(teamId);
 
   if (loading) {
     return (
@@ -1326,47 +1302,6 @@ export default function IdeationPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* 알림 컨테이너 */}
-      <div className="fixed top-4 right-4 z-50 space-y-2">
-        {notifications.map((notification) => {
-          const agentName = getAuthorName(notification.agentId);
-          return (
-            <div
-              key={notification.id}
-              className="bg-white border border-gray-200 rounded-lg shadow-lg p-4 max-w-sm animate-slide-in-right"
-              style={{
-                animation: "slideInRight 0.3s ease-out",
-              }}
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
-                    <span className="text-white text-sm font-medium">
-                      {agentName === "나" ? "나" : agentName[0]}
-                    </span>
-                  </div>
-                  <div>
-                    <div className="font-medium text-gray-900">{agentName}</div>
-                    <div className="text-sm text-gray-600">
-                      {notification.message}
-                    </div>
-                    <div className="text-xs text-gray-400">
-                      {formatTimestamp(notification.timestamp)}
-                    </div>
-                  </div>
-                </div>
-                <button
-                  onClick={() => clearNotification(notification.id)}
-                  className="text-gray-400 hover:text-gray-600 ml-2"
-                >
-                  <span className="text-lg">×</span>
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
       {/* 헤더 */}
       <header className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
@@ -1554,7 +1489,10 @@ export default function IdeationPage() {
 
                     const isEvaluationCompletedMessage =
                       typeof message.payload === "object" &&
-                      message.payload?.content?.includes("평가를 완료했습니다");
+                      (message.payload?.content?.includes("평가했습니다") ||
+                        message.payload?.content?.includes(
+                          "평가를 완료했습니다"
+                        ));
 
                     const messageContent =
                       (typeof message.payload === "object" &&
@@ -1569,7 +1507,7 @@ export default function IdeationPage() {
                     return (
                       <div key={message.id} className="flex justify-center">
                         <div
-                          className={`${messageStyle} px-7 py-2 rounded-full text-sm font-medium flex items-center gap-3`}
+                          className={`${messageStyle} px-7 py-2 rounded-full text-sm font-medium flex items-center gap-3 whitespace-pre-wrap text-center`}
                         >
                           <span>
                             {senderName}
@@ -1690,18 +1628,19 @@ export default function IdeationPage() {
                                 message.payload;
                               const isRequest =
                                 type === "request" && mention && requestType;
-                              const isFeedback = type === "feedback" && mention;
+                              const isFeedback =
+                                type === "give_feedback" && mention;
 
                               if (isRequest) {
                                 const reqType = requestType as
                                   | "generate"
                                   | "evaluate"
-                                  | "feedback";
+                                  | "give_feedback";
                                 const requestText =
                                   {
                                     generate: "아이디어 생성",
                                     evaluate: "아이디어 평가",
-                                    feedback: "피드백",
+                                    give_feedback: "피드백",
                                   }[reqType] || "요청";
 
                                 return (
@@ -1846,15 +1785,17 @@ export default function IdeationPage() {
                   <select
                     value={chatMode}
                     onChange={(e) => {
-                      setChatMode(e.target.value as "feedback" | "request");
+                      setChatMode(
+                        e.target.value as "give_feedback" | "request"
+                      );
                       // 채팅 모드 변경 시 요청 타입과 멘션된 에이전트 초기화
-                      if (e.target.value === "feedback") {
+                      if (e.target.value === "give_feedback") {
                         setRequestType(null);
                       }
                     }}
                     className="px-3 py-1.5 bg-gray-100 border-none rounded-md text-sm font-medium text-gray-700 focus:ring-0"
                   >
-                    <option value="feedback">피드백</option>
+                    <option value="give_feedback">피드백</option>
                     <option value="request">요청</option>
                   </select>
 
@@ -1865,7 +1806,7 @@ export default function IdeationPage() {
                         const newRequestType = e.target.value as
                           | "generate"
                           | "evaluate"
-                          | "feedback";
+                          | "give_feedback";
                         setRequestType(newRequestType);
 
                         // 요청 타입 변경 시, 현재 선택된 에이전트가 해당 역할을 수행할 수 없다면 초기화
@@ -1896,7 +1837,7 @@ export default function IdeationPage() {
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     placeholder={
-                      chatMode === "feedback"
+                      chatMode === "give_feedback"
                         ? `${
                             mentionedAgent ? mentionedAgent.name : "팀원"
                           }에게 피드백을 보내세요...`

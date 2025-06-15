@@ -45,7 +45,7 @@ export async function POST(
     const body = await request.json();
     const { sender, payload } = body;
 
-    const messageType = payload?.type || "feedback";
+    const messageType = payload?.type || "give_feedback";
     const messagePayload = payload || { content: body.content };
 
     const newMessage = await addChatMessage(teamId, {

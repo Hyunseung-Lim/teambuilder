@@ -156,10 +156,10 @@ export interface Idea {
 
 // 채팅 메시지 페이로드
 export interface ChatMessagePayload {
-  type: "feedback" | "request";
+  type: "give_feedback" | "request";
   content: string;
   mention: string; // agentId
-  requestType?: "generate" | "evaluate" | "feedback" | null;
+  requestType?: "generate" | "evaluate" | "give_feedback" | null;
 }
 
 // 시스템 메시지 페이로드
@@ -172,7 +172,7 @@ export interface ChatMessage {
   id: string | number;
   sender: string; // '나' 또는 agentId
   timestamp: string;
-  type: "feedback" | "request" | "system";
+  type: "give_feedback" | "request" | "system";
   payload: ChatMessagePayload | SystemMessagePayload | string;
 }
 

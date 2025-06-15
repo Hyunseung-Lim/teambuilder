@@ -422,6 +422,7 @@ class AgentStateManager {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "x-system-internal": "true",
           },
           body: JSON.stringify({
             evaluator: agentId,

@@ -140,17 +140,31 @@ export class Agent {
     actionType:
       | "generate_idea"
       | "evaluate_idea"
-      | "feedback"
+      | "give_feedback"
       | "request"
+      | "make_request"
       | "response",
     payload: any
   ) {
     if (
       !this.agentInfo.roles.includes(actionType) &&
-      actionType !== "response"
+      actionType !== "response" &&
+      actionType !== "make_request"
     ) {
       console.log(
         `${this.agentInfo.name} cannot perform action: ${actionType} due to its roles.`
+      );
+      this.active = false;
+      return;
+    }
+
+    // make_request의 경우 '요청하기' 역할이 있는지 확인
+    if (
+      actionType === "make_request" &&
+      !this.agentInfo.roles.includes("요청하기")
+    ) {
+      console.log(
+        `${this.agentInfo.name} cannot perform make_request: no '요청하기' role.`
       );
       this.active = false;
       return;
@@ -166,11 +180,14 @@ export class Agent {
       case "evaluate_idea":
         result = await this._evaluateIdea(payload);
         break;
-      case "feedback":
+      case "give_feedback":
         result = await this._feedback(payload);
         break;
       case "request":
         result = await this._request(payload);
+        break;
+      case "make_request":
+        result = await this._makeRequest(payload);
         break;
       case "response":
         result = await this._response(payload);
@@ -232,7 +249,7 @@ export class Agent {
   }): Promise<ChatMessage> {
     return addChatMessage(this.teamId, {
       sender: this.agentInfo.name,
-      type: "feedback",
+      type: "give_feedback",
       payload: {
         target: payload.target,
         content: payload.content,
@@ -270,6 +287,107 @@ export class Agent {
     });
   }
 
+  private async _makeRequest(payload: {
+    triggerContext?: string;
+    originalRequest?: string;
+    originalRequester?: string;
+  }): Promise<ChatMessage> {
+    if (!this.team) {
+      throw new Error("Team information not available");
+    }
+
+    // 팀원 정보 준비
+    const teamMembers = this.team.members.map((member) => ({
+      name: member.isUser ? "나" : member.agentId ? member.agentId : "Unknown",
+      roles: member.roles,
+      isUser: member.isUser,
+      agentId: member.agentId,
+    }));
+
+    // 현재 아이디어 정보 가져오기
+    const ideas = await getIdeas(this.teamId);
+    const currentIdeas = ideas.map((idea, index) => ({
+      ideaNumber: index + 1,
+      authorName: idea.author,
+      object: idea.content.object,
+      function: idea.content.function,
+    }));
+
+    // 1단계: 요청 사전 분석
+    const triggerContext =
+      payload.triggerContext ||
+      (payload.originalRequest
+        ? `${payload.originalRequester}로부터 다음 요청을 받았습니다: "${payload.originalRequest}"`
+        : "팀 상황을 분석한 결과 다른 팀원에게 작업을 요청하기로 결정했습니다.");
+
+    const requestAnalysis = await OpenAIActions.preRequestAction(
+      triggerContext,
+      teamMembers,
+      currentIdeas,
+      this.agentInfo,
+      this.memory
+    );
+
+    // 2단계: 요청 실행
+    const targetMemberInfo = teamMembers.find(
+      (member) => member.name === requestAnalysis.targetMember
+    );
+
+    if (!targetMemberInfo) {
+      throw new Error(
+        `Target member ${requestAnalysis.targetMember} not found`
+      );
+    }
+
+    // 관계 타입 확인
+    const relationship = this.team.relationships.find(
+      (rel) =>
+        rel.from === this.agentInfo.name &&
+        rel.to === requestAnalysis.targetMember
+    );
+
+    let requestMessage;
+
+    if (payload.originalRequest && payload.originalRequester) {
+      // 요청 전가인 경우
+      requestMessage = await OpenAIActions.executeRequestAction(
+        requestAnalysis.targetMember,
+        requestAnalysis.requestType,
+        requestAnalysis.requestStrategy,
+        requestAnalysis.contextToProvide,
+        targetMemberInfo.roles,
+        relationship?.type,
+        this.agentInfo,
+        this.memory,
+        payload.originalRequest,
+        payload.originalRequester
+      );
+    } else {
+      // 직접 요청인 경우
+      requestMessage = await OpenAIActions.executeRequestAction(
+        requestAnalysis.targetMember,
+        requestAnalysis.requestType,
+        requestAnalysis.requestStrategy,
+        requestAnalysis.contextToProvide,
+        targetMemberInfo.roles,
+        relationship?.type,
+        this.agentInfo,
+        this.memory
+      );
+    }
+
+    // 채팅 메시지로 추가
+    return addChatMessage(this.teamId, {
+      sender: this.agentInfo.name,
+      type: "request",
+      payload: {
+        target: requestAnalysis.targetMember,
+        content: requestMessage.message,
+        action: requestAnalysis.requestType,
+      },
+    });
+  }
+
   private _isPayloadValid(action: string, payload: any): boolean {
     if (!payload) return false;
 
@@ -282,12 +400,21 @@ export class Agent {
           payload.idea !== null &&
           typeof payload.idea.id === "number"
         );
-      case "feedback":
+      case "give_feedback":
       case "request":
       case "response":
         return (
           typeof payload.target === "string" &&
           typeof payload.content === "string"
+        );
+      case "make_request":
+        return (
+          (payload.triggerContext === undefined ||
+            typeof payload.triggerContext === "string") &&
+          (payload.originalRequest === undefined ||
+            typeof payload.originalRequest === "string") &&
+          (payload.originalRequester === undefined ||
+            typeof payload.originalRequester === "string")
         );
       default:
         return false;

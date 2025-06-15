@@ -11,7 +11,8 @@ import { redis } from "@/lib/redis";
 import {
   planNextAction,
   generateIdeaAction,
-  evaluateIdeaAction,
+  preEvaluationAction,
+  executeEvaluationAction,
   giveFeedbackOnIdea,
 } from "@/lib/openai";
 
@@ -22,7 +23,12 @@ interface AgentStateInfo {
   lastStateChange: string;
   isProcessing: boolean;
   currentTask?: {
-    type: "generate_idea" | "evaluate_idea" | "planning" | "thinking";
+    type:
+      | "generate_idea"
+      | "evaluate_idea"
+      | "planning"
+      | "thinking"
+      | "give_feedback";
     description: string;
     startTime: string;
     estimatedDuration: number;
@@ -69,7 +75,7 @@ async function getAgentState(
 
       // Redis에 저장 시도 (실패해도 기본 상태 반환)
       try {
-        await redis.set(stateKey, JSON.stringify(defaultState), { EX: 3600 }); // 1시간 TTL
+        await redis.set(stateKey, JSON.stringify(defaultState), { ex: 3600 }); // 1시간 TTL
       } catch (saveError) {
         console.error(`에이전트 ${agentId} 기본 상태 저장 실패:`, saveError);
       }
@@ -107,7 +113,7 @@ async function setAgentState(
 ): Promise<void> {
   try {
     const stateKey = `agent_state:${teamId}:${agentId}`;
-    await redis.set(stateKey, JSON.stringify(state), { EX: 3600 }); // 1시간 TTL
+    await redis.set(stateKey, JSON.stringify(state), { ex: 3600 }); // 1시간 TTL
   } catch (error) {
     console.error(`에이전트 ${agentId} 상태 저장 실패:`, error);
     // 저장 실패해도 계속 진행 (상태는 메모리에서 관리)
@@ -144,9 +150,9 @@ async function updateAgentStateTimer(
 
         // 팀의 모든 에이전트 정보 가져오기
         const agents = await Promise.all(
-          team.members
+          (team?.members || [])
             .filter((m) => !m.isUser && m.agentId)
-            .map((m) => getAgentById(m.agentId!)) || []
+            .map((m) => getAgentById(m.agentId!))
         );
         const validAgents = agents.filter((agent) => agent !== null);
 
@@ -216,7 +222,15 @@ async function updateAgentStateTimer(
                 startTime: now.toISOString(),
                 estimatedDuration: 10, // 10초 계획 시간
               },
-              plannedAction: planResult, // 계획된 행동 저장
+              plannedAction: planResult as {
+                action:
+                  | "generate_idea"
+                  | "evaluate_idea"
+                  | "give_feedback"
+                  | "wait";
+                reasoning: string;
+                target?: string;
+              }, // 계획된 행동 저장
             };
           }
         }
@@ -273,6 +287,7 @@ async function updateAgentStateTimer(
             type: state.plannedAction.action as
               | "generate_idea"
               | "evaluate_idea"
+              | "give_feedback"
               | "thinking",
             description:
               actionDescriptions[
@@ -338,36 +353,23 @@ async function executeAgentAction(
     const agentProfile = await getAgentById(agentId);
 
     if (!team || !agentProfile) {
-      throw new Error("팀 또는 에이전트 정보를 찾을 수 없습니다");
+      console.error(`❌ ${agentId} 팀 또는 에이전트 정보 없음`);
+      return;
     }
 
     console.log(
-      `🚀 ${agentProfile.name} 실제 작업 시작: ${plannedAction.action}`
+      `🎯 ${agentProfile.name} 자율 행동 실행: ${plannedAction.action}`
     );
 
     if (plannedAction.action === "generate_idea") {
-      // 아이디어 생성 - 기존 아이디어 리스트 포함
+      // 아이디어 생성
       const ideas = await getIdeas(teamId);
-      const existingIdeas = await Promise.all(
-        ideas.map(async (idea, index) => ({
-          ideaNumber: index + 1,
-          authorName:
-            idea.author === "나"
-              ? "나"
-              : await (async () => {
-                  const member = team.members.find(
-                    (tm) => tm.agentId === idea.author
-                  );
-                  if (member && !member.isUser) {
-                    const agent = await getAgentById(idea.author);
-                    return agent?.name || `에이전트 ${idea.author}`;
-                  }
-                  return idea.author;
-                })(),
-          object: idea.content.object,
-          function: idea.content.function,
-        }))
-      );
+      const existingIdeas = ideas.map((idea, index) => ({
+        ideaNumber: index + 1,
+        authorName: idea.author,
+        object: idea.content.object,
+        function: idea.content.function,
+      }));
 
       const generatedContent = await generateIdeaAction(
         team.topic || "Carbon Emission Reduction",
@@ -406,8 +408,10 @@ async function executeAgentAction(
         `✅ ${agentProfile.name} 아이디어 생성 완료:`,
         generatedContent.object
       );
-    } else if (plannedAction.action === "evaluate_idea") {
-      // 아이디어 평가
+    }
+
+    if (plannedAction.action === "evaluate_idea") {
+      // 아이디어 평가 - 2단계 프롬프트 사용
       const ideas = await getIdeas(teamId);
 
       if (ideas.length === 0) {
@@ -425,21 +429,50 @@ async function executeAgentAction(
         return;
       }
 
-      // 랜덤하게 아이디어 선택 (본인 제외)
-      const randomIdea =
-        otherIdeas[Math.floor(Math.random() * otherIdeas.length)];
+      // 아이디어 리스트를 적절한 형태로 변환
+      const ideaList = otherIdeas.map((idea, index) => ({
+        ideaNumber: idea.id,
+        authorName: idea.author,
+        object: idea.content.object,
+        function: idea.content.function,
+      }));
 
-      const evaluation = await evaluateIdeaAction(randomIdea, team.topic);
+      // 1단계: 어떤 아이디어를 평가할지 결정
+      const preEvaluation = await preEvaluationAction(
+        `${agentProfile.name}이 스스로 계획하여 아이디어를 평가하기로 결정했습니다. 현재 상황에서 가장 적절한 아이디어를 선택하여 평가해주세요.`,
+        ideaList,
+        agentProfile
+      );
 
-      // 평가 추가 (실제 평가 API 호출)
+      const selectedIdea = otherIdeas.find(
+        (idea) => idea.id === preEvaluation.selectedIdea.ideaNumber
+      );
+
+      if (!selectedIdea) {
+        console.log(`⚠️ ${agentProfile.name} 선택된 아이디어를 찾을 수 없음`);
+        return;
+      }
+
+      // 2단계: 실제 평가 수행
+      const evaluation = await executeEvaluationAction(
+        {
+          ...preEvaluation.selectedIdea,
+          authorName: selectedIdea.author,
+        },
+        preEvaluation.evaluationStrategy,
+        agentProfile
+      );
+
+      // 평가 API 호출
       const response = await fetch(
         `${
           process.env.NEXTAUTH_URL || "http://localhost:3000"
-        }/api/teams/${teamId}/ideas/${randomIdea.id}/evaluate`,
+        }/api/teams/${teamId}/ideas/${selectedIdea.id}/evaluate`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "x-system-internal": "true", // 시스템 내부 호출 표시
           },
           body: JSON.stringify({
             evaluator: agentId,
@@ -457,24 +490,24 @@ async function executeAgentAction(
                 Math.min(5, evaluation.scores?.relevance || 3)
               ),
             },
-            comment: evaluation.comment || "자동 평가",
+            comment: evaluation.comment || "자율적 평가",
           }),
         }
       );
 
       if (response.ok) {
-        // 채팅 알림 - 구체적인 아이디어 정보 포함
-        let ideaAuthorName = randomIdea.author;
-        if (randomIdea.author === "나") {
+        // 성공 시 채팅 알림
+        let ideaAuthorName = selectedIdea.author;
+        if (selectedIdea.author === "나") {
           ideaAuthorName = "나";
         } else {
           const member = team.members.find(
-            (tm) => tm.agentId === randomIdea.author
+            (tm) => tm.agentId === selectedIdea.author
           );
           if (member && !member.isUser) {
-            const authorAgent = await getAgentById(randomIdea.author);
+            const authorAgent = await getAgentById(selectedIdea.author);
             ideaAuthorName =
-              authorAgent?.name || `에이전트 ${randomIdea.author}`;
+              authorAgent?.name || `에이전트 ${selectedIdea.author}`;
           }
         }
 
@@ -484,9 +517,9 @@ async function executeAgentAction(
           sender: agentId,
           type: "system",
           payload: {
-            content: `${ideaAuthorName}의 아이디어 "${
-              randomIdea.content.object
-            }"를 평가했습니다. 평가 점수: 통찰력 ${Math.max(
+            content: `스스로 계획하여 ${ideaAuthorName}의 아이디어 "${
+              selectedIdea.content.object
+            }"를 평가했습니다.\n평가 점수: 통찰력 ${Math.max(
               1,
               Math.min(5, evaluation.scores?.insightful || 3)
             )}/5, 실행가능성 ${Math.max(
@@ -503,7 +536,7 @@ async function executeAgentAction(
 
         console.log(
           `✅ ${agentProfile.name} 아이디어 평가 완료:`,
-          randomIdea.content.object
+          selectedIdea.content.object
         );
       } else {
         console.error(
@@ -512,7 +545,9 @@ async function executeAgentAction(
           await response.text()
         );
       }
-    } else if (plannedAction.action === "give_feedback") {
+    }
+
+    if (plannedAction.action === "give_feedback") {
       // 피드백 제공 - 구체적인 아이디어에 대한 피드백
       const ideas = await getIdeas(teamId);
 
@@ -521,8 +556,19 @@ async function executeAgentAction(
         return;
       }
 
-      // 랜덤하게 아이디어 선택하여 피드백
-      const randomIdea = ideas[Math.floor(Math.random() * ideas.length)];
+      // 본인이 만든 아이디어 제외
+      const otherIdeas = ideas.filter((idea) => idea.author !== agentId);
+
+      if (otherIdeas.length === 0) {
+        console.log(
+          `⚠️ ${agentProfile.name} 피드백할 다른 사람의 아이디어가 없음`
+        );
+        return;
+      }
+
+      // 다른 사람의 아이디어 중에서 랜덤하게 선택하여 피드백
+      const randomIdea =
+        otherIdeas[Math.floor(Math.random() * otherIdeas.length)];
 
       // 팀 컨텍스트 준비
       const teamContextForFeedback = {
@@ -567,9 +613,9 @@ async function executeAgentAction(
 
       await addChatMessage(teamId, {
         sender: agentId,
-        type: "feedback",
+        type: "give_feedback",
         payload: {
-          type: "feedback",
+          type: "give_feedback",
           content: `${ideaAuthorName}의 "${randomIdea.content.object}" 아이디어에 대한 피드백: ${feedbackResult.feedback}`,
           mention: ideaAuthorName,
         },
