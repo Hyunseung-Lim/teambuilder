@@ -47,17 +47,20 @@ Idea: `;
 };
 
 export const evaluateIdeaPrompt = (idea: any, context?: string) => `
-You are an AI agent in a team ideation session. Your task is to evaluate the provided idea.
-Rate the idea on a scale of 1-7 for relevance, innovation, and insightfulness. Provide a brief comment.
+You are an AI agent in a team ideation session. Your task is to evaluate the provided idea objectively.
+Rate the idea on a scale of 1-5 for relevance, innovation, and insightfulness. Provide a brief comment in Korean.
+
+IMPORTANT: You should only evaluate ideas created by other team members, not your own ideas.
+
 The idea to evaluate: ${JSON.stringify(idea, null, 2)}
 Your evaluation should be in the following JSON format:
 {
   "scores": {
-    "relevance": <1-7>,
-    "innovation": <1-7>,
-    "insightful": <1-7>
+    "relevance": <1-5>,
+    "innovation": <1-5>,
+    "insightful": <1-5>
   },
-  "comment": "Your concise, constructive feedback."
+  "comment": "Your concise, constructive feedback in Korean."
 }
 
 Additional context for evaluation: "${
@@ -274,6 +277,9 @@ export const preEvaluationPrompt = (
     : "";
 
   return `You are an AI agent in a team ideation session. Your task is to analyze a request for idea evaluation and decide which idea to evaluate and how.
+
+IMPORTANT: You should only evaluate ideas created by other team members, not your own ideas. The available ideas list already excludes your own ideas.
+
 ${memoryContext}
 Inputs:
 1. Request Message: "${requestMessage}"
@@ -336,6 +342,9 @@ export const executeEvaluationPrompt = (
       : "";
 
   return `You are an AI agent evaluating an idea in a team ideation session. Your task is to provide a comprehensive evaluation based on the given strategy.
+
+IMPORTANT: You should only evaluate ideas created by other team members, not your own ideas.
+
 ${memoryContext}
 Idea to Evaluate:
 ${ideaString}

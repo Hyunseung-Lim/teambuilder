@@ -348,8 +348,156 @@ class AgentStateManager {
     agentId: string,
     request: AgentRequest
   ): Promise<void> {
-    // TODO: 기존 evaluateIdeaViaAgent 함수 호출
     console.log(`📊 에이전트 ${agentId} 아이디어 평가 요청 처리`);
+
+    try {
+      // 아이디어 리스트 가져오기
+      const { getIdeas } = await import("@/lib/redis");
+      const { getAgentById } = await import("@/lib/utils");
+      const { addChatMessage } = await import("@/lib/redis");
+      const { preEvaluationAction, executeEvaluationAction } = await import(
+        "@/lib/openai"
+      );
+
+      const ideas = await getIdeas(request.teamId);
+
+      if (ideas.length === 0) {
+        console.log(`⚠️ 에이전트 ${agentId} 평가할 아이디어가 없음`);
+        return;
+      }
+
+      // 본인이 만든 아이디어 제외
+      const otherIdeas = ideas.filter((idea) => idea.author !== agentId);
+
+      if (otherIdeas.length === 0) {
+        console.log(
+          `⚠️ 에이전트 ${agentId} 평가할 다른 사람의 아이디어가 없음`
+        );
+        return;
+      }
+
+      // 아이디어 리스트를 적절한 형태로 변환
+      const ideaList = otherIdeas.map((idea, index) => ({
+        ideaNumber: idea.id,
+        authorName: idea.author,
+        object: idea.content.object,
+        function: idea.content.function,
+      }));
+
+      const agentProfile = await getAgentById(agentId);
+
+      // 2단계 평가 프로세스
+      // 1단계: 어떤 아이디어를 평가할지 결정
+      const preEvaluation = await preEvaluationAction(
+        request.payload.message,
+        ideaList,
+        agentProfile
+      );
+
+      const selectedIdea = otherIdeas.find(
+        (idea) => idea.id === preEvaluation.selectedIdea.ideaNumber
+      );
+
+      if (!selectedIdea) {
+        console.log(`⚠️ 에이전트 ${agentId} 선택된 아이디어를 찾을 수 없음`);
+        return;
+      }
+
+      // 2단계: 실제 평가 수행
+      const evaluation = await executeEvaluationAction(
+        {
+          ...preEvaluation.selectedIdea,
+          authorName: selectedIdea.author,
+        },
+        preEvaluation.evaluationStrategy,
+        agentProfile
+      );
+
+      // 평가 API 호출
+      const response = await fetch(
+        `${process.env.NEXTAUTH_URL || "http://localhost:3000"}/api/teams/${
+          request.teamId
+        }/ideas/${selectedIdea.id}/evaluate`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            evaluator: agentId,
+            scores: {
+              insightful: Math.max(
+                1,
+                Math.min(5, evaluation.scores?.insightful || 3)
+              ),
+              actionable: Math.max(
+                1,
+                Math.min(5, evaluation.scores?.actionable || 3)
+              ),
+              relevance: Math.max(
+                1,
+                Math.min(5, evaluation.scores?.relevance || 3)
+              ),
+            },
+            comment: evaluation.comment || "요청에 따른 평가",
+          }),
+        }
+      );
+
+      if (response.ok) {
+        // 성공 시 채팅 알림
+        let ideaAuthorName = selectedIdea.author;
+        if (selectedIdea.author === "나") {
+          ideaAuthorName = "나";
+        } else {
+          const authorAgent = await getAgentById(selectedIdea.author);
+          ideaAuthorName =
+            authorAgent?.name || `에이전트 ${selectedIdea.author}`;
+        }
+
+        console.log(
+          `📢 에이전트 ${agentId} 요청 기반 평가 완료 채팅 알림 전송 중...`
+        );
+
+        await addChatMessage(request.teamId, {
+          sender: agentId,
+          type: "system",
+          payload: {
+            content: `${
+              request.requesterName
+            }의 요청에 따라 ${ideaAuthorName}의 아이디어 "${
+              selectedIdea.content.object
+            }"를 평가했습니다. 평가 점수: 통찰력 ${Math.max(
+              1,
+              Math.min(5, evaluation.scores?.insightful || 3)
+            )}/5, 실행가능성 ${Math.max(
+              1,
+              Math.min(5, evaluation.scores?.actionable || 3)
+            )}/5, 관련성 ${Math.max(
+              1,
+              Math.min(5, evaluation.scores?.relevance || 3)
+            )}/5`,
+          },
+        });
+
+        console.log(
+          `✅ 에이전트 ${agentId} 요청 기반 평가 완료 채팅 알림 전송 완료`
+        );
+
+        console.log(
+          `✅ 에이전트 ${agentId} 아이디어 평가 완료:`,
+          selectedIdea.content.object
+        );
+      } else {
+        console.error(
+          `❌ 에이전트 ${agentId} 요청 기반 평가 API 호출 실패:`,
+          response.status,
+          await response.text()
+        );
+      }
+    } catch (error) {
+      console.error(`❌ 에이전트 ${agentId} 평가 요청 처리 실패:`, error);
+    }
   }
 
   // 자발적 아이디어 생성

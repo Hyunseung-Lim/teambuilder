@@ -415,8 +415,19 @@ async function executeAgentAction(
         return;
       }
 
-      // 랜덤하게 아이디어 선택 (나중에 더 스마트하게 개선 가능)
-      const randomIdea = ideas[Math.floor(Math.random() * ideas.length)];
+      // 본인이 만든 아이디어 제외
+      const otherIdeas = ideas.filter((idea) => idea.author !== agentId);
+
+      if (otherIdeas.length === 0) {
+        console.log(
+          `⚠️ ${agentProfile.name} 평가할 다른 사람의 아이디어가 없음`
+        );
+        return;
+      }
+
+      // 랜덤하게 아이디어 선택 (본인 제외)
+      const randomIdea =
+        otherIdeas[Math.floor(Math.random() * otherIdeas.length)];
 
       const evaluation = await evaluateIdeaAction(randomIdea, team.topic);
 
@@ -433,9 +444,18 @@ async function executeAgentAction(
           body: JSON.stringify({
             evaluator: agentId,
             scores: {
-              insightful: evaluation.scores?.insightful || 3,
-              actionable: evaluation.scores?.actionable || 3,
-              relevance: evaluation.scores?.relevance || 3,
+              insightful: Math.max(
+                1,
+                Math.min(5, evaluation.scores?.insightful || 3)
+              ),
+              actionable: Math.max(
+                1,
+                Math.min(5, evaluation.scores?.actionable || 3)
+              ),
+              relevance: Math.max(
+                1,
+                Math.min(5, evaluation.scores?.relevance || 3)
+              ),
             },
             comment: evaluation.comment || "자동 평가",
           }),
@@ -458,23 +478,38 @@ async function executeAgentAction(
           }
         }
 
+        console.log(`📢 ${agentProfile.name} 평가 완료 채팅 알림 전송 중...`);
+
         await addChatMessage(teamId, {
           sender: agentId,
           type: "system",
           payload: {
-            content: `스스로 계획하여 ${ideaAuthorName}의 아이디어 "${
+            content: `${ideaAuthorName}의 아이디어 "${
               randomIdea.content.object
-            }"를 평가했습니다. 평가 점수: 통찰력 ${
-              evaluation.scores?.insightful || 3
-            }/5, 실행가능성 ${evaluation.scores?.actionable || 3}/5, 관련성 ${
-              evaluation.scores?.relevance || 3
-            }/5`,
+            }"를 평가했습니다. 평가 점수: 통찰력 ${Math.max(
+              1,
+              Math.min(5, evaluation.scores?.insightful || 3)
+            )}/5, 실행가능성 ${Math.max(
+              1,
+              Math.min(5, evaluation.scores?.actionable || 3)
+            )}/5, 관련성 ${Math.max(
+              1,
+              Math.min(5, evaluation.scores?.relevance || 3)
+            )}/5`,
           },
         });
+
+        console.log(`✅ ${agentProfile.name} 평가 완료 채팅 알림 전송 완료`);
 
         console.log(
           `✅ ${agentProfile.name} 아이디어 평가 완료:`,
           randomIdea.content.object
+        );
+      } else {
+        console.error(
+          `❌ ${agentProfile.name} 평가 API 호출 실패:`,
+          response.status,
+          await response.text()
         );
       }
     } else if (plannedAction.action === "give_feedback") {
