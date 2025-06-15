@@ -252,7 +252,62 @@ export async function planNextAction(
       throw new Error(`Invalid action: ${planResult.action}`);
     }
 
-    console.log(`🧠 ${userProfile.name} 계획 결과:`, planResult);
+    // 🔥 역할 기반 필터링 추가
+    const agentRoles = userProfile.roles || [];
+
+    // 에이전트가 수행할 수 없는 행동인지 확인
+    if (
+      planResult.action === "generate_idea" &&
+      !agentRoles.includes("아이디어 생성하기")
+    ) {
+      console.log(
+        `⚠️ ${userProfile.name}은 아이디어 생성 역할이 없어서 대기로 변경`
+      );
+      return {
+        action: "wait",
+        reasoning: `아이디어 생성 역할이 없어서 대기합니다. (원래 계획: ${planResult.reasoning})`,
+      };
+    }
+
+    if (
+      planResult.action === "evaluate_idea" &&
+      !agentRoles.includes("아이디어 평가하기")
+    ) {
+      console.log(
+        `⚠️ ${userProfile.name}은 아이디어 평가 역할이 없어서 대기로 변경`
+      );
+      return {
+        action: "wait",
+        reasoning: `아이디어 평가 역할이 없어서 대기합니다. (원래 계획: ${planResult.reasoning})`,
+      };
+    }
+
+    if (
+      planResult.action === "give_feedback" &&
+      !agentRoles.includes("피드백하기")
+    ) {
+      console.log(`⚠️ ${userProfile.name}은 피드백 역할이 없어서 대기로 변경`);
+      return {
+        action: "wait",
+        reasoning: `피드백 역할이 없어서 대기합니다. (원래 계획: ${planResult.reasoning})`,
+      };
+    }
+
+    if (
+      planResult.action === "make_request" &&
+      !agentRoles.includes("요청하기")
+    ) {
+      console.log(`⚠️ ${userProfile.name}은 요청 역할이 없어서 대기로 변경`);
+      return {
+        action: "wait",
+        reasoning: `요청 역할이 없어서 대기합니다. (원래 계획: ${planResult.reasoning})`,
+      };
+    }
+
+    console.log(
+      `🧠 ${userProfile.name} 계획 결과 (역할 확인 완료):`,
+      planResult
+    );
 
     return {
       action: planResult.action,

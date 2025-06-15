@@ -14,6 +14,7 @@ import {
   preEvaluationAction,
   executeEvaluationAction,
   giveFeedbackOnIdea,
+  makeRequestAction,
 } from "@/lib/openai";
 
 // 에이전트 상태 타입
@@ -28,7 +29,8 @@ interface AgentStateInfo {
       | "evaluate_idea"
       | "planning"
       | "thinking"
-      | "give_feedback";
+      | "give_feedback"
+      | "make_request";
     description: string;
     startTime: string;
     estimatedDuration: number;
@@ -44,7 +46,12 @@ interface AgentStateInfo {
     remainingTime: number;
   };
   plannedAction?: {
-    action: "generate_idea" | "evaluate_idea" | "give_feedback" | "wait";
+    action:
+      | "generate_idea"
+      | "evaluate_idea"
+      | "give_feedback"
+      | "make_request"
+      | "wait";
     reasoning: string;
     target?: string;
   };
@@ -157,6 +164,15 @@ async function updateAgentStateTimer(
         const validAgents = agents.filter((agent) => agent !== null);
 
         if (team && agentProfile) {
+          // 팀에서 이 에이전트의 역할 정보 가져오기
+          const teamMember = team.members.find(
+            (m) => m.agentId === state.agentId
+          );
+          const agentWithTeamRoles = {
+            ...agentProfile,
+            roles: teamMember?.roles || [], // 팀에서의 역할 정보 추가
+          };
+
           const teamContext = {
             teamName: team.teamName,
             topic: team.topic || "Carbon Emission Reduction",
@@ -190,8 +206,11 @@ async function updateAgentStateTimer(
             })),
           };
 
-          // LLM으로 다음 행동 계획
-          const planResult = await planNextAction(agentProfile, teamContext);
+          // LLM으로 다음 행동 계획 (팀 역할 정보 포함)
+          const planResult = await planNextAction(
+            agentWithTeamRoles,
+            teamContext
+          );
 
           console.log(`🎯 ${agentProfile.name} 계획 결과:`, planResult);
 
@@ -227,6 +246,7 @@ async function updateAgentStateTimer(
                   | "generate_idea"
                   | "evaluate_idea"
                   | "give_feedback"
+                  | "make_request"
                   | "wait";
                 reasoning: string;
                 target?: string;
@@ -269,12 +289,14 @@ async function updateAgentStateTimer(
         generate_idea: "창의적인 아이디어를 생성하고 있습니다",
         evaluate_idea: "아이디어를 평가하고 있습니다",
         give_feedback: "팀원에게 피드백을 작성하고 있습니다",
+        make_request: "다른 팀원에게 작업을 요청하기로 결정했습니다",
       };
 
       const actionDurations = {
         generate_idea: 60, // 60초
         evaluate_idea: 45, // 45초
         give_feedback: 30, // 30초
+        make_request: 0, // 즉시 실행
       };
 
       if (state.plannedAction.action !== "wait") {
@@ -288,6 +310,7 @@ async function updateAgentStateTimer(
               | "generate_idea"
               | "evaluate_idea"
               | "give_feedback"
+              | "make_request"
               | "thinking",
             description:
               actionDescriptions[
@@ -343,7 +366,12 @@ async function executeAgentAction(
   teamId: string,
   agentId: string,
   plannedAction: {
-    action: "generate_idea" | "evaluate_idea" | "give_feedback" | "wait";
+    action:
+      | "generate_idea"
+      | "evaluate_idea"
+      | "give_feedback"
+      | "make_request"
+      | "wait";
     reasoning: string;
     target?: string;
   }
@@ -625,6 +653,75 @@ async function executeAgentAction(
         `✅ ${agentProfile.name} 피드백 완료:`,
         randomIdea.content.object
       );
+    }
+
+    if (plannedAction.action === "make_request") {
+      // 요청하기 - 다른 팀원에게 작업 요청
+      console.log(`📨 ${agentProfile.name} 요청하기 실행`);
+
+      // 팀 멤버 정보 준비
+      const teamMembers = await Promise.all(
+        team.members.map(async (member) => ({
+          name: member.isUser
+            ? "나"
+            : await (async () => {
+                if (member.agentId) {
+                  const agent = await getAgentById(member.agentId);
+                  return agent?.name || `에이전트 ${member.agentId}`;
+                }
+                return `에이전트 ${member.agentId}`;
+              })(),
+          roles: member.roles.map((role) => role.toString()), // AgentRole을 string으로 변환
+          isUser: member.isUser,
+          agentId: member.agentId || undefined, // null을 undefined로 변환
+        }))
+      );
+
+      // 현재 아이디어 정보 가져오기
+      const ideas = await getIdeas(teamId);
+      const currentIdeas = ideas.map((idea, index) => ({
+        ideaNumber: index + 1,
+        authorName: idea.author,
+        object: idea.content.object,
+        function: idea.content.function,
+      }));
+
+      try {
+        // makeRequestAction 사용하여 요청 생성
+        const { analysis, message } = await makeRequestAction(
+          "팀 상황을 분석한 결과 다른 팀원에게 작업을 요청하기로 결정했습니다.",
+          teamMembers,
+          currentIdeas,
+          agentProfile
+        );
+
+        // 채팅 메시지로 요청 전송
+        await addChatMessage(teamId, {
+          sender: agentId,
+          type: "request",
+          payload: {
+            type: analysis.requestType,
+            content: message.message,
+            mention: analysis.targetMember,
+          },
+        });
+
+        console.log(
+          `✅ ${agentProfile.name} 요청 완료: ${analysis.targetMember}에게 ${analysis.requestType} 요청`
+        );
+      } catch (error) {
+        console.error(`❌ ${agentProfile.name} 요청 생성 실패:`, error);
+
+        // 실패 시 일반적인 메시지
+        await addChatMessage(teamId, {
+          sender: agentId,
+          type: "system",
+          payload: {
+            content:
+              "팀원에게 요청을 보내려고 했지만 적절한 요청을 생성하지 못했습니다.",
+          },
+        });
+      }
     }
   } catch (error) {
     console.error(`❌ ${agentId} 작업 실행 실패:`, error);
