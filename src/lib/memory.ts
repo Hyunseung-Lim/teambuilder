@@ -94,9 +94,126 @@ type MemoryEvent =
  * @param event 발생한 이벤트
  */
 export async function processMemoryUpdate(event: MemoryEvent): Promise<void> {
-  console.log(`🧠 메모리 업데이트 시작: ${event.type}`);
-
   try {
+    console.log("📝 메모리 업데이트 시작:", event.type);
+
+    if (event.type === "IDEA_GENERATED") {
+      const { teamId, authorId, idea, isAutonomous } = event.payload;
+
+      // 메모리 업데이트 시작 - reflecting 상태로 전환
+      await updateAgentState(
+        teamId,
+        authorId,
+        "reflecting",
+        "아이디어 생성 후 자기 성찰 중"
+      );
+
+      // 에이전트 프로필 정보 가져오기
+      const agentProfile = await getAgentById(authorId);
+      if (!agentProfile) {
+        console.error(`❌ 에이전트 ${authorId} 프로필을 찾을 수 없음`);
+        return;
+      }
+
+      // 팀 정보 가져오기
+      const team = await getTeamById(teamId);
+      if (!team) {
+        console.error(`❌ 팀 ${teamId}를 찾을 수 없음`);
+        return;
+      }
+
+      // 기존 메모리 가져오기
+      let agentMemory = await getAgentMemory(authorId);
+
+      // 메모리가 없으면 초기화
+      if (!agentMemory) {
+        agentMemory = await createInitialMemory(authorId, team);
+      }
+
+      // 자기 성찰 생성
+      const selfReflectionPrompt = `
+당신은 ${agentProfile.name}입니다.
+
+**당신의 정보:**
+- 이름: ${agentProfile.name}
+- 나이: ${agentProfile.age}세
+- 성별: ${agentProfile.gender}
+- 전문성: ${agentProfile.professional}
+- 스킬: ${agentProfile.skills}
+- 성격: ${agentProfile.personality || "정보 없음"}
+- 가치관: ${agentProfile.value || "정보 없음"}
+- 자율성: ${agentProfile.autonomy}/5
+
+**방금 일어난 일:**
+${
+  isAutonomous
+    ? `당신이 스스로 계획하여 새로운 아이디어를 생성했습니다: "${idea.content.object}"`
+    : `팀원의 요청에 따라 새로운 아이디어를 생성했습니다: "${idea.content.object}"`
+}
+
+**팀 컨텍스트:**
+- 팀 이름: ${team.teamName}
+- 주제: ${team.topic || "Carbon Emission Reduction"}
+
+**현재 자기 성찰 내용:**
+${
+  typeof agentMemory.longTerm.self === "string" &&
+  agentMemory.longTerm.self.trim()
+    ? agentMemory.longTerm.self
+    : "아직 특별한 성찰 내용이 없습니다."
+}
+
+방금 아이디어를 생성한 경험을 바탕으로 자신에 대한 성찰을 업데이트해주세요. 
+기존 성찰 내용을 바탕으로 하되, 새로운 경험이 당신에게 어떤 의미인지, 
+당신의 성격이나 업무 스타일에 대해 새롭게 깨달은 점이 있는지 포함해주세요.
+
+**응답 형식:**
+간결하고 자연스러운 문체로 200자 이내로 작성해주세요.
+`;
+
+      try {
+        const reflection = await getTextResponse(selfReflectionPrompt);
+        if (reflection && reflection.trim()) {
+          // 기존 호환성 로직 적용
+          if (typeof agentMemory.longTerm.self === "string") {
+            agentMemory.longTerm.self = reflection.trim();
+          } else if (Array.isArray(agentMemory.longTerm.self)) {
+            // 배열인 경우 가장 최근 reflection으로 변환
+            agentMemory.longTerm.self = reflection.trim();
+          } else {
+            agentMemory.longTerm.self = reflection.trim();
+          }
+
+          console.log(
+            `✅ ${agentProfile.name} 아이디어 생성 후 자기 성찰 업데이트 완료`
+          );
+        }
+      } catch (error) {
+        console.error("❌ 자기 성찰 생성 실패:", error);
+      }
+
+      // lastAction 업데이트
+      agentMemory.shortTerm.lastAction = {
+        type: "IDEA_GENERATED",
+        timestamp: new Date().toISOString(),
+        payload: {
+          ideaId: idea.id,
+          ideaContent: idea.content.object,
+          isAutonomous,
+        },
+      };
+
+      // 메모리 저장
+      await updateAgentMemory(authorId, agentMemory);
+
+      // reflecting 완료 후 idle 상태로 전환
+      await updateAgentState(teamId, authorId, "idle");
+
+      console.log(`✅ ${agentProfile.name} 아이디어 생성 메모리 업데이트 완료`);
+      return; // 특정 이벤트 처리 완료
+    }
+
+    // 다른 이벤트 타입들은 기존 방식으로 처리
     // 팀 정보 조회
     const team = await getTeamById(event.payload.teamId);
     if (!team) {

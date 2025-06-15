@@ -1,11 +1,4 @@
-import {
-  AgentMemory,
-  AIAgent,
-  ChatMessage,
-  Idea,
-  Team,
-  ActionType,
-} from "@/lib/types";
+import { AgentMemory, AIAgent, ChatMessage, Idea, Team } from "@/lib/types";
 import {
   getAgentMemory,
   updateAgentMemory,
@@ -49,7 +42,7 @@ export class Agent {
   }
 
   private async createNewMemory(): Promise<AgentMemory> {
-    const relationMemory: { [agentName: string]: any } = {};
+    const relations: { [agentId: string]: any } = {};
     if (this.team) {
       for (const member of this.team.members) {
         if (member.isUser) {
@@ -57,13 +50,19 @@ export class Agent {
         } else if (member.agentId && member.agentId !== this.agentInfo.id) {
           const fellowAgent = await getAgentById(member.agentId);
           if (fellowAgent) {
-            relationMemory[fellowAgent.name] = {
-              staticInfo: fellowAgent,
+            relations[fellowAgent.id] = {
+              agentInfo: {
+                id: fellowAgent.id,
+                name: fellowAgent.name,
+                professional: fellowAgent.professional,
+                personality: fellowAgent.personality,
+                skills: fellowAgent.skills,
+              },
               relationship:
                 this.team.relationships.find(
                   (r) =>
                     r.from === this.agentInfo.name && r.to === fellowAgent.name
-                )?.type || "colleague",
+                )?.type || "FRIEND",
               interactionHistory: [],
               myOpinion: "A neutral colleague.",
             };
@@ -73,14 +72,14 @@ export class Agent {
     }
 
     return {
-      shortTerm: { context: "Session started.", relatedChats: [] },
+      agentId: this.agentInfo.id,
+      shortTerm: {
+        lastAction: null,
+        activeChat: null,
+      },
       longTerm: {
-        selfReflection: {
-          summary: "I am a new agent.",
-          reflections: [],
-          actionHistory: [],
-        },
-        relation: relationMemory,
+        self: "I am a new agent ready to collaborate.",
+        relations,
       },
     };
   }
@@ -101,28 +100,44 @@ export class Agent {
     const chatHistory = await getChatHistory(this.teamId);
     const ideas = await getIdeas(this.teamId);
 
-    const context = {
-      agentProfile: this.agentInfo,
-      memory: this.memory,
-      trigger: { type: trigger, data },
-      recentChatHistory: chatHistory.slice(-20), // Get last 20 messages
-      availableIdeas: ideas, // Provide all ideas for evaluation context
-    };
-
     try {
-      const decision = await OpenAIActions.planNextAction(context);
+      if (!this.team) {
+        throw new Error("Team information not available");
+      }
+
+      const teamContext = {
+        teamName: this.team.teamName,
+        topic: this.team.topic || "General Ideation",
+        currentIdeasCount: ideas.length,
+        recentMessages: chatHistory.slice(-5),
+        teamMembers: this.team.members.map((m) =>
+          m.isUser ? "나" : m.agentId || "Unknown"
+        ),
+        existingIdeas: ideas.map((idea, index) => ({
+          ideaNumber: index + 1,
+          authorName: idea.author,
+          object: idea.content.object,
+          function: idea.content.function,
+        })),
+      };
+
+      const decision = await OpenAIActions.planNextAction(
+        this.agentInfo,
+        teamContext
+      );
       console.log(
         `Agent ${this.agentInfo.name} decided: ${decision.action}`,
         decision.reasoning
       );
 
       if (decision.action && decision.action !== "wait") {
-        if (this._isPayloadValid(decision.action, decision.payload)) {
-          await this.act(decision.action, decision.payload);
+        const payload = this.createPayloadForAction(decision.action, decision);
+        if (this._isPayloadValid(decision.action, payload)) {
+          await this.act(decision.action, payload);
         } else {
           console.error(
             `Invalid payload for action ${decision.action}`,
-            decision.payload
+            payload
           );
         }
       }
@@ -136,6 +151,26 @@ export class Agent {
     }
   }
 
+  private createPayloadForAction(action: string, decision: any): any {
+    switch (action) {
+      case "generate_idea":
+        return { context: "Generate a new idea based on the current topic" };
+      case "evaluate_idea":
+        return { idea: decision.targetIdea || null };
+      case "give_feedback":
+        return {
+          target: decision.target || "team",
+          content: "Providing feedback",
+        };
+      case "make_request":
+        return {
+          triggerContext: "Making a request based on planning decision",
+        };
+      default:
+        return {};
+    }
+  }
+
   async act(
     actionType:
       | "generate_idea"
@@ -146,30 +181,6 @@ export class Agent {
       | "response",
     payload: any
   ) {
-    if (
-      !this.agentInfo.roles.includes(actionType) &&
-      actionType !== "response" &&
-      actionType !== "make_request"
-    ) {
-      console.log(
-        `${this.agentInfo.name} cannot perform action: ${actionType} due to its roles.`
-      );
-      this.active = false;
-      return;
-    }
-
-    // make_request의 경우 '요청하기' 역할이 있는지 확인
-    if (
-      actionType === "make_request" &&
-      !this.agentInfo.roles.includes("요청하기")
-    ) {
-      console.log(
-        `${this.agentInfo.name} cannot perform make_request: no '요청하기' role.`
-      );
-      this.active = false;
-      return;
-    }
-
     console.log(`Agent ${this.agentInfo.name} is acting on: ${actionType}`);
     let result;
 
@@ -212,8 +223,8 @@ export class Agent {
     });
     await addChatMessage(this.teamId, {
       sender: this.agentInfo.name,
-      type: "idea_generation",
-      payload: { ideaId: newIdea.id },
+      type: "system",
+      payload: { content: `새로운 아이디어를 생성했습니다.` },
     });
     return newIdea;
   }
@@ -222,6 +233,8 @@ export class Agent {
     idea: Idea;
     context?: string;
   }): Promise<Idea | null> {
+    if (!payload.idea) return null;
+
     const evaluationResult = await OpenAIActions.evaluateIdeaAction(
       payload.idea,
       payload.context
@@ -237,8 +250,10 @@ export class Agent {
     });
     await addChatMessage(this.teamId, {
       sender: this.agentInfo.name,
-      type: "idea_evaluation",
-      payload: { ideaId: payload.idea.id, content: evaluationResult.comment },
+      type: "system",
+      payload: {
+        content: `아이디어를 평가했습니다: ${evaluationResult.comment}`,
+      },
     });
     return updatedIdea;
   }
@@ -251,8 +266,9 @@ export class Agent {
       sender: this.agentInfo.name,
       type: "give_feedback",
       payload: {
-        target: payload.target,
+        type: "give_feedback",
         content: payload.content,
+        mention: payload.target,
       },
     });
   }
@@ -260,14 +276,16 @@ export class Agent {
   private async _request(payload: {
     target: string;
     content: string;
-    action?: ActionType;
+    action?: string;
   }): Promise<ChatMessage> {
     return addChatMessage(this.teamId, {
       sender: this.agentInfo.name,
-      type: "request",
+      type: "make_request",
       payload: {
-        target: payload.target,
+        type: "make_request",
         content: payload.content,
+        mention: payload.target,
+        target: payload.target,
         action: payload.action,
       },
     });
@@ -279,11 +297,8 @@ export class Agent {
   }): Promise<ChatMessage> {
     return addChatMessage(this.teamId, {
       sender: this.agentInfo.name,
-      type: "response",
-      payload: {
-        target: payload.target,
-        content: payload.content,
-      },
+      type: "system",
+      payload: { content: payload.content },
     });
   }
 
@@ -298,10 +313,10 @@ export class Agent {
 
     // 팀원 정보 준비
     const teamMembers = this.team.members.map((member) => ({
-      name: member.isUser ? "나" : member.agentId ? member.agentId : "Unknown",
-      roles: member.roles,
+      name: member.isUser ? "나" : member.agentId || "Unknown",
+      roles: member.roles.map((role) => role.toString()),
       isUser: member.isUser,
-      agentId: member.agentId,
+      agentId: member.agentId || undefined,
     }));
 
     // 현재 아이디어 정보 가져오기
@@ -325,7 +340,7 @@ export class Agent {
       teamMembers,
       currentIdeas,
       this.agentInfo,
-      this.memory
+      this.memory || undefined
     );
 
     // 2단계: 요청 실행
@@ -358,7 +373,7 @@ export class Agent {
         targetMemberInfo.roles,
         relationship?.type,
         this.agentInfo,
-        this.memory,
+        this.memory || undefined,
         payload.originalRequest,
         payload.originalRequester
       );
@@ -372,17 +387,19 @@ export class Agent {
         targetMemberInfo.roles,
         relationship?.type,
         this.agentInfo,
-        this.memory
+        this.memory || undefined
       );
     }
 
     // 채팅 메시지로 추가
     return addChatMessage(this.teamId, {
       sender: this.agentInfo.name,
-      type: "request",
+      type: "make_request",
       payload: {
-        target: requestAnalysis.targetMember,
+        type: "make_request",
         content: requestMessage.message,
+        mention: requestAnalysis.targetMember,
+        target: requestAnalysis.targetMember,
         action: requestAnalysis.requestType,
       },
     });
@@ -393,28 +410,19 @@ export class Agent {
 
     switch (action) {
       case "generate_idea":
-        return typeof payload.context === "string";
+        return true; // context is optional
       case "evaluate_idea":
         return (
-          typeof payload.idea === "object" &&
-          payload.idea !== null &&
-          typeof payload.idea.id === "number"
+          payload.idea === null ||
+          (typeof payload.idea === "object" && payload.idea !== null)
         );
       case "give_feedback":
-      case "request":
+      case "make_request":
       case "response":
         return (
-          typeof payload.target === "string" &&
-          typeof payload.content === "string"
-        );
-      case "make_request":
-        return (
-          (payload.triggerContext === undefined ||
-            typeof payload.triggerContext === "string") &&
-          (payload.originalRequest === undefined ||
-            typeof payload.originalRequest === "string") &&
-          (payload.originalRequester === undefined ||
-            typeof payload.originalRequester === "string")
+          typeof payload.target === "string" ||
+          typeof payload.content === "string" ||
+          payload.triggerContext !== undefined
         );
       default:
         return false;
@@ -423,16 +431,12 @@ export class Agent {
 
   private async updateMemory(action: string, payload: any, result: any) {
     if (this.memory) {
-      // For now, just log the action to self-history
-      const historyEntry = {
+      // Update last action in short-term memory
+      this.memory.shortTerm.lastAction = {
+        type: action,
         timestamp: new Date().toISOString(),
-        action: action,
-        content: `Action performed with payload: ${JSON.stringify(
-          payload
-        )}. Resulted in: ${JSON.stringify(result)}`,
+        payload: payload,
       };
-
-      this.memory.longTerm.selfReflection.actionHistory.push(historyEntry);
 
       await updateAgentMemory(this.agentInfo.id, this.memory);
     }

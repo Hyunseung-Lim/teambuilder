@@ -74,7 +74,7 @@ export async function POST(
     }
 
     // 요청 타입에 따른 추가 처리
-    if (messageType === "request") {
+    if (messageType === "make_request") {
       // 메모리 업데이트 - 요청 이벤트 기록
       try {
         await processMemoryUpdate({
@@ -97,7 +97,7 @@ export async function POST(
 
     // Check if it's a generation request and trigger the action
     if (
-      messageType === "request" &&
+      messageType === "make_request" &&
       messagePayload.requestType === "generate"
     ) {
       console.log(
@@ -116,51 +116,53 @@ export async function POST(
         teamId: teamId,
       };
 
-      // 에이전트 상태 API를 통해 요청 처리
-      fetch(
-        `${
-          process.env.NEXTAUTH_URL || "http://localhost:3000"
-        }/api/teams/${teamId}/agent-states`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            agentId: messagePayload.mention,
-            action: "process_request",
-            requestData: requestData,
-          }),
-        }
-      )
-        .then(async (response) => {
-          if (response.ok) {
-            const result = await response.json();
-            if (result.queued) {
-              console.log(
-                `⏳ 에이전트 ${messagePayload.mention} 바쁨 - 큐에 추가됨`
-              );
-            } else {
-              console.log(
-                `🔄 에이전트 ${messagePayload.mention} 즉시 처리 시작`
-              );
-            }
-          } else {
-            console.error(
-              `❌ 에이전트 ${messagePayload.mention} 요청 처리 실패:`,
-              response.status
-            );
+      // 에이전트 상태 API를 통해 요청 처리 (await 추가)
+      try {
+        const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
+        const response = await fetch(
+          `${baseUrl}/api/teams/${teamId}/agent-states`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "User-Agent": "TeamBuilder-Internal",
+            },
+            body: JSON.stringify({
+              agentId: messagePayload.mention,
+              action: "process_request",
+              requestData: requestData,
+            }),
           }
-        })
-        .catch((error) => {
+        );
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.queued) {
+            console.log(
+              `⏳ 에이전트 ${messagePayload.mention} 바쁨 - 큐에 추가됨`
+            );
+          } else {
+            console.log(`🔄 에이전트 ${messagePayload.mention} 즉시 처리 시작`);
+          }
+        } else {
+          const errorText = await response.text();
           console.error(
-            `❌ 에이전트 ${messagePayload.mention} 요청 전달 실패:`,
-            error
+            `❌ 에이전트 ${messagePayload.mention} 요청 처리 실패:`,
+            response.status,
+            errorText
           );
-        });
+        }
+      } catch (error) {
+        console.error(
+          `❌ 에이전트 ${messagePayload.mention} 요청 전달 실패:`,
+          error
+        );
+      }
     }
 
     // Check if it's an evaluation request and trigger the action
     if (
-      messageType === "request" &&
+      messageType === "make_request" &&
       messagePayload.requestType === "evaluate"
     ) {
       console.log(
@@ -179,46 +181,48 @@ export async function POST(
         teamId: teamId,
       };
 
-      // 에이전트 상태 API를 통해 요청 처리
-      fetch(
-        `${
-          process.env.NEXTAUTH_URL || "http://localhost:3000"
-        }/api/teams/${teamId}/agent-states`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            agentId: messagePayload.mention,
-            action: "process_request",
-            requestData: requestData,
-          }),
-        }
-      )
-        .then(async (response) => {
-          if (response.ok) {
-            const result = await response.json();
-            if (result.queued) {
-              console.log(
-                `⏳ 에이전트 ${messagePayload.mention} 바쁨 - 큐에 추가됨`
-              );
-            } else {
-              console.log(
-                `🔄 에이전트 ${messagePayload.mention} 즉시 처리 시작`
-              );
-            }
-          } else {
-            console.error(
-              `❌ 에이전트 ${messagePayload.mention} 요청 처리 실패:`,
-              response.status
-            );
+      // 에이전트 상태 API를 통해 요청 처리 (await 추가)
+      try {
+        const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
+        const response = await fetch(
+          `${baseUrl}/api/teams/${teamId}/agent-states`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "User-Agent": "TeamBuilder-Internal",
+            },
+            body: JSON.stringify({
+              agentId: messagePayload.mention,
+              action: "process_request",
+              requestData: requestData,
+            }),
           }
-        })
-        .catch((error) => {
+        );
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.queued) {
+            console.log(
+              `⏳ 에이전트 ${messagePayload.mention} 바쁨 - 큐에 추가됨`
+            );
+          } else {
+            console.log(`🔄 에이전트 ${messagePayload.mention} 즉시 처리 시작`);
+          }
+        } else {
+          const errorText = await response.text();
           console.error(
-            `❌ 에이전트 ${messagePayload.mention} 요청 전달 실패:`,
-            error
+            `❌ 에이전트 ${messagePayload.mention} 요청 처리 실패:`,
+            response.status,
+            errorText
           );
-        });
+        }
+      } catch (error) {
+        console.error(
+          `❌ 에이전트 ${messagePayload.mention} 요청 전달 실패:`,
+          error
+        );
+      }
     }
 
     return NextResponse.json({ message: newMessage });

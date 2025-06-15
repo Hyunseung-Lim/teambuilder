@@ -58,7 +58,8 @@ interface AgentStateInfo {
       | "planning"
       | "thinking"
       | "give_feedback"
-      | "reflecting";
+      | "reflecting"
+      | "make_request";
     description: string;
     startTime: string;
     estimatedDuration: number;
@@ -72,6 +73,16 @@ interface AgentStateInfo {
     startTime: string;
     plannedDuration: number;
     remainingTime: number;
+  };
+  plannedAction?: {
+    action:
+      | "generate_idea"
+      | "evaluate_idea"
+      | "give_feedback"
+      | "make_request"
+      | "wait";
+    reasoning: string;
+    target?: string;
   };
 }
 
@@ -87,16 +98,30 @@ function useAgentStates(teamId: string) {
 
     const fetchAgentStates = async () => {
       try {
+        console.log(`🔄 팀 ${teamId} 에이전트 상태 요청 중...`);
         const response = await fetch(`/api/teams/${teamId}/agent-states`);
         if (response.ok) {
           const data = await response.json();
+          console.log(`📨 에이전트 상태 API 응답:`, data);
+
           const statesMap = new Map<string, AgentStateInfo>();
 
           data.agentStates.forEach((state: AgentStateInfo) => {
+            console.log(`📝 에이전트 ${state.agentId} 상태 처리:`, {
+              currentState: state.currentState,
+              isProcessing: state.isProcessing,
+              hasCurrentTask: !!state.currentTask,
+              taskType: state.currentTask?.type,
+              hasIdleTimer: !!state.idleTimer,
+            });
+
             statesMap.set(state.agentId, state);
           });
 
+          console.log(`✅ 상태 맵 설정 완료:`, statesMap.size, "개 에이전트");
           setAgentStates(statesMap);
+        } else {
+          console.error("에이전트 상태 API 응답 실패:", response.status);
         }
       } catch (error) {
         console.error("에이전트 상태 조회 실패:", error);
@@ -110,7 +135,7 @@ function useAgentStates(teamId: string) {
     const interval = setInterval(fetchAgentStates, 10000);
 
     return () => clearInterval(interval);
-  }, [teamId, agentStates]);
+  }, [teamId]); // agentStates 제거
 
   // 타이머 계산 (실시간 업데이트)
   useEffect(() => {
@@ -163,6 +188,15 @@ function AgentStateIndicator({
   if (!state) return null;
 
   const getStateInfo = () => {
+    // 디버깅을 위한 로깅 강화
+    console.log(`🔍 ${agentName} 상태 분석:`, {
+      currentState: state.currentState,
+      isProcessing: state.isProcessing,
+      currentTask: state.currentTask,
+      idleTimer: state.idleTimer,
+      lastStateChange: state.lastStateChange,
+    });
+
     switch (state.currentState) {
       case "idle":
         return {
@@ -214,6 +248,12 @@ function AgentStateIndicator({
               break;
             case "give_feedback":
               baseText = "피드백중";
+              break;
+            case "make_request":
+              baseText = "요청 생성중";
+              break;
+            case "reflecting":
+              baseText = "회고중";
               break;
             default:
               baseText = "작업중";
@@ -273,11 +313,18 @@ function AgentStateIndicator({
           tooltip: getActionTooltip(),
         };
       default:
+        console.warn(`알 수 없는 에이전트 상태 감지:`, {
+          agentName,
+          currentState: state.currentState,
+          isProcessing: state.isProcessing,
+          currentTask: state.currentTask,
+          lastStateChange: state.lastStateChange,
+        });
         return {
           icon: <Clock className="h-3 w-3" />,
           text: "알 수 없음",
           color: "bg-gray-100 text-gray-600",
-          tooltip: "상태를 확인할 수 없습니다",
+          tooltip: `상태를 확인할 수 없습니다 (${state.currentState})`,
         };
     }
   };
@@ -377,7 +424,7 @@ export default function IdeationPage() {
   const [sseConnected, setSseConnected] = useState(false);
 
   // New state for chat functionality
-  const [chatMode, setChatMode] = useState<"give_feedback" | "request">(
+  const [chatMode, setChatMode] = useState<"give_feedback" | "make_request">(
     "give_feedback"
   );
   const [mentionedAgent, setMentionedAgent] = useState<AIAgent | null>(null);
@@ -474,7 +521,7 @@ export default function IdeationPage() {
 
   // 선택된 요청 타입에 따라 필터링된 에이전트 목록
   const getFilteredAgentsForRequest = () => {
-    if (chatMode !== "request" || !requestType) {
+    if (chatMode !== "make_request" || !requestType) {
       return teamAgents;
     }
 
@@ -979,11 +1026,9 @@ export default function IdeationPage() {
       if (
         msg.type === "system" &&
         typeof msg.payload === "object" &&
-        msg.payload.content?.includes("스스로 계획하여") &&
         msg.payload.content?.includes("평가했습니다")
       ) {
         completedAgents.add(msg.sender);
-        console.log("🎉 자율적 아이디어 평가 완료:", msg.sender);
       }
     });
 
@@ -1010,7 +1055,7 @@ export default function IdeationPage() {
     const messageType = chatMode;
 
     // Trigger generation tracking
-    if (messageType === "request" && requestType === "generate") {
+    if (messageType === "make_request" && requestType === "generate") {
       console.log("🔄 아이디어 생성 요청 - 추적 시작:", mentionedAgent.id);
       setGeneratingViaRequestAgents((prev) =>
         new Set(prev).add(mentionedAgent.id)
@@ -1018,7 +1063,7 @@ export default function IdeationPage() {
     }
 
     // Trigger evaluation tracking
-    if (messageType === "request" && requestType === "evaluate") {
+    if (messageType === "make_request" && requestType === "evaluate") {
       console.log("🔄 아이디어 평가 요청 - 추적 시작:", mentionedAgent.id);
       setEvaluatingViaRequestAgents((prev) =>
         new Set(prev).add(mentionedAgent.id)
@@ -1035,7 +1080,7 @@ export default function IdeationPage() {
         type: messageType,
         content: newMessage.trim(),
         mention: mentionedAgent.id,
-        requestType: chatMode === "request" ? requestType : undefined,
+        requestType: chatMode === "make_request" ? requestType : undefined,
       },
     };
 
@@ -1433,9 +1478,14 @@ export default function IdeationPage() {
                           {member.roles.map((role, roleIndex) => (
                             <span
                               key={roleIndex}
-                              className="text-xs px-2 py-1 bg-indigo-50 text-indigo-600 rounded-lg w-fit font-medium"
+                              className={`text-xs px-2 py-1 rounded-lg w-fit font-medium ${
+                                role === "요청하기"
+                                  ? "bg-orange-50 text-orange-600 border border-orange-200"
+                                  : "bg-indigo-50 text-indigo-600"
+                              }`}
                             >
                               {role}
+                              {role === "요청하기" && " 🔥"}
                             </span>
                           ))}
                         </div>
@@ -1621,7 +1671,7 @@ export default function IdeationPage() {
                               "type" in message.payload
                             ) {
                               const isRequest =
-                                message.payload.type === "request";
+                                message.payload.type === "make_request";
                               if (isMyMessage) {
                                 return isRequest
                                   ? "bg-indigo-500 text-white"
@@ -1648,7 +1698,9 @@ export default function IdeationPage() {
                               const { type, mention, requestType, content } =
                                 message.payload;
                               const isRequest =
-                                type === "request" && mention && requestType;
+                                type === "make_request" &&
+                                mention &&
+                                requestType;
                               const isFeedback =
                                 type === "give_feedback" && mention;
 
@@ -1778,7 +1830,7 @@ export default function IdeationPage() {
 
                               // 선택된 에이전트가 현재 요청 타입을 수행할 수 없다면 요청 타입 초기화
                               if (
-                                chatMode === "request" &&
+                                chatMode === "make_request" &&
                                 requestType &&
                                 !canAgentPerformRole(agent, requestType)
                               ) {
@@ -1791,7 +1843,7 @@ export default function IdeationPage() {
                           </button>
                         ))}
                         {getFilteredAgentsForRequest().length === 0 &&
-                          chatMode === "request" &&
+                          chatMode === "make_request" &&
                           requestType && (
                             <div className="px-3 py-2 text-sm text-gray-500">
                               해당 역할을 수행할 수 있는 에이전트가 없습니다.
@@ -1807,7 +1859,7 @@ export default function IdeationPage() {
                     value={chatMode}
                     onChange={(e) => {
                       setChatMode(
-                        e.target.value as "give_feedback" | "request"
+                        e.target.value as "give_feedback" | "make_request"
                       );
                       // 채팅 모드 변경 시 요청 타입과 멘션된 에이전트 초기화
                       if (e.target.value === "give_feedback") {
@@ -1817,10 +1869,10 @@ export default function IdeationPage() {
                     className="px-3 py-1.5 bg-gray-100 border-none rounded-md text-sm font-medium text-gray-700 focus:ring-0"
                   >
                     <option value="give_feedback">피드백</option>
-                    <option value="request">요청</option>
+                    <option value="make_request">요청</option>
                   </select>
 
-                  {chatMode === "request" && (
+                  {chatMode === "make_request" && (
                     <select
                       value={requestType || ""}
                       onChange={(e) => {
@@ -1877,7 +1929,7 @@ export default function IdeationPage() {
                       isAutoGenerating ||
                       isGeneratingIdea ||
                       !mentionedAgent ||
-                      (chatMode === "request" && !requestType)
+                      (chatMode === "make_request" && !requestType)
                     }
                     className="self-center"
                   >

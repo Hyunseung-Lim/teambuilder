@@ -436,7 +436,7 @@ async function executeAgentAction(
         sender: agentId,
         type: "system",
         payload: {
-          content: `스스로 계획하여 새로운 아이디어를 생성했습니다: "${generatedContent.object}"`,
+          content: `새로운 아이디어를 생성했습니다: "${generatedContent.object}"`,
         },
       });
 
@@ -503,7 +503,7 @@ async function executeAgentAction(
       // 1단계: 어떤 아이디어를 평가할지 결정
       const agentMemory = await getAgentMemory(agentId);
       const preEvaluation = await preEvaluationAction(
-        `${agentProfile.name}이 스스로 계획하여 아이디어를 평가하기로 결정했습니다. 현재 상황에서 가장 적절한 아이디어를 선택하여 평가해주세요.`,
+        `${agentProfile.name}이 아이디어를 평가하기로 결정했습니다. 현재 상황에서 가장 적절한 아이디어를 선택하여 평가해주세요.`,
         ideaList,
         agentProfile,
         agentMemory || undefined
@@ -530,15 +530,15 @@ async function executeAgentAction(
       );
 
       // 평가 API 호출
+      const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
       const response = await fetch(
-        `${
-          process.env.NEXTAUTH_URL || "http://localhost:3000"
-        }/api/teams/${teamId}/ideas/${selectedIdea.id}/evaluate`,
+        `${baseUrl}/api/teams/${teamId}/ideas/${selectedIdea.id}/evaluate`,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-system-internal": "true", // 시스템 내부 호출 표시
+            "x-system-internal": "true",
+            "User-Agent": "TeamBuilder-Internal",
           },
           body: JSON.stringify({
             evaluator: agentId,
@@ -556,7 +556,7 @@ async function executeAgentAction(
                 Math.min(5, evaluation.scores?.relevance || 3)
               ),
             },
-            comment: evaluation.comment || "자율적 평가",
+            comment: evaluation.comment || "요청에 따른 평가",
           }),
         }
       );
@@ -567,25 +567,22 @@ async function executeAgentAction(
         if (selectedIdea.author === "나") {
           ideaAuthorName = "나";
         } else {
-          const member = team.members.find(
-            (tm) => tm.agentId === selectedIdea.author
-          );
-          if (member && !member.isUser) {
-            const authorAgent = await getAgentById(selectedIdea.author);
-            ideaAuthorName =
-              authorAgent?.name || `에이전트 ${selectedIdea.author}`;
-          }
+          const authorAgent = await getAgentById(selectedIdea.author);
+          ideaAuthorName =
+            authorAgent?.name || `에이전트 ${selectedIdea.author}`;
         }
 
-        console.log(`📢 ${agentProfile.name} 평가 완료 채팅 알림 전송 중...`);
+        console.log(
+          `📢 에이전트 ${agentId} 자율적 평가 완료 채팅 알림 전송 중...`
+        );
 
         await addChatMessage(teamId, {
           sender: agentId,
           type: "system",
           payload: {
-            content: `스스로 계획하여 ${ideaAuthorName}의 아이디어 "${
+            content: `${ideaAuthorName}의 아이디어 "${
               selectedIdea.content.object
-            }"를 평가했습니다.\n평가 점수: 통찰력 ${Math.max(
+            }"를 평가했습니다. 평가 점수: 통찰력 ${Math.max(
               1,
               Math.min(5, evaluation.scores?.insightful || 3)
             )}/5, 실행가능성 ${Math.max(
@@ -598,20 +595,55 @@ async function executeAgentAction(
           },
         });
 
-        console.log(`✅ ${agentProfile.name} 평가 완료 채팅 알림 전송 완료`);
+        console.log(`✅ 에이전트 ${agentId} 자율적 평가 완료`);
+      } else if (response.status === 400) {
+        // 중복 평가 등의 클라이언트 에러 처리
+        const errorData = await response.json();
+        console.log(`⚠️ 에이전트 ${agentId} 평가 불가: ${errorData.error}`);
 
-        console.log(
-          `✅ ${agentProfile.name} 아이디어 평가 완료:`,
-          selectedIdea.content.object
-        );
+        // 아이디어 작성자 이름 가져오기
+        let ideaAuthorName = selectedIdea.author;
+        if (selectedIdea.author === "나") {
+          ideaAuthorName = "나";
+        } else {
+          const authorAgent = await getAgentById(selectedIdea.author);
+          ideaAuthorName =
+            authorAgent?.name || `에이전트 ${selectedIdea.author}`;
+        }
 
-        // 메모리 업데이트는 evaluate API에서 자동으로 처리됨 (isAutonomous: true)
+        // 중복 평가 메시지 전송 (자율적 평가인 경우)
+        if (errorData.error && errorData.error.includes("이미")) {
+          await addChatMessage(teamId, {
+            sender: agentId,
+            type: "system",
+            payload: {
+              content: `저는 이미 ${ideaAuthorName}의 "${selectedIdea.content.object}" 아이디어에 대해 평가를 완료했습니다.`,
+            },
+          });
+        } else {
+          // 기타 400 에러의 경우
+          await addChatMessage(teamId, {
+            sender: agentId,
+            type: "system",
+            payload: {
+              content: `아이디어 평가를 처리할 수 없습니다: ${errorData.error}`,
+            },
+          });
+        }
       } else {
         console.error(
-          `❌ ${agentProfile.name} 평가 API 호출 실패:`,
-          response.status,
-          await response.text()
+          `❌ 에이전트 ${agentId} 평가 API 호출 실패:`,
+          response.status
         );
+
+        // 기타 서버 에러에 대한 메시지 (자율적 평가인 경우)
+        await addChatMessage(teamId, {
+          sender: agentId,
+          type: "system",
+          payload: {
+            content: `아이디어 평가를 처리하는 중 오류가 발생했습니다.`,
+          },
+        });
       }
     }
 
@@ -721,6 +753,19 @@ async function executeAgentAction(
       // 요청하기 - 다른 팀원에게 작업 요청
       console.log(`📨 ${agentProfile.name} 요청하기 실행`);
 
+      // 요청 생성중 상태로 변경
+      const currentState = await getAgentState(teamId, agentId);
+      if (currentState) {
+        currentState.currentTask = {
+          type: "make_request",
+          description: "요청 생성중",
+          startTime: new Date().toISOString(),
+          estimatedDuration: 20,
+          trigger: "autonomous",
+        };
+        await setAgentState(teamId, agentId, currentState);
+      }
+
       // 팀 멤버 정보 준비
       const teamMembers = await Promise.all(
         team.members.map(async (member) => ({
@@ -749,28 +794,140 @@ async function executeAgentAction(
       }));
 
       try {
+        // 에이전트 메모리 가져오기
+        const agentMemory = await getAgentMemory(agentId);
+
         // makeRequestAction 사용하여 요청 생성
         const { analysis, message } = await makeRequestAction(
           "팀 상황을 분석한 결과 다른 팀원에게 작업을 요청하기로 결정했습니다.",
           teamMembers,
           currentIdeas,
-          agentProfile
+          agentProfile,
+          agentMemory || undefined
         );
 
-        // 채팅 메시지로 요청 전송
+        // 채팅 메시지로 요청 전송 (새로운 형식)
         await addChatMessage(teamId, {
           sender: agentId,
-          type: "request",
+          type: "make_request",
           payload: {
-            type: analysis.requestType,
+            type: "make_request",
             content: message.message,
-            mention: analysis.targetMember,
+            mention:
+              analysis.targetMember === "나"
+                ? "나"
+                : (() => {
+                    // targetMember 이름으로 agentId 찾기
+                    const targetMemberInfo = teamMembers.find(
+                      (member) => member.name === analysis.targetMember
+                    );
+                    return targetMemberInfo?.agentId || analysis.targetMember;
+                  })(),
+            requestType:
+              analysis.requestType === "generate_idea"
+                ? "generate"
+                : analysis.requestType === "evaluate_idea"
+                ? "evaluate"
+                : "give_feedback",
           },
         });
+
+        // 대상이 AI 에이전트인 경우 작업 큐에 추가
+        const targetMemberInfo = teamMembers.find(
+          (member) => member.name === analysis.targetMember
+        );
+
+        if (
+          targetMemberInfo &&
+          !targetMemberInfo.isUser &&
+          targetMemberInfo.agentId
+        ) {
+          console.log(
+            `📨 AI 에이전트 ${targetMemberInfo.agentId}에게 요청 전달`
+          );
+
+          // 요청 데이터 준비
+          const requestData = {
+            id: `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            type:
+              analysis.requestType === "generate_idea"
+                ? "generate_idea"
+                : "evaluate_idea",
+            requesterName: agentProfile.name,
+            payload: {
+              message: message.message,
+            },
+            timestamp: new Date().toISOString(),
+            teamId: teamId,
+          };
+
+          // 에이전트 상태 API를 통해 요청 처리
+          try {
+            const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
+            const response = await fetch(
+              `${baseUrl}/api/teams/${teamId}/agent-states`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "User-Agent": "TeamBuilder-Internal",
+                },
+                body: JSON.stringify({
+                  agentId: targetMemberInfo.agentId,
+                  action: "process_request",
+                  requestData: requestData,
+                }),
+              }
+            );
+
+            if (response.ok) {
+              const result = await response.json();
+              if (result.queued) {
+                console.log(
+                  `⏳ 에이전트 ${targetMemberInfo.agentId} 바쁨 - 큐에 추가됨`
+                );
+              } else {
+                console.log(
+                  `🔄 에이전트 ${targetMemberInfo.agentId} 즉시 처리 시작`
+                );
+              }
+            } else {
+              console.error(
+                `❌ 에이전트 ${targetMemberInfo.agentId} 요청 처리 실패:`,
+                response.status
+              );
+            }
+          } catch (error) {
+            console.error(
+              `❌ 에이전트 ${targetMemberInfo.agentId} 요청 전달 실패:`,
+              error
+            );
+          }
+        }
 
         console.log(
           `✅ ${agentProfile.name} 요청 완료: ${analysis.targetMember}에게 ${analysis.requestType} 요청`
         );
+
+        // 메모리 업데이트를 위한 이벤트 기록
+        try {
+          await processMemoryUpdate({
+            type: "REQUEST_MADE",
+            payload: {
+              teamId,
+              requesterId: agentId,
+              targetId: targetMemberInfo?.agentId || "나",
+              requestType: analysis.requestType,
+              content: message.message,
+            },
+          });
+          console.log(`✅ ${agentProfile.name} 요청 후 메모리 업데이트 완료`);
+        } catch (memoryError) {
+          console.error(
+            `❌ ${agentProfile.name} 요청 후 메모리 업데이트 실패:`,
+            memoryError
+          );
+        }
       } catch (error) {
         console.error(`❌ ${agentProfile.name} 요청 생성 실패:`, error);
 
@@ -820,10 +977,15 @@ export async function GET(
 
     for (const member of team.members) {
       if (!member.isUser && member.agentId) {
+        console.log(`🔍 에이전트 ${member.agentId} 상태 조회 시작`);
+
         let agentState = await getAgentState(teamId, member.agentId);
 
         // agentState가 null인 경우 기본 상태 생성
         if (!agentState) {
+          console.log(
+            `⚠️ 에이전트 ${member.agentId} 상태가 null - 기본 상태 생성`
+          );
           agentState = {
             agentId: member.agentId,
             currentState: "idle",
@@ -837,6 +999,14 @@ export async function GET(
           };
         }
 
+        console.log(`📊 에이전트 ${member.agentId} 현재 상태:`, {
+          currentState: agentState.currentState,
+          isProcessing: agentState.isProcessing,
+          hasCurrentTask: !!agentState.currentTask,
+          hasIdleTimer: !!agentState.idleTimer,
+          lastStateChange: agentState.lastStateChange,
+        });
+
         // 타이머 업데이트
         agentState = await updateAgentStateTimer(teamId, agentState);
 
@@ -846,6 +1016,14 @@ export async function GET(
         teamAgentStates.push(agentState);
       }
     }
+
+    console.log(`✅ 팀 ${teamId} 에이전트 상태 조회 완료:`, {
+      totalAgents: teamAgentStates.length,
+      states: teamAgentStates.map((s) => ({
+        agentId: s.agentId,
+        state: s.currentState,
+      })),
+    });
 
     return NextResponse.json({
       teamId,
@@ -891,11 +1069,17 @@ export async function POST(
     // 요청 처리 액션인 경우
     if (action === "process_request" && requestData) {
       console.log(`📨 에이전트 ${agentId}에게 요청 처리: ${requestData.type}`);
+      console.log(`요청 상세 정보:`, JSON.stringify(requestData, null, 2));
 
       // 현재 에이전트 상태 확인
       const currentAgentState = await getAgentState(teamId, agentId);
+      console.log(
+        `현재 에이전트 상태:`,
+        JSON.stringify(currentAgentState, null, 2)
+      );
 
       if (!currentAgentState) {
+        console.error(`❌ 에이전트 ${agentId} 상태를 찾을 수 없습니다.`);
         return NextResponse.json(
           { error: "에이전트 상태를 찾을 수 없습니다." },
           { status: 404 }
@@ -1094,13 +1278,16 @@ async function processRequestInBackground(
     // 처리 완료 후 idle 상태로 전환
     setTimeout(async () => {
       try {
+        console.log(`😴 에이전트 ${agentId} → Idle 상태 전환 시도 중...`);
+        const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
         const response = await fetch(
-          `${
-            process.env.NEXTAUTH_URL || "http://localhost:3000"
-          }/api/teams/${teamId}/agent-states`,
+          `${baseUrl}/api/teams/${teamId}/agent-states`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              "User-Agent": "TeamBuilder-Internal",
+            },
             body: JSON.stringify({
               agentId,
               currentState: "idle",
@@ -1110,6 +1297,13 @@ async function processRequestInBackground(
 
         if (response.ok) {
           console.log(`😴 에이전트 ${agentId} → Idle 상태 전환 완료`);
+        } else {
+          const errorText = await response.text();
+          console.error(
+            `❌ 에이전트 ${agentId} Idle 전환 실패:`,
+            response.status,
+            errorText
+          );
         }
       } catch (error) {
         console.error(`❌ 에이전트 ${agentId} Idle 전환 실패:`, error);
@@ -1121,19 +1315,35 @@ async function processRequestInBackground(
     // 실패 시에도 idle 상태로 전환
     setTimeout(async () => {
       try {
-        await fetch(
-          `${
-            process.env.NEXTAUTH_URL || "http://localhost:3000"
-          }/api/teams/${teamId}/agent-states`,
+        console.log(
+          `😴 에이전트 ${agentId} → 실패 후 Idle 상태 전환 시도 중...`
+        );
+        const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
+        const response = await fetch(
+          `${baseUrl}/api/teams/${teamId}/agent-states`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              "User-Agent": "TeamBuilder-Internal",
+            },
             body: JSON.stringify({
               agentId,
               currentState: "idle",
             }),
           }
         );
+
+        if (response.ok) {
+          console.log(`😴 에이전트 ${agentId} → 실패 후 Idle 상태 전환 완료`);
+        } else {
+          const errorText = await response.text();
+          console.error(
+            `❌ 에이전트 ${agentId} 실패 후 Idle 전환 실패:`,
+            response.status,
+            errorText
+          );
+        }
       } catch (e) {
         console.error(`❌ 에이전트 ${agentId} 실패 후 Idle 전환 실패:`, e);
       }
@@ -1184,7 +1394,7 @@ async function handleEvaluateIdeaRequestDirect(
     // 1단계: 어떤 아이디어를 평가할지 결정
     const agentMemory = await getAgentMemory(agentId);
     const preEvaluation = await preEvaluationAction(
-      `${agentProfile.name}이 스스로 계획하여 아이디어를 평가하기로 결정했습니다. 현재 상황에서 가장 적절한 아이디어를 선택하여 평가해주세요.`,
+      `${agentProfile.name}이 아이디어를 평가하기로 결정했습니다. 현재 상황에서 가장 적절한 아이디어를 선택하여 평가해주세요.`,
       ideaList,
       agentProfile,
       agentMemory || undefined
@@ -1211,15 +1421,15 @@ async function handleEvaluateIdeaRequestDirect(
     );
 
     // 평가 API 호출
+    const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
     const response = await fetch(
-      `${
-        process.env.NEXTAUTH_URL || "http://localhost:3000"
-      }/api/teams/${teamId}/ideas/${selectedIdea.id}/evaluate`,
+      `${baseUrl}/api/teams/${teamId}/ideas/${selectedIdea.id}/evaluate`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-system-internal": "true",
+          "User-Agent": "TeamBuilder-Internal",
         },
         body: JSON.stringify({
           evaluator: agentId,
@@ -1253,16 +1463,14 @@ async function handleEvaluateIdeaRequestDirect(
       }
 
       console.log(
-        `📢 에이전트 ${agentId} 요청 기반 평가 완료 채팅 알림 전송 중...`
+        `📢 에이전트 ${agentId} 자율적 평가 완료 채팅 알림 전송 중...`
       );
 
       await addChatMessage(teamId, {
         sender: agentId,
         type: "system",
         payload: {
-          content: `${
-            requestData.requesterName
-          }의 요청에 따라 ${ideaAuthorName}의 아이디어 "${
+          content: `${ideaAuthorName}의 아이디어 "${
             selectedIdea.content.object
           }"를 평가했습니다. 평가 점수: 통찰력 ${Math.max(
             1,
@@ -1277,12 +1485,54 @@ async function handleEvaluateIdeaRequestDirect(
         },
       });
 
-      console.log(`✅ 에이전트 ${agentId} 요청 기반 평가 완료`);
+      console.log(`✅ 에이전트 ${agentId} 자율적 평가 완료`);
+    } else if (response.status === 400) {
+      // 중복 평가 등의 클라이언트 에러 처리
+      const errorData = await response.json();
+      console.log(`⚠️ 에이전트 ${agentId} 평가 불가: ${errorData.error}`);
+
+      // 아이디어 작성자 이름 가져오기
+      let ideaAuthorName = selectedIdea.author;
+      if (selectedIdea.author === "나") {
+        ideaAuthorName = "나";
+      } else {
+        const authorAgent = await getAgentById(selectedIdea.author);
+        ideaAuthorName = authorAgent?.name || `에이전트 ${selectedIdea.author}`;
+      }
+
+      // 중복 평가 메시지 전송 (자율적 평가인 경우)
+      if (errorData.error && errorData.error.includes("이미")) {
+        await addChatMessage(teamId, {
+          sender: agentId,
+          type: "system",
+          payload: {
+            content: `저는 이미 ${ideaAuthorName}의 "${selectedIdea.content.object}" 아이디어에 대해 평가를 완료했습니다.`,
+          },
+        });
+      } else {
+        // 기타 400 에러의 경우
+        await addChatMessage(teamId, {
+          sender: agentId,
+          type: "system",
+          payload: {
+            content: `아이디어 평가를 처리할 수 없습니다: ${errorData.error}`,
+          },
+        });
+      }
     } else {
       console.error(
         `❌ 에이전트 ${agentId} 평가 API 호출 실패:`,
         response.status
       );
+
+      // 기타 서버 에러에 대한 메시지 (자율적 평가인 경우)
+      await addChatMessage(teamId, {
+        sender: agentId,
+        type: "system",
+        payload: {
+          content: `아이디어 평가를 처리하는 중 오류가 발생했습니다.`,
+        },
+      });
     }
   } catch (error) {
     console.error(`❌ 에이전트 ${agentId} 평가 요청 처리 실패:`, error);

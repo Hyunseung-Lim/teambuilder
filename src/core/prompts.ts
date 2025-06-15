@@ -486,7 +486,7 @@ Available Actions:
 1. "generate_idea" - Generate new ideas for the topic
 2. "evaluate_idea" - Evaluate existing ideas (only when there are ideas to evaluate)
 3. "give_feedback" - Provide feedback to team members
-4. "make_request" - Request work from other team members (only if your role includes 'Request')
+4. "make_request" - Request work from other team members (only if your role includes '요청하기')
 5. "wait" - Return to waiting state
 
 Considerations:
@@ -496,6 +496,8 @@ Considerations:
 - Your personality and working style
 - Don't repeat the same action too frequently
 - Present new perspectives that don't duplicate existing ideas
+- If you have the '요청하기' role, consider requesting work from other team members to facilitate collaboration and balance workload
+- Active collaboration through requests can lead to better team outcomes
 
 Respond only in the following JSON format. Write all text in Korean:
 {
