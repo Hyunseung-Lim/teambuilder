@@ -391,14 +391,26 @@ export default function IdeationPage() {
 
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const ideaListRef = useRef<HTMLDivElement | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  const scrollIdeaListToTop = () => {
+    if (ideaListRef.current) {
+      ideaListRef.current.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
+
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // 필터 변경 시 아이디어 리스트 최상단으로 스크롤
+  useEffect(() => {
+    scrollIdeaListToTop();
+  }, [authorFilter]);
 
   // 현재 팀에 속한 AI 에이전트만 필터링
   const teamAgents = agents.filter((agent) =>
@@ -436,6 +448,19 @@ export default function IdeationPage() {
       (member) => member.agentId === agent.id
     );
     return teamMember ? teamMember.roles.includes(requiredRole) : false;
+  };
+
+  // 작성자 이름 가져오기 함수
+  const getAuthorName = (authorId: string) => {
+    if (authorId === "나") return "나";
+
+    const member = team?.members.find((m) => m.agentId === authorId);
+    if (member && !member.isUser) {
+      const agent = agents.find((a) => a.id === authorId);
+      return agent?.name || `에이전트 ${authorId}`;
+    }
+
+    return authorId;
   };
 
   // 선택된 요청 타입에 따라 필터링된 에이전트 목록
@@ -518,19 +543,6 @@ export default function IdeationPage() {
     if (diffInMinutes < 60) return `${diffInMinutes}분 전`;
     if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}시간 전`;
     return `${Math.floor(diffInMinutes / 1440)}일 전`;
-  };
-
-  // 작성자 이름 가져오기 함수
-  const getAuthorName = (authorId: string) => {
-    if (authorId === "나") return "나";
-
-    const member = team?.members.find((m) => m.agentId === authorId);
-    if (member && !member.isUser) {
-      const agent = agents.find((a) => a.id === authorId);
-      return agent?.name || `에이전트 ${authorId}`;
-    }
-
-    return authorId;
   };
 
   // 데이터 로드
@@ -1939,7 +1951,10 @@ export default function IdeationPage() {
             </div>
 
             {/* 아이디어 목록 */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div
+              ref={ideaListRef}
+              className="flex-1 overflow-y-auto p-4 space-y-4"
+            >
               {filteredIdeas.map((idea) => {
                 // 원본 생성 순서에 따른 인덱스 찾기
                 const creationIndex = ideasSortedByCreation.findIndex(
