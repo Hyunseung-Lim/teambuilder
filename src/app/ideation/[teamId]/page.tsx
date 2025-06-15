@@ -48,7 +48,7 @@ import IdeaDetailModal from "@/components/IdeaDetailModal";
 // 에이전트 상태 타입 정의 (확장)
 interface AgentStateInfo {
   agentId: string;
-  currentState: "idle" | "plan" | "action";
+  currentState: "idle" | "plan" | "action" | "reflecting";
   lastStateChange: string;
   isProcessing: boolean;
   currentTask?: {
@@ -57,7 +57,8 @@ interface AgentStateInfo {
       | "evaluate_idea"
       | "planning"
       | "thinking"
-      | "give_feedback";
+      | "give_feedback"
+      | "reflecting";
     description: string;
     startTime: string;
     estimatedDuration: number;
@@ -181,6 +182,14 @@ function AgentStateIndicator({
           color: "bg-yellow-100 text-yellow-700",
           tooltip:
             state.currentTask?.description || "다음 행동을 계획하고 있습니다",
+        };
+      case "reflecting":
+        return {
+          icon: <Brain className="h-3 w-3" />,
+          text: "회고중",
+          color: "bg-purple-100 text-purple-700",
+          tooltip:
+            state.currentTask?.description || "경험을 바탕으로 자기 성찰 중",
         };
       case "action":
         // 작업 타입에 따른 구체적인 표시
@@ -2366,42 +2375,24 @@ export default function IdeationPage() {
             {/* Self Reflections */}
             <div className="mb-4">
               <h5 className="font-medium text-sm mb-2 text-purple-800">
-                🪞 Self Reflections ({agentMemory.longTerm?.self?.length || 0})
+                🪞 Self Reflections
               </h5>
-              <div className="bg-purple-50 p-3 rounded-lg max-h-48 overflow-y-auto">
-                {agentMemory.longTerm?.self &&
-                agentMemory.longTerm.self.length > 0 ? (
-                  <div className="space-y-3">
-                    {agentMemory.longTerm.self.map((reflection, idx) => (
-                      <div key={idx} className="bg-white p-3 rounded border">
-                        <div className="text-sm space-y-1">
-                          <p>
-                            <strong>Reflection:</strong> {reflection.reflection}
-                          </p>
-                          <p>
-                            <strong>Triggering Event:</strong>{" "}
-                            {reflection.triggeringEvent}
-                          </p>
-                          {reflection.relatedIdeaId && (
-                            <p>
-                              <strong>Related Idea ID:</strong>{" "}
-                              {reflection.relatedIdeaId}
-                            </p>
-                          )}
-                          <p>
-                            <strong>Timestamp:</strong>{" "}
-                            {new Date(reflection.timestamp).toLocaleString()}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
+              {agentMemory.longTerm?.self &&
+              agentMemory.longTerm.self.trim().length > 0 ? (
+                <div className="space-y-3">
+                  <div className="bg-white p-3 rounded border">
+                    <div className="text-sm space-y-1">
+                      <p className="text-gray-700 leading-relaxed">
+                        {agentMemory.longTerm.self}
+                      </p>
+                    </div>
                   </div>
-                ) : (
-                  <p className="text-sm text-gray-500">
-                    No self-reflections yet
-                  </p>
-                )}
-              </div>
+                </div>
+              ) : (
+                <p className="text-gray-500 text-sm">
+                  아직 특별한 성찰 내용이 없습니다.
+                </p>
+              )}
             </div>
 
             {/* Relations */}

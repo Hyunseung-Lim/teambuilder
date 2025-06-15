@@ -199,13 +199,14 @@ export interface SelfReflection {
   timestamp: string;
 }
 
-// Long-term Memory - Relation
+// Long-term Memory - Interaction Record
 export interface InteractionRecord {
   timestamp: string;
   action: string; // 예: "gave_feedback", "received_request"
   content: string;
 }
 
+// Long-term Memory - Relational
 export interface RelationalMemory {
   agentInfo: Pick<
     AIAgent,
@@ -216,8 +217,9 @@ export interface RelationalMemory {
   myOpinion: string; // Dynamic
 }
 
+// Long-term Memory
 export interface LongTermMemory {
-  self: SelfReflection[];
+  self: string; // 단일 문자열로 변경 - 반성적 회고 내용
   relations: Record<string, RelationalMemory>; // key: agentId
 }
 
@@ -229,7 +231,7 @@ export interface AgentMemory {
 }
 
 // AI Agent State System Types
-export type AgentState = "idle" | "plan" | "action";
+export type AgentState = "idle" | "plan" | "action" | "reflecting";
 
 export interface AgentRequest {
   id: string;

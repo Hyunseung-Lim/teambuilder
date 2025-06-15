@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { getChatHistory, addChatMessage } from "@/lib/redis";
 import { ChatMessage } from "@/lib/types";
+import { processMemoryUpdate } from "@/lib/memory";
 
 export async function GET(
   request: NextRequest,
@@ -50,6 +51,49 @@ export async function POST(
       type: messageType,
       payload: messagePayload,
     });
+
+    // 메모리 업데이트 - 채팅 메시지 전송 이벤트 기록
+    try {
+      await processMemoryUpdate({
+        type: "CHAT_MESSAGE_SENT",
+        payload: {
+          teamId,
+          senderId: sender || "나", // 사용자면 "나", 에이전트면 agent ID
+          message: newMessage,
+        },
+      });
+      console.log(
+        `✅ 채팅 메시지 전송 후 메모리 업데이트 성공: ${sender} -> ${messageType}`
+      );
+    } catch (memoryError) {
+      console.error(
+        "❌ 채팅 메시지 전송 후 메모리 업데이트 실패:",
+        memoryError
+      );
+      // 메모리 업데이트 실패는 메시지 전송 성공에 영향을 주지 않음
+    }
+
+    // 요청 타입에 따른 추가 처리
+    if (messageType === "request") {
+      // 메모리 업데이트 - 요청 이벤트 기록
+      try {
+        await processMemoryUpdate({
+          type: "REQUEST_MADE",
+          payload: {
+            teamId,
+            requesterId: sender || "나",
+            targetId: messagePayload.mention || "unknown",
+            requestType: messagePayload.requestType || "general",
+            content: messagePayload.content || "",
+          },
+        });
+        console.log(
+          `✅ 요청 전송 후 메모리 업데이트 성공: ${sender} -> ${messagePayload.mention}`
+        );
+      } catch (memoryError) {
+        console.error("❌ 요청 전송 후 메모리 업데이트 실패:", memoryError);
+      }
+    }
 
     // Check if it's a generation request and trigger the action
     if (

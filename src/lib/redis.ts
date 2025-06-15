@@ -55,9 +55,9 @@ export async function createUser(
 }
 
 export async function getUserById(id: string): Promise<User | null> {
-  const userData = await redis.hgetall<User>(keys.user(id));
+  const userData = (await redis.hgetall(keys.user(id))) as Record<string, any>;
   if (!userData || !userData.createdAt) return null;
-  return { ...userData, createdAt: new Date(userData.createdAt) };
+  return { ...userData, createdAt: new Date(userData.createdAt) } as User;
 }
 
 export async function getUserByEmail(email: string): Promise<User | null> {
@@ -70,10 +70,10 @@ export async function getUserByEmail(email: string): Promise<User | null> {
 export async function createAgent(
   agentData: Omit<AIAgent, "id" | "createdAt"> & { ownerId: string }
 ): Promise<AIAgent> {
-  const agent: AIAgent = {
+  const agent: AIAgent & { roles?: string[] } = {
     id: `agent_${nanoid()}`,
     ...agentData,
-    createdAt: new Date().toISOString(),
+    createdAt: new Date().toISOString() as any, // Redis에서는 문자열로 저장
   };
 
   // 안전하게 저장할 객체 생성 - 모든 값을 문자열로 변환
@@ -92,7 +92,7 @@ export async function createAgent(
   // roles 배열을 JSON으로 안전하게 직렬화
   try {
     safeAgent.roles = JSON.stringify(
-      Array.isArray(agent.roles) ? agent.roles : []
+      Array.isArray((agent as any).roles) ? (agent as any).roles : []
     );
   } catch (error) {
     console.error("Roles 직렬화 오류:", error);
@@ -119,13 +119,14 @@ export async function createAgent(
   }
 
   console.log("✅ 에이전트 저장 완료:", agent.id);
-  return agent;
+  return agent as AIAgent;
 }
 
 export async function getAgentById(id: string): Promise<AIAgent | null> {
-  const agentData = await redis.hgetall<AIAgent & { roles: string }>(
-    keys.agent(id)
-  );
+  const agentData = (await redis.hgetall(keys.agent(id))) as Record<
+    string,
+    any
+  > & { roles: string };
   if (!agentData || !agentData.id) return null;
 
   // 안전하게 데이터 변환
@@ -145,8 +146,8 @@ export async function getAgentById(id: string): Promise<AIAgent | null> {
     ...agentData,
     age: Number(agentData.age) || 0,
     autonomy: Number(agentData.autonomy) || 3,
-    roles,
-  };
+    createdAt: agentData.createdAt, // 문자열로 유지
+  } as unknown as AIAgent;
 }
 
 export async function getUserAgents(userId: string): Promise<AIAgent[]> {
@@ -485,14 +486,61 @@ export async function addChatMessage(
 export async function getAgentMemory(
   agentId: string
 ): Promise<AgentMemory | null> {
-  const memoryJson = await redis.get<string>(keys.agentMemory(agentId));
-  if (!memoryJson) return null;
+  const memoryData = await redis.get(keys.agentMemory(agentId));
+  if (!memoryData) return null;
 
   try {
-    return JSON.parse(memoryJson);
+    // Redis가 이미 파싱된 객체를 반환하는 경우 처리
+    if (typeof memoryData === "object" && memoryData !== null) {
+      console.log(`🔧 에이전트 ${agentId} 메모리가 이미 객체 형태로 반환됨`);
+      // 유효한 AgentMemory 구조인지 더 정확하게 확인
+      const memory = memoryData as any;
+
+      // 필수 필드 존재 여부 확인
+      const hasValidStructure =
+        memory.agentId &&
+        memory.shortTerm &&
+        memory.longTerm &&
+        typeof memory.shortTerm === "object" &&
+        typeof memory.longTerm === "object" &&
+        memory.longTerm.self !== undefined &&
+        memory.longTerm.relations !== undefined;
+
+      if (hasValidStructure) {
+        console.log(`✅ 유효한 메모리 구조 확인: ${agentId}`);
+        return memory as AgentMemory;
+      } else {
+        console.warn(`❌ 유효하지 않은 메모리 구조 (${agentId}):`, {
+          hasAgentId: !!memory.agentId,
+          hasShortTerm: !!memory.shortTerm,
+          hasLongTerm: !!memory.longTerm,
+          shortTermType: typeof memory.shortTerm,
+          longTermType: typeof memory.longTerm,
+          hasSelf: memory.longTerm?.self !== undefined,
+          hasRelations: memory.longTerm?.relations !== undefined,
+        });
+        // 손상된 데이터만 삭제
+        await redis.del(keys.agentMemory(agentId));
+        return null;
+      }
+    }
+
+    // 문자열인 경우 JSON 파싱
+    if (typeof memoryData === "string") {
+      const parsedMemory = JSON.parse(memoryData);
+      console.log(`📝 에이전트 ${agentId} 메모리 JSON 파싱 성공`);
+      return parsedMemory;
+    }
+
+    console.warn(
+      `알 수 없는 메모리 데이터 타입 (${agentId}):`,
+      typeof memoryData
+    );
+    return null;
   } catch (error) {
-    console.warn(`손상된 메모리 데이터 발견 (${agentId}):`, memoryJson);
-    // 손상된 데이터 삭제
+    console.warn(`손상된 메모리 데이터 발견 (${agentId}) - 파싱 오류:`, error);
+    console.error("메모리 파싱 상세 오류:", error);
+    // JSON 파싱 실패한 경우만 삭제
     await redis.del(keys.agentMemory(agentId));
     return null;
   }
@@ -503,30 +551,39 @@ export async function updateAgentMemory(
   memory: AgentMemory
 ): Promise<void> {
   console.log(`=== Redis에 메모리 저장 시작: ${agentId} ===`);
-  console.log("저장할 메모리:", JSON.stringify(memory, null, 2));
+  console.log(
+    `메모리 크기: self="${memory.longTerm.self.substring(
+      0,
+      50
+    )}...", relations=${Object.keys(memory.longTerm.relations).length}`
+  );
 
-  const memoryJson = JSON.stringify(memory);
-  console.log("JSON 문자열 길이:", memoryJson.length);
+  try {
+    const memoryJson = JSON.stringify(memory);
+    console.log(`JSON 문자열 길이: ${memoryJson.length} bytes`);
 
-  await redis.set(keys.agentMemory(agentId), memoryJson);
-  console.log(`Redis 저장 완료: ${keys.agentMemory(agentId)}`);
+    await redis.set(keys.agentMemory(agentId), memoryJson);
+    console.log(`✅ Redis 저장 완료: ${keys.agentMemory(agentId)}`);
 
-  // 저장 후 바로 확인
-  const savedMemory = await redis.get(keys.agentMemory(agentId));
-  console.log("저장 후 확인 - 저장된 데이터 존재:", !!savedMemory);
-  console.log("=== Redis 메모리 저장 완료 ===");
+    // 저장 후 바로 확인하여 검증
+    const savedMemory = await redis.get(keys.agentMemory(agentId));
+    if (savedMemory) {
+      console.log(`✅ 저장 검증 성공: 데이터 존재 확인됨`);
+    } else {
+      console.error(`❌ 저장 검증 실패: 데이터가 저장되지 않았음`);
+    }
+  } catch (error) {
+    console.error(`❌ 메모리 저장 중 오류:`, error);
+    throw error;
+  }
+
+  console.log(`=== Redis 메모리 저장 완료: ${agentId} ===`);
 }
 
 // 디버깅용 함수들 (개발 환경에서만 사용)
 export async function debugGetAllTeamKeys(): Promise<string[]> {
-  const stream = redis.scanStream({
-    match: "team:*",
-  });
-
-  const keys: string[] = [];
-  for await (const key of stream) {
-    keys.push(key);
-  }
+  // scanStream 대신 keys 사용
+  const keys = await redis.keys("team:*");
   return keys;
 }
 
@@ -559,7 +616,7 @@ export async function debugFixTeamOwnerId(
     if (!teamData) return false;
 
     // ownerId 필드 추가
-    await redis.hset(keys.team(teamId), "ownerId", ownerId);
+    await redis.hset(keys.team(teamId), { ownerId });
 
     // 사용자의 팀 목록에도 추가
     await redis.sadd(keys.userTeams(ownerId), teamId);
@@ -750,7 +807,7 @@ export async function initializeAgentMemory(
       activeChat: null,
     },
     longTerm: {
-      self: [],
+      self: "팀에 새로 합류했습니다. 앞으로 팀원들과 좋은 관계를 맺고 협력하여 좋은 결과를 만들어가고 싶습니다.",
       relations,
     },
   };

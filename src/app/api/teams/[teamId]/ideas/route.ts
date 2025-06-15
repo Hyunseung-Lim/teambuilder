@@ -13,6 +13,7 @@ import {
   executeIdeationAction,
 } from "@/lib/openai";
 import { startAgentStateSystem } from "@/actions/ideation.actions";
+import { processMemoryUpdate } from "@/lib/memory";
 
 export async function GET(
   request: NextRequest,
@@ -95,6 +96,28 @@ export async function POST(
           },
         });
 
+        // 메모리 업데이트 - 아이디어 생성 이벤트 기록
+        try {
+          await processMemoryUpdate({
+            type: "IDEA_GENERATED",
+            payload: {
+              teamId,
+              authorId: author || "나", // 사용자면 "나", 에이전트면 agent ID
+              idea: newIdea,
+              isAutonomous: false, // 수동 생성
+            },
+          });
+          console.log(
+            `✅ 아이디어 생성 후 메모리 업데이트 성공: ${author} -> idea ${newIdea.id}`
+          );
+        } catch (memoryError) {
+          console.error(
+            "❌ 아이디어 생성 후 메모리 업데이트 실패:",
+            memoryError
+          );
+          // 메모리 업데이트 실패는 아이디어 생성 성공에 영향을 주지 않음
+        }
+
         return NextResponse.json({ idea: newIdea });
       } catch (error) {
         console.error("AI 아이디어 생성 오류:", error);
@@ -114,6 +137,24 @@ export async function POST(
           evaluations: [],
         });
 
+        // 기본 아이디어에도 메모리 업데이트
+        try {
+          await processMemoryUpdate({
+            type: "IDEA_GENERATED",
+            payload: {
+              teamId,
+              authorId: author || "나",
+              idea: newIdea,
+              isAutonomous: false,
+            },
+          });
+        } catch (memoryError) {
+          console.error(
+            "❌ 기본 아이디어 생성 후 메모리 업데이트 실패:",
+            memoryError
+          );
+        }
+
         return NextResponse.json({ idea: newIdea });
       }
     }
@@ -131,6 +172,27 @@ export async function POST(
         },
         evaluations: [],
       });
+
+      // 메모리 업데이트 - 수동 아이디어 추가
+      try {
+        await processMemoryUpdate({
+          type: "IDEA_GENERATED",
+          payload: {
+            teamId,
+            authorId: author || "나",
+            idea: newIdea,
+            isAutonomous: false, // 수동 추가
+          },
+        });
+        console.log(
+          `✅ 수동 아이디어 추가 후 메모리 업데이트 성공: ${author} -> idea ${newIdea.id}`
+        );
+      } catch (memoryError) {
+        console.error(
+          "❌ 수동 아이디어 추가 후 메모리 업데이트 실패:",
+          memoryError
+        );
+      }
 
       return NextResponse.json({ idea: newIdea });
     }

@@ -6,6 +6,7 @@ import {
   getChatHistory,
   addIdea,
   addChatMessage,
+  getAgentMemory,
 } from "@/lib/redis";
 import { redis } from "@/lib/redis";
 import {
@@ -16,11 +17,12 @@ import {
   giveFeedbackOnIdea,
   makeRequestAction,
 } from "@/lib/openai";
+import { processMemoryUpdate } from "@/lib/memory";
 
 // 에이전트 상태 타입
 interface AgentStateInfo {
   agentId: string;
-  currentState: "idle" | "plan" | "action";
+  currentState: "idle" | "plan" | "action" | "reflecting";
   lastStateChange: string;
   isProcessing: boolean;
   currentTask?: {
@@ -30,7 +32,8 @@ interface AgentStateInfo {
       | "planning"
       | "thinking"
       | "give_feedback"
-      | "make_request";
+      | "make_request"
+      | "reflecting";
     description: string;
     startTime: string;
     estimatedDuration: number;
@@ -399,10 +402,15 @@ async function executeAgentAction(
         function: idea.content.function,
       }));
 
+      // 에이전트 메모리 가져오기
+      const { getAgentMemory } = await import("@/lib/redis");
+      const agentMemory = await getAgentMemory(agentId);
+
       const generatedContent = await generateIdeaAction(
         team.topic || "Carbon Emission Reduction",
         agentProfile,
-        existingIdeas
+        existingIdeas,
+        agentMemory || undefined
       );
 
       const newIdea = await addIdea(teamId, {
@@ -431,6 +439,27 @@ async function executeAgentAction(
           content: `스스로 계획하여 새로운 아이디어를 생성했습니다: "${generatedContent.object}"`,
         },
       });
+
+      // 메모리 업데이트 - 자율적 아이디어 생성
+      try {
+        await processMemoryUpdate({
+          type: "IDEA_GENERATED",
+          payload: {
+            teamId,
+            authorId: agentId,
+            idea: newIdea,
+            isAutonomous: true, // 자율적 생성
+          },
+        });
+        console.log(
+          `✅ 자율적 아이디어 생성 후 메모리 업데이트 성공: ${agentId} -> idea ${newIdea.id}`
+        );
+      } catch (memoryError) {
+        console.error(
+          "❌ 자율적 아이디어 생성 후 메모리 업데이트 실패:",
+          memoryError
+        );
+      }
 
       console.log(
         `✅ ${agentProfile.name} 아이디어 생성 완료:`,
@@ -465,11 +494,19 @@ async function executeAgentAction(
         function: idea.content.function,
       }));
 
+      if (!agentProfile) {
+        console.log(`⚠️ 에이전트 ${agentId} 프로필을 찾을 수 없음`);
+        return;
+      }
+
+      // 2단계 평가 프로세스
       // 1단계: 어떤 아이디어를 평가할지 결정
+      const agentMemory = await getAgentMemory(agentId);
       const preEvaluation = await preEvaluationAction(
         `${agentProfile.name}이 스스로 계획하여 아이디어를 평가하기로 결정했습니다. 현재 상황에서 가장 적절한 아이디어를 선택하여 평가해주세요.`,
         ideaList,
-        agentProfile
+        agentProfile,
+        agentMemory || undefined
       );
 
       const selectedIdea = otherIdeas.find(
@@ -488,7 +525,8 @@ async function executeAgentAction(
           authorName: selectedIdea.author,
         },
         preEvaluation.evaluationStrategy,
-        agentProfile
+        agentProfile,
+        agentMemory || undefined
       );
 
       // 평가 API 호출
@@ -566,6 +604,8 @@ async function executeAgentAction(
           `✅ ${agentProfile.name} 아이디어 평가 완료:`,
           selectedIdea.content.object
         );
+
+        // 메모리 업데이트는 evaluate API에서 자동으로 처리됨 (isAutonomous: true)
       } else {
         console.error(
           `❌ ${agentProfile.name} 평가 API 호출 실패:`,
@@ -618,10 +658,12 @@ async function executeAgentAction(
       };
 
       // 구체적인 아이디어에 대한 피드백 생성
+      const agentMemory = await getAgentMemory(agentId);
       const feedbackResult = await giveFeedbackOnIdea(
         randomIdea,
         agentProfile,
-        teamContextForFeedback
+        teamContextForFeedback,
+        agentMemory || undefined
       );
 
       // 아이디어 작성자 이름 가져오기
@@ -648,6 +690,26 @@ async function executeAgentAction(
           mention: ideaAuthorName,
         },
       });
+
+      // 메모리 업데이트 - 자율적 피드백 제공
+      try {
+        await processMemoryUpdate({
+          type: "FEEDBACK_GIVEN",
+          payload: {
+            teamId,
+            feedbackerId: agentId,
+            targetId: randomIdea.author,
+            content: feedbackResult.feedback,
+            targetIdeaId: randomIdea.id,
+            isAutonomous: true, // 자율적 피드백
+          },
+        });
+        console.log(
+          `✅ 자율적 피드백 후 메모리 업데이트 성공: ${agentId} -> ${randomIdea.author}`
+        );
+      } catch (memoryError) {
+        console.error("❌ 자율적 피드백 후 메모리 업데이트 실패:", memoryError);
+      }
 
       console.log(
         `✅ ${agentProfile.name} 피드백 완료:`,
@@ -968,6 +1030,22 @@ export async function POST(
           requestInfo: requestInfo,
         },
       };
+    } else if (currentState === "reflecting") {
+      // 회고 상태로 전환
+      newState = {
+        agentId,
+        currentState: "reflecting",
+        lastStateChange: now.toISOString(),
+        isProcessing: true,
+        currentTask: {
+          type: "reflecting",
+          description: taskDescription || "경험을 바탕으로 자기 성찰 중",
+          startTime: now.toISOString(),
+          estimatedDuration: estimatedDuration || 10,
+          trigger: "autonomous",
+          requestInfo: requestInfo,
+        },
+      };
     } else {
       return NextResponse.json(
         { error: "유효하지 않은 상태입니다." },
@@ -1097,12 +1175,19 @@ async function handleEvaluateIdeaRequestDirect(
 
     const agentProfile = await getAgentById(agentId);
 
+    if (!agentProfile) {
+      console.log(`⚠️ 에이전트 ${agentId} 프로필을 찾을 수 없음`);
+      return;
+    }
+
     // 2단계 평가 프로세스
     // 1단계: 어떤 아이디어를 평가할지 결정
+    const agentMemory = await getAgentMemory(agentId);
     const preEvaluation = await preEvaluationAction(
-      requestData.payload.message,
+      `${agentProfile.name}이 스스로 계획하여 아이디어를 평가하기로 결정했습니다. 현재 상황에서 가장 적절한 아이디어를 선택하여 평가해주세요.`,
       ideaList,
-      agentProfile
+      agentProfile,
+      agentMemory || undefined
     );
 
     const selectedIdea = otherIdeas.find(
@@ -1110,7 +1195,7 @@ async function handleEvaluateIdeaRequestDirect(
     );
 
     if (!selectedIdea) {
-      console.log(`⚠️ 에이전트 ${agentId} 선택된 아이디어를 찾을 수 없음`);
+      console.log(`⚠️ ${agentProfile.name} 선택된 아이디어를 찾을 수 없음`);
       return;
     }
 
@@ -1121,7 +1206,8 @@ async function handleEvaluateIdeaRequestDirect(
         authorName: selectedIdea.author,
       },
       preEvaluation.evaluationStrategy,
-      agentProfile
+      agentProfile,
+      agentMemory || undefined
     );
 
     // 평가 API 호출
@@ -1228,10 +1314,12 @@ async function handleGenerateIdeaRequestDirect(
       function: idea.content.function,
     }));
 
+    const agentMemory = await getAgentMemory(agentId);
     const generatedContent = await generateIdeaAction(
       team.topic || "Carbon Emission Reduction",
       agentProfile,
-      existingIdeas
+      existingIdeas,
+      agentMemory || undefined
     );
 
     const newIdea = await addIdea(teamId, {

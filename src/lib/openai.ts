@@ -113,7 +113,8 @@ export async function generateIdeaAction(
     authorName: string;
     object: string;
     function: string;
-  }>
+  }>,
+  memory?: AgentMemory
 ) {
   // 기존 아이디어가 있으면 프롬프트에 포함
   let enhancedContext = context || "Carbon Emission Reduction";
@@ -127,6 +128,53 @@ export async function generateIdeaAction(
       .join("\n");
 
     enhancedContext += `\n\n기존에 생성된 아이디어들:\n${existingIdeasText}\n\n위 아이디어들과 중복되지 않는 새로운 관점의 아이디어를 생성하세요.`;
+  }
+
+  // 메모리 컨텍스트 추가
+  if (memory) {
+    enhancedContext += `\n\n**당신의 메모리:**\n`;
+
+    // Self reflection 추가 - 배열/문자열 모두 처리
+    if (memory.longTerm.self) {
+      let selfReflection = "";
+      if (typeof memory.longTerm.self === "string") {
+        selfReflection = memory.longTerm.self.trim();
+      } else if (
+        Array.isArray(memory.longTerm.self) &&
+        (memory.longTerm.self as any[]).length > 0
+      ) {
+        // 배열인 경우 가장 최근 reflection 사용
+        const latestReflection = (memory.longTerm.self as any[])[
+          (memory.longTerm.self as any[]).length - 1
+        ];
+        selfReflection =
+          typeof latestReflection === "string"
+            ? latestReflection
+            : (latestReflection as any).reflection || "";
+      }
+      if (selfReflection) {
+        enhancedContext += `- 자기 성찰: ${selfReflection}\n`;
+      }
+    }
+
+    // 최근 행동 추가
+    if (memory.shortTerm.lastAction) {
+      enhancedContext += `- 최근 행동: ${memory.shortTerm.lastAction.type} (${memory.shortTerm.lastAction.timestamp})\n`;
+    }
+
+    // 주요 관계 정보 추가 (최대 3개)
+    const relationEntries = Object.entries(memory.longTerm.relations).slice(
+      0,
+      3
+    );
+    if (relationEntries.length > 0) {
+      enhancedContext += `- 팀원들과의 관계:\n`;
+      relationEntries.forEach(([agentId, relation]) => {
+        enhancedContext += `  * ${relation.agentInfo.name}: ${relation.myOpinion}\n`;
+      });
+    }
+
+    enhancedContext += `\n위 메모리를 바탕으로 당신의 성격과 경험을 반영한 아이디어를 생성하세요.`;
   }
 
   const prompt = generateIdeaPrompt(enhancedContext, userProfile);
@@ -147,7 +195,8 @@ export async function feedbackAction(target: string, context: string) {
 export async function giveFeedbackOnIdea(
   targetIdea: any,
   userProfile: any,
-  teamContext: any
+  teamContext: any,
+  memory?: AgentMemory
 ) {
   const ideaAuthor =
     targetIdea.author === "나"
@@ -159,7 +208,9 @@ export async function giveFeedbackOnIdea(
           return member?.name || targetIdea.author;
         })();
 
-  const prompt = `당신은 ${userProfile.name}입니다. 팀 아이디어 세션에서 다음 아이디어에 대해 구어체로 자연스러운 피드백을 주세요.
+  const prompt = `당신은 ${
+    userProfile.name
+  }입니다. 팀 아이디어 세션에서 다음 아이디어에 대해 구어체로 자연스러운 피드백을 주세요.
 
 평가할 아이디어:
 - 제목: ${targetIdea.content.object}
@@ -168,6 +219,52 @@ export async function giveFeedbackOnIdea(
 
 주제: ${teamContext.topic}
 
+${
+  memory
+    ? `
+**당신의 메모리:**
+${(() => {
+  // self가 배열인 경우 문자열로 변환
+  let selfReflection = "";
+  if (memory.longTerm.self) {
+    if (typeof memory.longTerm.self === "string") {
+      selfReflection = memory.longTerm.self.trim();
+    } else if (
+      Array.isArray(memory.longTerm.self) &&
+      (memory.longTerm.self as any[]).length > 0
+    ) {
+      // 배열인 경우 가장 최근 reflection 사용
+      const latestReflection = (memory.longTerm.self as any[])[
+        (memory.longTerm.self as any[]).length - 1
+      ];
+      selfReflection =
+        typeof latestReflection === "string"
+          ? latestReflection
+          : (latestReflection as any).reflection || "";
+    }
+  }
+  return selfReflection ? `- 자기 성찰: ${selfReflection}` : "";
+})()}
+${(() => {
+  const authorKey = targetIdea.author === "나" ? "나" : targetIdea.author;
+  if (memory.longTerm.relations[authorKey]) {
+    const relation = memory.longTerm.relations[authorKey];
+    const recentInteractions = relation.interactionHistory.slice(-2);
+    return `- ${ideaAuthor}와의 관계: ${relation.myOpinion}${
+      recentInteractions.length > 0
+        ? `\n- 최근 상호작용: ${recentInteractions
+            .map((i) => i.content)
+            .join(", ")}`
+        : ""
+    }`;
+  }
+  return "";
+})()}
+
+위 메모리를 바탕으로 당신의 성격과 관계를 반영한 피드백을 주세요.
+`
+    : ""
+}
 피드백 가이드라인:
 1. 구어체로 자연스럽게 작성 (예: "이 아이디어 정말 좋네요!", "~하면 어떨까요?")
 2. 구체적인 개선점이나 확장 아이디어 제시

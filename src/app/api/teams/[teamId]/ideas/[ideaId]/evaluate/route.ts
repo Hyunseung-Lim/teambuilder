@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { getIdeas, updateIdea } from "@/lib/redis";
 import { Evaluation } from "@/lib/types";
+import { processMemoryUpdate } from "@/lib/memory";
 
 export async function POST(
   request: NextRequest,
@@ -106,6 +107,27 @@ export async function POST(
         { error: "평가 저장에 실패했습니다." },
         { status: 500 }
       );
+    }
+
+    // 메모리 업데이트 - 아이디어 평가 이벤트 기록
+    try {
+      await processMemoryUpdate({
+        type: "IDEA_EVALUATED",
+        payload: {
+          teamId,
+          evaluatorId: evaluator,
+          ideaId: ideaId,
+          ideaAuthorId: targetIdea.author,
+          evaluation: newEvaluation,
+          isAutonomous: isSystemCall, // 시스템 호출이면 자율적 평가
+        },
+      });
+      console.log(
+        `✅ 평가 완료 후 메모리 업데이트 성공: ${evaluator} -> idea ${ideaId}`
+      );
+    } catch (memoryError) {
+      console.error("❌ 평가 후 메모리 업데이트 실패:", memoryError);
+      // 메모리 업데이트 실패는 평가 성공에 영향을 주지 않음
     }
 
     return NextResponse.json({
