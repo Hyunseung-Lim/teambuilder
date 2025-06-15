@@ -212,6 +212,11 @@ export async function getTeamById(id: string): Promise<Team | null> {
     ownerId = Object.values(ownerId).join("");
   }
 
+  // 기존 팀의 경우 owner 필드를 ownerId로 매핑
+  if (!ownerId && teamData.owner) {
+    ownerId = teamData.owner;
+  }
+
   // members와 relationships도 안전하게 파싱
   let members = [];
   let relationships = [];
@@ -302,6 +307,15 @@ export async function deleteTeam(
   ownerId: string
 ): Promise<void> {
   const team = (await getTeamById(teamId)) as Team & { ownerId?: string };
+
+  console.log("🔍 팀 삭제 디버깅:");
+  console.log("  - 요청된 teamId:", teamId);
+  console.log("  - 요청된 ownerId:", ownerId);
+  console.log("  - 팀 존재 여부:", !!team);
+  console.log("  - 팀 정보:", team);
+  console.log("  - 팀의 ownerId:", team?.ownerId);
+  console.log("  - ownerId 비교 결과:", team?.ownerId === ownerId);
+
   if (!team || team.ownerId !== ownerId) {
     throw new Error("Team not found or user not authorized to delete.");
   }

@@ -99,7 +99,19 @@ export async function DELETE(
 
   try {
     const resolvedParams = await params;
-    await deleteTeam(resolvedParams.teamId, session.user.email);
+
+    // 이메일로 사용자 ID 조회
+    const { getUserByEmail } = await import("@/lib/redis");
+    const user = await getUserByEmail(session.user.email);
+
+    if (!user) {
+      return NextResponse.json(
+        { error: "사용자를 찾을 수 없습니다." },
+        { status: 404 }
+      );
+    }
+
+    await deleteTeam(resolvedParams.teamId, user.id);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("팀 삭제 오류:", error);

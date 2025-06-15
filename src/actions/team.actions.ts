@@ -44,13 +44,14 @@ export async function createTeamAction(formData: FormData) {
     }
 
     // 팀 생성
-    const team = await createTeam({
+    const teamData = {
       teamName,
+      ownerId: user.id,
       topic,
       members: selectedAgents,
       relationships,
-      ownerId: user.id,
-    });
+    };
+    const team = await createTeam(teamData);
 
     console.log("✅ 팀 생성 완료:", team.id);
 
