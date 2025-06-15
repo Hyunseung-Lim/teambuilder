@@ -28,6 +28,7 @@ export default function HomePage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isDataLoading, setIsDataLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<AIAgent | null>(null);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
@@ -37,6 +38,7 @@ export default function HomePage() {
   useEffect(() => {
     if (session) {
       async function loadData() {
+        setIsDataLoading(true);
         try {
           const [userAgents, userTeams] = await Promise.all([
             getUserAgentsAction(),
@@ -62,6 +64,8 @@ export default function HomePage() {
         } catch (error) {
           console.error("데이터 로딩 오류:", error);
           setError("데이터를 불러오는데 실패했습니다.");
+        } finally {
+          setIsDataLoading(false);
         }
       }
       loadData();
@@ -240,7 +244,49 @@ export default function HomePage() {
             </div>
 
             {/* 팀원 목록 */}
-            {agents.length > 0 ? (
+            {isDataLoading ? (
+              // 팀원 스켈레톤 로딩 UI
+              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <Card
+                    key={i}
+                    className="border-0 bg-white/80 backdrop-blur-sm shadow-lg rounded-2xl"
+                  >
+                    <CardContent className="p-6">
+                      <div className="flex flex-col items-center text-center space-y-4">
+                        {/* 아바타 스켈레톤 */}
+                        <div className="w-20 h-20 bg-gray-300 rounded-full animate-pulse"></div>
+
+                        {/* 정보 스켈레톤 */}
+                        <div className="w-full space-y-3">
+                          <div className="h-6 w-24 bg-gray-300 rounded animate-pulse mx-auto"></div>
+
+                          <div className="space-y-2">
+                            <div className="flex justify-between">
+                              <div className="h-4 w-8 bg-gray-300 rounded animate-pulse"></div>
+                              <div className="h-4 w-12 bg-gray-300 rounded animate-pulse"></div>
+                            </div>
+                            <div className="flex justify-between">
+                              <div className="h-4 w-8 bg-gray-300 rounded animate-pulse"></div>
+                              <div className="h-4 w-8 bg-gray-300 rounded animate-pulse"></div>
+                            </div>
+                            <div className="flex justify-between">
+                              <div className="h-4 w-8 bg-gray-300 rounded animate-pulse"></div>
+                              <div className="h-4 w-16 bg-gray-300 rounded animate-pulse"></div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 버튼 스켈레톤 */}
+                      <div className="mt-4">
+                        <div className="h-8 w-full bg-gray-300 rounded animate-pulse"></div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : agents.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                 {agents.map((agent) => (
                   <Card
@@ -343,7 +389,91 @@ export default function HomePage() {
               </Link>
             </div>
 
-            {teams.length > 0 ? (
+            {isDataLoading ? (
+              // 스켈레톤 로딩 UI
+              <div className="space-y-8">
+                {/* 현재 활성 팀 스켈레톤 */}
+                <div>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-3 h-3 bg-gray-300 rounded-full animate-pulse"></div>
+                    <div className="h-6 w-32 bg-gray-300 rounded animate-pulse"></div>
+                  </div>
+
+                  <Card className="bg-gradient-to-br from-gray-50 to-gray-100">
+                    <CardContent className="p-8">
+                      <div className="flex items-start justify-between mb-6">
+                        <div className="flex-1">
+                          <div className="h-8 w-48 bg-gray-300 rounded animate-pulse mb-4"></div>
+                          <div className="flex items-center gap-4">
+                            <div className="h-4 w-24 bg-gray-300 rounded animate-pulse"></div>
+                            <div className="h-4 w-32 bg-gray-300 rounded animate-pulse"></div>
+                            <div className="h-4 w-28 bg-gray-300 rounded animate-pulse"></div>
+                          </div>
+                        </div>
+                        <div className="flex flex-row gap-3">
+                          <div className="h-12 w-32 bg-gray-300 rounded animate-pulse"></div>
+                          <div className="h-12 w-40 bg-gray-300 rounded animate-pulse"></div>
+                        </div>
+                      </div>
+
+                      {/* 팀원 스켈레톤 */}
+                      <div>
+                        <div className="h-4 w-20 bg-gray-300 rounded animate-pulse mb-3"></div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                          {[1, 2, 3].map((i) => (
+                            <div
+                              key={i}
+                              className="bg-white/70 backdrop-blur-sm rounded-lg p-4 border border-white/50"
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className="w-12 h-12 bg-gray-300 rounded-full animate-pulse flex-shrink-0"></div>
+                                <div className="min-w-0 flex-1 space-y-2">
+                                  <div className="h-4 w-20 bg-gray-300 rounded animate-pulse"></div>
+                                  <div className="h-3 w-16 bg-gray-300 rounded animate-pulse"></div>
+                                  <div className="flex gap-1">
+                                    <div className="h-5 w-12 bg-gray-300 rounded animate-pulse"></div>
+                                    <div className="h-5 w-16 bg-gray-300 rounded animate-pulse"></div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* 팀 히스토리 스켈레톤 */}
+                <div>
+                  <div className="h-6 w-24 bg-gray-300 rounded animate-pulse mb-4"></div>
+                  <div className="space-y-3">
+                    {[1, 2].map((i) => (
+                      <Card
+                        key={i}
+                        className="bg-gray-50 border border-gray-200"
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                              <div className="w-2 h-2 bg-gray-300 rounded-full animate-pulse"></div>
+                              <div className="space-y-2">
+                                <div className="h-4 w-32 bg-gray-300 rounded animate-pulse"></div>
+                                <div className="h-3 w-24 bg-gray-300 rounded animate-pulse"></div>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                              <div className="h-8 w-20 bg-gray-300 rounded animate-pulse"></div>
+                              <div className="h-8 w-8 bg-gray-300 rounded animate-pulse"></div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : teams.length > 0 ? (
               <div className="space-y-8">
                 {/* 현재 활성 팀 (가장 최근 팀) */}
                 {(() => {

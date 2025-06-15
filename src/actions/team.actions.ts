@@ -3,9 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
-import { createTeam, getUserTeams, getTeamById, deleteTeam } from "@/lib/redis";
+import {
+  createTeam,
+  getUserTeams,
+  getTeamById,
+  deleteTeam,
+  getUserByEmail,
+} from "@/lib/redis";
 import { AgentRole, Relationship } from "@/lib/types";
-import AgentStateManager from "@/lib/agent-state-manager";
 
 export async function createTeamAction(formData: FormData) {
   const session = await getServerSession();
@@ -44,22 +49,13 @@ export async function createTeamAction(formData: FormData) {
       topic,
       members: selectedAgents,
       relationships,
-      createdBy: user.id,
+      ownerId: user.id,
     });
 
     console.log("✅ 팀 생성 완료:", team.id);
 
-    // 에이전트 상태 시스템 초기화
-    const stateManager = AgentStateManager.getInstance();
-
-    for (const member of selectedAgents) {
-      if (!member.isUser && member.agentId) {
-        console.log(`🚀 에이전트 ${member.agentId} 상태 시스템 초기화 중...`);
-        await stateManager.initializeAgent(member.agentId, team.id);
-      }
-    }
-
-    console.log("✅ 모든 에이전트 상태 시스템 초기화 완료");
+    // 새로운 에이전트 상태 시스템은 자동으로 초기화됨 (agent-states API에서 처리)
+    console.log("✅ 에이전트 상태 시스템은 첫 요청 시 자동 초기화됩니다");
 
     revalidatePath("/");
     redirect("/");
@@ -81,8 +77,13 @@ export async function getTeamAction(teamId: string) {
   }
 
   try {
+    const user = await getUserByEmail(session.user.email);
+    if (!user) {
+      throw new Error("사용자를 찾을 수 없습니다.");
+    }
+
     const team = await getTeamById(teamId);
-    if (!team || team.ownerId !== session.user.email) {
+    if (!team || team.ownerId !== user.id) {
       throw new Error("팀을 찾을 수 없거나 접근 권한이 없습니다.");
     }
     return team;
@@ -100,7 +101,15 @@ export async function getUserTeamsAction() {
   }
 
   try {
-    return await getUserTeams(session.user.email);
+    // 이메일로 사용자 정보를 먼저 조회
+    const user = await getUserByEmail(session.user.email);
+    if (!user) {
+      console.error("사용자를 찾을 수 없습니다:", session.user.email);
+      return [];
+    }
+
+    // 사용자 ID로 팀 목록 조회
+    return await getUserTeams(user.id);
   } catch (error) {
     console.error("팀 조회 오류:", error);
     return [];
@@ -115,7 +124,12 @@ export async function deleteTeamAction(teamId: string) {
   }
 
   try {
-    await deleteTeam(teamId, session.user.email);
+    const user = await getUserByEmail(session.user.email);
+    if (!user) {
+      throw new Error("사용자를 찾을 수 없습니다.");
+    }
+
+    await deleteTeam(teamId, user.id);
     revalidatePath("/");
   } catch (error) {
     console.error("팀 삭제 오류:", error);

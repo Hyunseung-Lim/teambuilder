@@ -160,28 +160,45 @@ export async function createTeam(
   teamData: Omit<Team, "id" | "createdAt"> & { ownerId: string }
 ): Promise<Team> {
   const teamId = `team_${nanoid()}`;
-  const { teamName, members, ownerId } = teamData;
+  const { teamName, topic, members, relationships, ownerId } = teamData;
 
   const newTeam = {
     id: teamId,
     ownerId: ownerId,
-    teamName,
-    members,
-    relationships: [], // 관계 정보는 팀 생성 후 설정
-    createdAt: new Date(),
+    teamName: teamName || "",
+    topic: topic || "",
+    members: JSON.stringify(members || []),
+    relationships: JSON.stringify(relationships || []),
+    createdAt: new Date().toISOString(),
   };
 
   await redis.hset(keys.team(teamId), newTeam);
   await redis.sadd(keys.userTeams(ownerId), teamId);
 
   // 각 에이전트의 메모리 초기화
-  for (const member of members) {
+  for (const member of members || []) {
     if (!member.isUser && member.agentId) {
-      await initializeAgentMemory(member.agentId, newTeam as Team);
+      await initializeAgentMemory(member.agentId, {
+        id: teamId,
+        ownerId,
+        teamName: teamName || "",
+        topic: topic || "",
+        members: members || [],
+        relationships: relationships || [],
+        createdAt: new Date(),
+      } as Team);
     }
   }
 
-  return newTeam as Team;
+  return {
+    id: teamId,
+    ownerId,
+    teamName: teamName || "",
+    topic: topic || "",
+    members: members || [],
+    relationships: relationships || [],
+    createdAt: new Date(),
+  } as Team;
 }
 
 export async function getTeamById(id: string): Promise<Team | null> {

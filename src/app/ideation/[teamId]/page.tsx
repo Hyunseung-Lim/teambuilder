@@ -212,9 +212,9 @@ function AgentStateIndicator({
 
           // 트리거에 따라 추가 정보 표시
           if (trigger === "user_request" && requester) {
-            return `${baseText} (${requester} 요청)`;
+            return `${baseText}\n(${requester} 요청)`;
           } else if (trigger === "ai_request" && requester) {
-            return `${baseText} (${requester} 요청)`;
+            return `${baseText}\n(${requester} 요청)`;
           }
 
           return baseText;
@@ -278,7 +278,7 @@ function AgentStateIndicator({
   return (
     <div className="relative group">
       <span
-        className={`text-xs px-2 py-1 rounded-full flex items-center gap-1 ${stateInfo.color} flex-shrink-0 cursor-help`}
+        className={`text-xs px-2 py-1 rounded-full flex items-center gap-1 ${stateInfo.color} flex-shrink-0 cursor-help whitespace-pre-line`}
       >
         {stateInfo.icon}
         {stateInfo.text}

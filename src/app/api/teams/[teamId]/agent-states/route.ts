@@ -395,7 +395,7 @@ async function executeAgentAction(
         evaluations: [],
       });
 
-      // 채팅 알림
+      // 채팅 알림 (자율적 행동)
       await addChatMessage(teamId, {
         sender: agentId,
         type: "system",
@@ -718,6 +718,8 @@ export async function POST(
       estimatedDuration,
       trigger,
       requestInfo,
+      action, // 새로운 필드: 요청 처리용
+      requestData, // 새로운 필드: 요청 데이터
     } = body;
 
     if (!agentId) {
@@ -727,22 +729,132 @@ export async function POST(
       );
     }
 
+    // 요청 처리 액션인 경우
+    if (action === "process_request" && requestData) {
+      console.log(`📨 에이전트 ${agentId}에게 요청 처리: ${requestData.type}`);
+
+      // 현재 에이전트 상태 확인
+      const currentAgentState = await getAgentState(teamId, agentId);
+
+      if (!currentAgentState) {
+        return NextResponse.json(
+          { error: "에이전트 상태를 찾을 수 없습니다." },
+          { status: 404 }
+        );
+      }
+
+      // 에이전트가 idle 상태인 경우 즉시 처리
+      if (
+        currentAgentState.currentState === "idle" &&
+        !currentAgentState.isProcessing
+      ) {
+        console.log(`🔄 에이전트 ${agentId} Idle 상태 - 즉시 요청 처리 시작`);
+
+        // 즉시 action 상태로 전환
+        const now = new Date();
+        const newState: AgentStateInfo = {
+          agentId,
+          currentState: "action",
+          lastStateChange: now.toISOString(),
+          isProcessing: true,
+          currentTask: {
+            type:
+              requestData.type === "evaluate_idea"
+                ? "evaluate_idea"
+                : "thinking",
+            description: `${requestData.requesterName}의 요청: ${
+              requestData.payload?.message || "요청 처리"
+            }`,
+            startTime: now.toISOString(),
+            estimatedDuration: 30, // 30초 예상
+            trigger: "user_request",
+            requestInfo: {
+              requesterName: requestData.requesterName,
+              requestMessage: requestData.payload?.message || "",
+            },
+          },
+        };
+
+        // 상태 저장
+        await setAgentState(teamId, agentId, newState);
+
+        // 백그라운드에서 실제 요청 처리
+        processRequestInBackground(teamId, agentId, requestData);
+
+        return NextResponse.json({
+          success: true,
+          message: "요청이 즉시 처리되기 시작했습니다.",
+          state: newState,
+        });
+      } else {
+        // 에이전트가 바쁜 상태인 경우 큐에 추가
+        console.log(`⏳ 에이전트 ${agentId} 바쁜 상태 - 큐에 요청 추가`);
+
+        // 큐에 요청 추가 (Redis 리스트 사용)
+        const queueKey = `agent_queue:${teamId}:${agentId}`;
+        await redis.lpush(queueKey, JSON.stringify(requestData));
+        await redis.expire(queueKey, 3600); // 1시간 TTL
+
+        return NextResponse.json({
+          success: true,
+          message: "에이전트가 현재 작업 중이므로 큐에 추가되었습니다.",
+          queued: true,
+        });
+      }
+    }
+
     const now = new Date();
     let newState: AgentStateInfo;
 
     if (currentState === "idle") {
-      // idle 상태로 전환
-      newState = {
-        agentId,
-        currentState: "idle",
-        lastStateChange: now.toISOString(),
-        isProcessing: false,
-        idleTimer: {
-          startTime: now.toISOString(),
-          plannedDuration: Math.floor(Math.random() * 30) + 60, // 60-90초
-          remainingTime: Math.floor(Math.random() * 30) + 60,
-        },
-      };
+      // idle 상태로 전환 시 큐 확인
+      const queueKey = `agent_queue:${teamId}:${agentId}`;
+      const queuedRequest = await redis.rpop(queueKey);
+
+      if (queuedRequest) {
+        // 큐에 대기 중인 요청이 있으면 즉시 처리
+        console.log(`📋 에이전트 ${agentId} 큐에서 요청 발견 - 즉시 처리`);
+        const requestData = JSON.parse(queuedRequest);
+
+        newState = {
+          agentId,
+          currentState: "action",
+          lastStateChange: now.toISOString(),
+          isProcessing: true,
+          currentTask: {
+            type:
+              requestData.type === "evaluate_idea"
+                ? "evaluate_idea"
+                : "thinking",
+            description: `${requestData.requesterName}의 요청: ${
+              requestData.payload?.message || "요청 처리"
+            }`,
+            startTime: now.toISOString(),
+            estimatedDuration: 30,
+            trigger: "user_request",
+            requestInfo: {
+              requesterName: requestData.requesterName,
+              requestMessage: requestData.payload?.message || "",
+            },
+          },
+        };
+
+        // 백그라운드에서 요청 처리
+        processRequestInBackground(teamId, agentId, requestData);
+      } else {
+        // 큐가 비어있으면 일반 idle 상태
+        newState = {
+          agentId,
+          currentState: "idle",
+          lastStateChange: now.toISOString(),
+          isProcessing: false,
+          idleTimer: {
+            startTime: now.toISOString(),
+            plannedDuration: Math.floor(Math.random() * 30) + 60, // 60-90초
+            remainingTime: Math.floor(Math.random() * 30) + 60,
+          },
+        };
+      }
     } else if (currentState === "plan" || currentState === "action") {
       // 작업 상태로 전환
       newState = {
@@ -777,8 +889,289 @@ export async function POST(
   } catch (error) {
     console.error("에이전트 상태 업데이트 실패:", error);
     return NextResponse.json(
-      { error: "에이전트 상태 업데이트에 실패했습니다." },
+      { error: "상태 업데이트에 실패했습니다." },
       { status: 500 }
+    );
+  }
+}
+
+// 백그라운드에서 요청 처리하는 함수
+async function processRequestInBackground(
+  teamId: string,
+  agentId: string,
+  requestData: any
+) {
+  try {
+    console.log(
+      `🔧 에이전트 ${agentId} 백그라운드 요청 처리 시작: ${requestData.type}`
+    );
+
+    if (requestData.type === "evaluate_idea") {
+      // 아이디어 평가 요청 처리
+      await handleEvaluateIdeaRequestDirect(teamId, agentId, requestData);
+    } else if (requestData.type === "generate_idea") {
+      // 아이디어 생성 요청 처리
+      await handleGenerateIdeaRequestDirect(teamId, agentId, requestData);
+    }
+
+    console.log(`✅ 에이전트 ${agentId} 요청 처리 완료`);
+
+    // 처리 완료 후 idle 상태로 전환
+    setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `${
+            process.env.NEXTAUTH_URL || "http://localhost:3000"
+          }/api/teams/${teamId}/agent-states`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              agentId,
+              currentState: "idle",
+            }),
+          }
+        );
+
+        if (response.ok) {
+          console.log(`😴 에이전트 ${agentId} → Idle 상태 전환 완료`);
+        }
+      } catch (error) {
+        console.error(`❌ 에이전트 ${agentId} Idle 전환 실패:`, error);
+      }
+    }, 2000); // 2초 후 idle로 전환
+  } catch (error) {
+    console.error(`❌ 에이전트 ${agentId} 백그라운드 요청 처리 실패:`, error);
+
+    // 실패 시에도 idle 상태로 전환
+    setTimeout(async () => {
+      try {
+        await fetch(
+          `${
+            process.env.NEXTAUTH_URL || "http://localhost:3000"
+          }/api/teams/${teamId}/agent-states`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              agentId,
+              currentState: "idle",
+            }),
+          }
+        );
+      } catch (e) {
+        console.error(`❌ 에이전트 ${agentId} 실패 후 Idle 전환 실패:`, e);
+      }
+    }, 2000);
+  }
+}
+
+// 직접 아이디어 평가 요청 처리
+async function handleEvaluateIdeaRequestDirect(
+  teamId: string,
+  agentId: string,
+  requestData: any
+) {
+  console.log(`📊 에이전트 ${agentId} 아이디어 평가 요청 직접 처리`);
+
+  try {
+    const ideas = await getIdeas(teamId);
+
+    if (ideas.length === 0) {
+      console.log(`⚠️ 에이전트 ${agentId} 평가할 아이디어가 없음`);
+      return;
+    }
+
+    // 본인이 만든 아이디어 제외
+    const otherIdeas = ideas.filter((idea) => idea.author !== agentId);
+
+    if (otherIdeas.length === 0) {
+      console.log(`⚠️ 에이전트 ${agentId} 평가할 다른 사람의 아이디어가 없음`);
+      return;
+    }
+
+    // 아이디어 리스트를 적절한 형태로 변환
+    const ideaList = otherIdeas.map((idea) => ({
+      ideaNumber: idea.id,
+      authorName: idea.author,
+      object: idea.content.object,
+      function: idea.content.function,
+    }));
+
+    const agentProfile = await getAgentById(agentId);
+
+    // 2단계 평가 프로세스
+    // 1단계: 어떤 아이디어를 평가할지 결정
+    const preEvaluation = await preEvaluationAction(
+      requestData.payload.message,
+      ideaList,
+      agentProfile
+    );
+
+    const selectedIdea = otherIdeas.find(
+      (idea) => idea.id === preEvaluation.selectedIdea.ideaNumber
+    );
+
+    if (!selectedIdea) {
+      console.log(`⚠️ 에이전트 ${agentId} 선택된 아이디어를 찾을 수 없음`);
+      return;
+    }
+
+    // 2단계: 실제 평가 수행
+    const evaluation = await executeEvaluationAction(
+      {
+        ...preEvaluation.selectedIdea,
+        authorName: selectedIdea.author,
+      },
+      preEvaluation.evaluationStrategy,
+      agentProfile
+    );
+
+    // 평가 API 호출
+    const response = await fetch(
+      `${
+        process.env.NEXTAUTH_URL || "http://localhost:3000"
+      }/api/teams/${teamId}/ideas/${selectedIdea.id}/evaluate`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-system-internal": "true",
+        },
+        body: JSON.stringify({
+          evaluator: agentId,
+          scores: {
+            insightful: Math.max(
+              1,
+              Math.min(5, evaluation.scores?.insightful || 3)
+            ),
+            actionable: Math.max(
+              1,
+              Math.min(5, evaluation.scores?.actionable || 3)
+            ),
+            relevance: Math.max(
+              1,
+              Math.min(5, evaluation.scores?.relevance || 3)
+            ),
+          },
+          comment: evaluation.comment || "요청에 따른 평가",
+        }),
+      }
+    );
+
+    if (response.ok) {
+      // 성공 시 채팅 알림
+      let ideaAuthorName = selectedIdea.author;
+      if (selectedIdea.author === "나") {
+        ideaAuthorName = "나";
+      } else {
+        const authorAgent = await getAgentById(selectedIdea.author);
+        ideaAuthorName = authorAgent?.name || `에이전트 ${selectedIdea.author}`;
+      }
+
+      console.log(
+        `📢 에이전트 ${agentId} 요청 기반 평가 완료 채팅 알림 전송 중...`
+      );
+
+      await addChatMessage(teamId, {
+        sender: agentId,
+        type: "system",
+        payload: {
+          content: `${
+            requestData.requesterName
+          }의 요청에 따라 ${ideaAuthorName}의 아이디어 "${
+            selectedIdea.content.object
+          }"를 평가했습니다. 평가 점수: 통찰력 ${Math.max(
+            1,
+            Math.min(5, evaluation.scores?.insightful || 3)
+          )}/5, 실행가능성 ${Math.max(
+            1,
+            Math.min(5, evaluation.scores?.actionable || 3)
+          )}/5, 관련성 ${Math.max(
+            1,
+            Math.min(5, evaluation.scores?.relevance || 3)
+          )}/5`,
+        },
+      });
+
+      console.log(`✅ 에이전트 ${agentId} 요청 기반 평가 완료`);
+    } else {
+      console.error(
+        `❌ 에이전트 ${agentId} 평가 API 호출 실패:`,
+        response.status
+      );
+    }
+  } catch (error) {
+    console.error(`❌ 에이전트 ${agentId} 평가 요청 처리 실패:`, error);
+  }
+}
+
+// 아이디어 생성 요청 처리
+async function handleGenerateIdeaRequestDirect(
+  teamId: string,
+  agentId: string,
+  requestData: any
+) {
+  console.log(`📊 에이전트 ${agentId} 아이디어 생성 요청 직접 처리`);
+
+  try {
+    const team = await getTeamById(teamId);
+    const agentProfile = await getAgentById(agentId);
+
+    if (!team || !agentProfile) {
+      console.error(`❌ ${agentId} 팀 또는 에이전트 정보 없음`);
+      return;
+    }
+
+    const ideas = await getIdeas(teamId);
+    const existingIdeas = ideas.map((idea, index) => ({
+      ideaNumber: index + 1,
+      authorName: idea.author,
+      object: idea.content.object,
+      function: idea.content.function,
+    }));
+
+    const generatedContent = await generateIdeaAction(
+      team.topic || "Carbon Emission Reduction",
+      agentProfile,
+      existingIdeas
+    );
+
+    const newIdea = await addIdea(teamId, {
+      author: agentId,
+      timestamp: new Date().toISOString(),
+      content: {
+        object: generatedContent.object || "생성된 아이디어",
+        function: generatedContent.function || "기능 설명",
+        behavior:
+          typeof generatedContent.behavior === "object"
+            ? JSON.stringify(generatedContent.behavior)
+            : generatedContent.behavior || "동작 설명",
+        structure:
+          typeof generatedContent.structure === "object"
+            ? JSON.stringify(generatedContent.structure)
+            : generatedContent.structure || "구조 설명",
+      },
+      evaluations: [],
+    });
+
+    // 채팅 알림
+    await addChatMessage(teamId, {
+      sender: agentId,
+      type: "system",
+      payload: {
+        content: `${requestData.requesterName}의 요청에 따라 새로운 아이디어를 생성했습니다: "${generatedContent.object}"`,
+      },
+    });
+
+    console.log(
+      `✅ ${agentProfile.name} 아이디어 생성 완료:`,
+      generatedContent.object
+    );
+  } catch (error) {
+    console.error(
+      `❌ 에이전트 ${agentId} 아이디어 생성 요청 처리 실패:`,
+      error
     );
   }
 }

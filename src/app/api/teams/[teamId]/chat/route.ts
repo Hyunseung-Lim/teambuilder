@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { getChatHistory, addChatMessage } from "@/lib/redis";
-import {
-  generateIdeaViaRequest,
-  evaluateIdeaViaRequest,
-} from "@/actions/ideation.actions";
+import { ChatMessage } from "@/lib/types";
 
 export async function GET(
   request: NextRequest,
@@ -59,23 +56,62 @@ export async function POST(
       messageType === "request" &&
       messagePayload.requestType === "generate"
     ) {
-      // Don't wait for the generation to finish, run it in the background
-      generateIdeaViaRequest({
+      console.log(
+        `📨 아이디어 생성 요청 - 에이전트 ${messagePayload.mention}에게 전달`
+      );
+
+      // 새로운 에이전트 상태 시스템을 통해 요청 처리
+      const requestData = {
+        id: `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: "generate_idea",
+        requesterName: sender || session?.user?.email || "팀원",
+        payload: {
+          message: messagePayload.content,
+        },
+        timestamp: new Date().toISOString(),
         teamId: teamId,
-        agentId: messagePayload.mention,
-        requestMessage: messagePayload.content,
-        topic: "Current Ideation Topic", // Consider passing the actual topic
-      }).then((result) => {
-        if (result.success) {
-          console.log(
-            `Successfully generated idea for agent ${messagePayload.mention}`
-          );
-        } else {
-          console.error(
-            `Failed to generate idea for agent ${messagePayload.mention}: ${result.error}`
-          );
+      };
+
+      // 에이전트 상태 API를 통해 요청 처리
+      fetch(
+        `${
+          process.env.NEXTAUTH_URL || "http://localhost:3000"
+        }/api/teams/${teamId}/agent-states`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            agentId: messagePayload.mention,
+            action: "process_request",
+            requestData: requestData,
+          }),
         }
-      });
+      )
+        .then(async (response) => {
+          if (response.ok) {
+            const result = await response.json();
+            if (result.queued) {
+              console.log(
+                `⏳ 에이전트 ${messagePayload.mention} 바쁨 - 큐에 추가됨`
+              );
+            } else {
+              console.log(
+                `🔄 에이전트 ${messagePayload.mention} 즉시 처리 시작`
+              );
+            }
+          } else {
+            console.error(
+              `❌ 에이전트 ${messagePayload.mention} 요청 처리 실패:`,
+              response.status
+            );
+          }
+        })
+        .catch((error) => {
+          console.error(
+            `❌ 에이전트 ${messagePayload.mention} 요청 전달 실패:`,
+            error
+          );
+        });
     }
 
     // Check if it's an evaluation request and trigger the action
@@ -83,23 +119,62 @@ export async function POST(
       messageType === "request" &&
       messagePayload.requestType === "evaluate"
     ) {
-      // Don't wait for the evaluation to finish, run it in the background
-      evaluateIdeaViaRequest({
+      console.log(
+        `📨 아이디어 평가 요청 - 에이전트 ${messagePayload.mention}에게 전달`
+      );
+
+      // 새로운 에이전트 상태 시스템을 통해 요청 처리
+      const requestData = {
+        id: `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: "evaluate_idea",
+        requesterName: sender || session?.user?.email || "팀원",
+        payload: {
+          message: messagePayload.content,
+        },
+        timestamp: new Date().toISOString(),
         teamId: teamId,
-        agentId: messagePayload.mention,
-        requestMessage: messagePayload.content,
-        requesterName: sender || session.user.email || "팀원",
-      }).then((result) => {
-        if (result.success) {
-          console.log(
-            `Successfully evaluated idea for agent ${messagePayload.mention}`
-          );
-        } else {
-          console.error(
-            `Failed to evaluate idea for agent ${messagePayload.mention}: ${result.error}`
-          );
+      };
+
+      // 에이전트 상태 API를 통해 요청 처리
+      fetch(
+        `${
+          process.env.NEXTAUTH_URL || "http://localhost:3000"
+        }/api/teams/${teamId}/agent-states`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            agentId: messagePayload.mention,
+            action: "process_request",
+            requestData: requestData,
+          }),
         }
-      });
+      )
+        .then(async (response) => {
+          if (response.ok) {
+            const result = await response.json();
+            if (result.queued) {
+              console.log(
+                `⏳ 에이전트 ${messagePayload.mention} 바쁨 - 큐에 추가됨`
+              );
+            } else {
+              console.log(
+                `🔄 에이전트 ${messagePayload.mention} 즉시 처리 시작`
+              );
+            }
+          } else {
+            console.error(
+              `❌ 에이전트 ${messagePayload.mention} 요청 처리 실패:`,
+              response.status
+            );
+          }
+        })
+        .catch((error) => {
+          console.error(
+            `❌ 에이전트 ${messagePayload.mention} 요청 전달 실패:`,
+            error
+          );
+        });
     }
 
     return NextResponse.json({ message: newMessage });
