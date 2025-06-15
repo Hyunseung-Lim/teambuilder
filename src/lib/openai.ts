@@ -537,6 +537,9 @@ export async function generateAlreadyEvaluatedResponse(
   return getJsonResponse(prompt, userProfile);
 }
 
+// Alias for consistency
+export const alreadyEvaluatedResponseAction = generateAlreadyEvaluatedResponse;
+
 // New request-related functions
 
 export async function preRequestAction(

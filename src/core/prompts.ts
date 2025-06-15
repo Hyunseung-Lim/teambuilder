@@ -397,27 +397,55 @@ export const alreadyEvaluatedResponsePrompt = (
       }[relationshipType] || "Communicate as general team members."
     : "Communicate as general team members.";
 
-  return `You are in a team ideation session. Someone has asked you to evaluate an idea, but you have already evaluated this idea before. You need to politely explain that you've already provided an evaluation and briefly reference your previous assessment.
+  return `You are in a team ideation session. ${
+    requesterName
+      ? `Someone has asked you to evaluate an idea, but you have already evaluated this idea before.`
+      : `You tried to evaluate an idea autonomously, but you have already evaluated this idea before.`
+  } You need to politely explain that you've already provided an evaluation and briefly reference your previous assessment.
 
 Context:
-- Requester: ${requesterName}
-- Relationship with requester: ${relationshipDescription}
-- Idea you were asked to evaluate: ${ideaString}
+${
+  requesterName
+    ? `- Requester: ${requesterName}`
+    : "- This is autonomous evaluation"
+}
+${
+  requesterName
+    ? `- Relationship with requester: ${relationshipDescription}`
+    : "- You are speaking to the general team"
+}
+- Idea you ${
+    requesterName ? "were asked to evaluate" : "tried to evaluate"
+  }: ${ideaString}
 - Your previous evaluation: ${evaluationString}
 
 Instructions:
-1. Consider your specific relationship with the requester: ${relationshipDescription}
+${
+  requesterName
+    ? `1. Consider your specific relationship with the requester: ${relationshipDescription}`
+    : "1. Speak to the general team in a polite and professional tone"
+}
 2. Politely explain that you've already evaluated this specific idea
 3. Briefly summarize your previous evaluation scores or main points
 4. Suggest they can check your previous detailed evaluation
-5. Offer to help with evaluating other ideas if needed
+${
+  requesterName
+    ? "5. Offer to help with evaluating other ideas if needed"
+    : "5. Express willingness to evaluate other ideas"
+}
 6. Keep the tone conversational and natural, not robotic
-7. Use appropriate Korean honorifics and politeness levels based on your relationship
+7. Use appropriate Korean honorifics and politeness levels${
+    requesterName ? " based on your relationship" : ""
+  }
 
 Generate your response in the following JSON format. Write your response in Korean and make it conversational and natural.
 
 {
-  "response": "Your natural response in Korean explaining that you've already evaluated this idea, with a brief reference to your previous assessment and offering alternative help. Adjust the tone based on your relationship with the requester."
+  "response": "Your natural response in Korean explaining that you've already evaluated this idea, with a brief reference to your previous assessment and offering alternative help.${
+    requesterName
+      ? " Adjust the tone based on your relationship with the requester."
+      : ""
+  }"
 }
 
 Return only the JSON object—no additional text or explanations.
@@ -569,7 +597,7 @@ ${currentIdeasInfo}
 
 **Analysis Required:**
 1. Choose who to request (only within the roles that team member can perform)
-2. Decide what to request (choose from "Idea Generation", "Idea Evaluation", "Give Feedback")
+2. Decide what to request (choose from "generate_idea", "evaluate_idea", "give_feedback")
 3. Develop request strategy (why request this work from this team member, what context to provide)
 
 **Important Constraints:**
@@ -580,7 +608,7 @@ ${currentIdeasInfo}
 Respond only in the following JSON format:
 {
   "targetMember": "Name of team member to request",
-  "requestType": "Idea Generation" | "Idea Evaluation" | "Give Feedback",
+  "requestType": "generate_idea" | "evaluate_idea" | "give_feedback",
   "requestStrategy": "Explanation of request strategy (why request this work from this team member, what perspective to approach from)",
   "contextToProvide": "Specific context or background information to provide with the request"
 }
@@ -677,9 +705,9 @@ ${memoryContext}
 
 **Request Type Specifics:**
 ${
-  requestType === "Idea Generation"
+  requestType === "generate_idea"
     ? "- Request idea generation from a specific perspective or topic\n- Suggest directions that can differentiate from existing ideas"
-    : requestType === "Idea Evaluation"
+    : requestType === "evaluate_idea"
     ? "- Request evaluation of specific ideas or idea groups\n- Suggest perspectives to focus on during evaluation"
     : "- Request feedback on specific ideas or situations\n- Specify what aspects you want feedback on"
 }

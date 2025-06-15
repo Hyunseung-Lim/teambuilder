@@ -162,6 +162,12 @@ export interface ChatMessagePayload {
   requestType?: "generate" | "evaluate" | "give_feedback" | null;
   target?: string; // 요청 대상 (make_request용)
   action?: string; // 요청 액션 (make_request용)
+  originalRequest?: string; // 원본 요청 메시지 (답글용)
+  ideaReference?: {
+    ideaId: number;
+    ideaTitle: string;
+    authorName: string;
+  }; // 아이디어 참조 정보 (피드백용)
 }
 
 // 시스템 메시지 페이로드

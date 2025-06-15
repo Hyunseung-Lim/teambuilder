@@ -92,7 +92,7 @@ export async function POST(
           sender: author || session.user.email,
           type: "system",
           payload: {
-            content: "새로운 아이디어를 생성했습니다",
+            content: "새로운 아이디어를 생성했습니다.",
           },
         });
 
@@ -284,7 +284,7 @@ export async function POST(
             sender: member.agentId,
             type: "system",
             payload: {
-              content: "새로운 아이디어를 생성했습니다",
+              content: "새로운 아이디어를 생성했습니다.",
             },
           });
 

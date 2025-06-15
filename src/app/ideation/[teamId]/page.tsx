@@ -1411,12 +1411,6 @@ export default function IdeationPage() {
         <div className="flex h-[calc(100vh-80px)]">
           {/* 왼쪽: 팀원 목록 */}
           <div className="w-72 bg-white border-r border-gray-200 flex flex-col">
-            <div className="p-4 border-b border-gray-200">
-              <h2 className="font-semibold text-gray-900 mb-2">
-                TEAM {team.teamName.toUpperCase()}
-              </h2>
-            </div>
-
             <div className="flex-1 overflow-y-auto">
               <div className="p-2 space-y-1">
                 {team.members.map((member, index) => {
@@ -1578,7 +1572,7 @@ export default function IdeationPage() {
                     return (
                       <div key={message.id} className="flex justify-center">
                         <div
-                          className={`${messageStyle} px-7 py-2 rounded-full text-sm font-medium flex items-center gap-3 whitespace-pre-wrap text-center`}
+                          className={`${messageStyle} max-w-xl px-8 py-3 rounded-full text-sm font-medium flex flex-col items-center gap-1 whitespace-pre-wrap text-center`}
                         >
                           <span>
                             {senderName}
@@ -1586,8 +1580,8 @@ export default function IdeationPage() {
                             {messageContent}
                           </span>
                           {isIdeaCompletedMessage && (
-                            <div
-                              className="underline cursor-pointer border-blue-300 text-blue-600 text-xs h-auto"
+                            <span
+                              className="underline cursor-pointer text-blue-600 text-sm font-semibold hover:text-blue-800"
                               onClick={() => {
                                 // 해당 메시지 시간과 가장 가까운 아이디어 찾기
                                 const messageTime = new Date(
@@ -1633,8 +1627,31 @@ export default function IdeationPage() {
                                 }
                               }}
                             >
-                              생성된 아이디어 보기
-                            </div>
+                              "
+                              {(() => {
+                                // 메시지 시간과 가장 가까운 아이디어의 제목 찾기
+                                const messageTime = new Date(
+                                  message.timestamp
+                                ).getTime();
+                                const authorIdeas = ideas
+                                  .filter(
+                                    (idea) => idea.author === message.sender
+                                  )
+                                  .map((idea) => ({
+                                    ...idea,
+                                    timeDiff: Math.abs(
+                                      new Date(idea.timestamp).getTime() -
+                                        messageTime
+                                    ),
+                                  }))
+                                  .sort((a, b) => a.timeDiff - b.timeDiff);
+
+                                return (
+                                  authorIdeas[0]?.content.object || "아이디어"
+                                );
+                              })()}
+                              "
+                            </span>
                           )}
                         </div>
                       </div>
@@ -1701,8 +1718,7 @@ export default function IdeationPage() {
                                 type === "make_request" &&
                                 mention &&
                                 requestType;
-                              const isFeedback =
-                                type === "give_feedback" && mention;
+                              const isFeedback = type === "give_feedback";
 
                               if (isRequest) {
                                 const reqType = requestType as
@@ -1744,31 +1760,187 @@ export default function IdeationPage() {
                               }
 
                               if (isFeedback) {
-                                return (
-                                  <div>
-                                    <div
-                                      className={`text-sm mb-2 ${
-                                        isMyMessage
-                                          ? "text-blue-100"
-                                          : "text-slate-600"
-                                      }`}
-                                    >
-                                      <span className="font-medium">
-                                        @{getAuthorName(mention)}
-                                      </span>
-                                      <span>에게 피드백</span>
+                                // mention이 있는 경우 헤더 포함
+                                if (mention && mention.trim()) {
+                                  return (
+                                    <div>
+                                      <div
+                                        className={`text-sm mb-2 ${
+                                          isMyMessage
+                                            ? "text-blue-100"
+                                            : "text-slate-600"
+                                        }`}
+                                      >
+                                        <span className="font-medium">
+                                          @{getAuthorName(mention)}
+                                        </span>
+                                        <span>에게 피드백</span>
+                                      </div>
+                                      {/* 아이디어 참조 표시 */}
+                                      {typeof message.payload === "object" &&
+                                        message.payload &&
+                                        "ideaReference" in message.payload &&
+                                        (message.payload as any)
+                                          .ideaReference && (
+                                          <div
+                                            className={`text-xs mb-3 p-2 rounded-lg border-l-2 cursor-pointer hover:bg-opacity-80 ${
+                                              isMyMessage
+                                                ? "bg-blue-400/20 border-blue-200 text-blue-100 hover:bg-blue-400/30"
+                                                : "bg-gray-100 border-gray-300 text-gray-600 hover:bg-gray-200"
+                                            }`}
+                                            onClick={() => {
+                                              if (
+                                                typeof message.payload ===
+                                                  "object" &&
+                                                message.payload &&
+                                                "ideaReference" in
+                                                  message.payload &&
+                                                (message.payload as any)
+                                                  .ideaReference
+                                              ) {
+                                                const ideaRef = (
+                                                  message.payload as any
+                                                ).ideaReference;
+                                                const idea = ideas.find(
+                                                  (i) => i.id === ideaRef.ideaId
+                                                );
+                                                if (idea) {
+                                                  setIdeaDetailModalData(idea);
+                                                  setCurrentIdeaIndex(
+                                                    filteredIdeas.indexOf(idea)
+                                                  );
+                                                  setShowIdeaDetailModal(true);
+                                                }
+                                              }
+                                            }}
+                                          >
+                                            <div className="flex items-center gap-1 mb-1">
+                                              <span className="text-xs">
+                                                💡
+                                              </span>
+                                              <span className="font-medium">
+                                                {
+                                                  (message.payload as any)
+                                                    .ideaReference.authorName
+                                                }
+                                                의 아이디어
+                                              </span>
+                                            </div>
+                                            <p className="text-xs font-medium underline">
+                                              {
+                                                (message.payload as any)
+                                                  .ideaReference.ideaTitle
+                                              }
+                                            </p>
+                                          </div>
+                                        )}
+                                      <p
+                                        className={`text-sm leading-relaxed ${
+                                          isMyMessage
+                                            ? "text-white"
+                                            : "text-gray-800"
+                                        }`}
+                                      >
+                                        {content || "메시지 내용 없음"}
+                                      </p>
                                     </div>
-                                    <p
-                                      className={`text-sm leading-relaxed ${
-                                        isMyMessage
-                                          ? "text-white"
-                                          : "text-gray-800"
-                                      }`}
-                                    >
-                                      {content || "메시지 내용 없음"}
-                                    </p>
-                                  </div>
-                                );
+                                  );
+                                } else {
+                                  // mention이 없는 경우 일반 메시지로 표시
+                                  return (
+                                    <div>
+                                      {/* 아이디어 참조 표시 */}
+                                      {typeof message.payload === "object" &&
+                                        message.payload &&
+                                        "ideaReference" in message.payload &&
+                                        (message.payload as any)
+                                          .ideaReference && (
+                                          <div
+                                            className={`text-xs mb-3 p-2 rounded-lg border-l-2 cursor-pointer hover:bg-opacity-80 ${
+                                              isMyMessage
+                                                ? "bg-blue-400/20 border-blue-200 text-blue-100 hover:bg-blue-400/30"
+                                                : "bg-gray-100 border-gray-300 text-gray-600 hover:bg-gray-200"
+                                            }`}
+                                            onClick={() => {
+                                              if (
+                                                typeof message.payload ===
+                                                  "object" &&
+                                                message.payload &&
+                                                "ideaReference" in
+                                                  message.payload &&
+                                                (message.payload as any)
+                                                  .ideaReference
+                                              ) {
+                                                const ideaRef = (
+                                                  message.payload as any
+                                                ).ideaReference;
+                                                const idea = ideas.find(
+                                                  (i) => i.id === ideaRef.ideaId
+                                                );
+                                                if (idea) {
+                                                  setIdeaDetailModalData(idea);
+                                                  setCurrentIdeaIndex(
+                                                    filteredIdeas.indexOf(idea)
+                                                  );
+                                                  setShowIdeaDetailModal(true);
+                                                }
+                                              }
+                                            }}
+                                          >
+                                            <div className="flex items-center gap-1 mb-1">
+                                              <span className="text-xs">
+                                                💡
+                                              </span>
+                                              <span className="font-medium">
+                                                {
+                                                  (message.payload as any)
+                                                    .ideaReference.authorName
+                                                }
+                                                의 아이디어
+                                              </span>
+                                            </div>
+                                            <p className="text-xs font-medium underline">
+                                              {
+                                                (message.payload as any)
+                                                  .ideaReference.ideaTitle
+                                              }
+                                            </p>
+                                          </div>
+                                        )}
+                                      {/* 원본 요청 표시 */}
+                                      {typeof message.payload === "object" &&
+                                        message.payload?.originalRequest && (
+                                          <div
+                                            className={`text-xs mb-3 p-2 rounded-lg border-l-2 ${
+                                              isMyMessage
+                                                ? "bg-blue-400/20 border-blue-200 text-blue-100"
+                                                : "bg-gray-100 border-gray-300 text-gray-600"
+                                            }`}
+                                          >
+                                            <div className="flex items-center gap-1 mb-1">
+                                              <span className="text-xs">↗</span>
+                                              <span className="font-medium">
+                                                요청에 대한 답변
+                                              </span>
+                                            </div>
+                                            <p className="text-xs opacity-80">
+                                              "{message.payload.originalRequest}
+                                              "
+                                            </p>
+                                          </div>
+                                        )}
+                                      <p
+                                        className={`text-sm leading-relaxed ${
+                                          isMyMessage
+                                            ? "text-white"
+                                            : "text-gray-800"
+                                        }`}
+                                      >
+                                        {content || "메시지 내용 없음"}
+                                      </p>
+                                    </div>
+                                  );
+                                }
                               }
                             }
 

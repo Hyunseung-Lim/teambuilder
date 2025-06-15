@@ -468,7 +468,7 @@ class AgentStateManager {
               request.requesterName
             }의 요청에 따라 ${ideaAuthorName}의 아이디어 "${
               selectedIdea.content.object
-            }"를 평가했습니다. 평가 점수: 통찰력 ${Math.max(
+            }"를 평가했습니다.\n평가 점수: 통찰력 ${Math.max(
               1,
               Math.min(5, evaluation.scores?.insightful || 3)
             )}/5, 실행가능성 ${Math.max(
@@ -488,6 +488,59 @@ class AgentStateManager {
         console.log(
           `✅ 에이전트 ${agentId} 아이디어 평가 완료:`,
           selectedIdea.content.object
+        );
+      } else if (response.status === 400) {
+        // 중복 평가인 경우 LLM을 사용한 자연스러운 응답 생성
+        console.log(
+          `⚠️ 에이전트 ${agentId} 이미 평가한 아이디어 - LLM 응답 생성 중...`
+        );
+
+        const { alreadyEvaluatedResponseAction } = await import("@/lib/openai");
+        const { getTeamById } = await import("@/lib/redis");
+
+        // 이전 평가 찾기
+        const previousEvaluation = selectedIdea.evaluations.find(
+          (eval) => eval.evaluator === agentId
+        );
+
+        // 요청자와의 관계 확인
+        const team = await getTeamById(request.teamId);
+        let relationshipType = null;
+        if (team) {
+          const relationship = team.relationships.find(
+            (rel) => rel.from === agentId && rel.to === request.requesterName
+          );
+          relationshipType = relationship?.type || null;
+        }
+
+        const agentProfile = await getAgentById(agentId);
+
+        // LLM을 사용해서 자연스러운 응답 생성
+        const naturalResponse = await alreadyEvaluatedResponseAction(
+          request.requesterName,
+          {
+            ...preEvaluation.selectedIdea,
+            authorName: selectedIdea.author,
+          },
+          previousEvaluation,
+          relationshipType,
+          agentProfile
+        );
+
+        // 채팅으로 자연스러운 응답 전송
+        await addChatMessage(request.teamId, {
+          sender: agentId,
+          type: "give_feedback",
+          payload: {
+            type: "give_feedback",
+            content: naturalResponse.response,
+            mention: request.requesterName,
+            originalRequest: request.message,
+          },
+        });
+
+        console.log(
+          `💬 에이전트 ${agentId} 중복 평가 자연스러운 응답 전송 완료`
         );
       } else {
         console.error(
