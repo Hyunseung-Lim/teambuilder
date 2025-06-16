@@ -1596,32 +1596,7 @@ export default function IdeationPage() {
                 </span>
               </div>
             )}
-
-            {/* AI 피드백 세션 표시 */}
-            {aiFeedbackSessions.length > 0 && (
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                <span className="text-xs text-blue-600 font-medium">
-                  AI 피드백 세션 {aiFeedbackSessions.length}개 진행 중
-                </span>
-                <div className="text-xs text-gray-500">
-                  {aiFeedbackSessions.map((session, index) => (
-                    <button
-                      key={session.id}
-                      onClick={() => {
-                        setViewingSessionId(session.id);
-                        setShowViewSessionModal(true);
-                      }}
-                      className="inline hover:text-blue-600 hover:underline cursor-pointer"
-                    >
-                      {session.participants.join(" ↔ ")}
-                      {index < aiFeedbackSessions.length - 1 && ", "}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
+            
             <div className="text-sm text-gray-600">
               {team.members.length}명의 팀원
             </div>
