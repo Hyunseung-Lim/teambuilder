@@ -805,6 +805,7 @@ export async function initializeAgentMemory(
     shortTerm: {
       lastAction: null,
       activeChat: null,
+      feedbackSessionChat: null,
     },
     longTerm: {
       self: "팀에 새로 합류했습니다. 앞으로 팀원들과 좋은 관계를 맺고 협력하여 좋은 결과를 만들어가고 싶습니다.",

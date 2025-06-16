@@ -51,7 +51,7 @@ import {
 import Link from "next/link";
 import IdeaDetailModal from "@/components/IdeaDetailModal";
 import FeedbackSessionModal from "@/components/FeedbackSessionModal";
-// import ViewFeedbackSessionModal from "@/components/ViewFeedbackSessionModal";
+import ViewFeedbackSessionModal from "@/components/ViewFeedbackSessionModal";
 
 // 에이전트 상태 타입 정의 (확장)
 interface AgentStateInfo {
@@ -529,11 +529,6 @@ export default function IdeationPage() {
   const [feedbackSessionData, setFeedbackSessionData] = useState<{
     mentionedAgent: AIAgent;
     message: string;
-    ideaReference?: {
-      ideaId: number;
-      ideaTitle: string;
-      authorName: string;
-    };
   } | null>(null);
   const [showViewSessionModal, setShowViewSessionModal] = useState(false);
   const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
@@ -1172,7 +1167,6 @@ export default function IdeationPage() {
       setFeedbackSessionData({
         mentionedAgent,
         message: newMessage.trim(),
-        // 추후 아이디어 참조 로직 추가 가능
       });
       setShowFeedbackModal(true);
 
@@ -1780,13 +1774,7 @@ export default function IdeationPage() {
                         key={message.id}
                         className="flex justify-center mb-6"
                       >
-                        <div
-                          className={`${
-                            isAIOnlySession
-                              ? "bg-gradient-to-r from-purple-50 to-indigo-50"
-                              : "bg-gradient-to-r from-blue-50 to-purple-50"
-                          } rounded-2xl p-6 max-w-2xl w-full`}
-                        >
+                        <div className="bg-slate-50 rounded-2xl p-6 max-w-2xl w-full">
                           <div className="flex items-center gap-2 mb-4">
                             <div
                               className={`w-6 h-6 ${
@@ -1797,34 +1785,13 @@ export default function IdeationPage() {
                             >
                               <MessageCircle className="h-3 w-3 text-white" />
                             </div>
-                            <h4
-                              className={`font-bold ${
-                                isAIOnlySession
-                                  ? "text-purple-900"
-                                  : "text-blue-900"
-                              }`}
-                            >
-                              {isAIOnlySession
-                                ? "🤖 AI 피드백 세션 완료"
-                                : "피드백 세션 완료"}
+                            <h4 className="text-slate-800">
+                              {summaryPayload.participants?.join(" ↔ ")} 피드백
+                              세션 완료
                             </h4>
-                            {isAIOnlySession && (
-                              <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full font-medium">
-                                AI 자율 피드백
-                              </span>
-                            )}
                           </div>
 
                           <div className="space-y-3">
-                            <div>
-                              <p className="text-sm text-gray-600 mb-1">
-                                참가자
-                              </p>
-                              <p className="font-medium text-gray-800">
-                                {summaryPayload.participants?.join(" & ")}
-                              </p>
-                            </div>
-
                             {/* 실제 대화 내용 표시 (요약 대신) */}
                             {(() => {
                               console.log("🔍 피드백 세션 메시지 디버깅:", {
@@ -1989,17 +1956,12 @@ export default function IdeationPage() {
                               );
                             })()}
 
-                            <div className="flex items-center gap-4 text-xs text-gray-500 pt-2 border-t">
+                            <div className="flex items-center gap-4 text-xs text-gray-500 pt-2">
                               <span>
                                 {summaryPayload.messageCount}개 메시지
                               </span>
                               <span>{summaryPayload.duration}분 소요</span>
                               <span>{formatTimestamp(message.timestamp)}</span>
-                              {isAIOnlySession && (
-                                <span className="text-purple-600 font-medium">
-                                  자율 AI 피드백
-                                </span>
-                              )}
                             </div>
                           </div>
                         </div>
@@ -2264,64 +2226,6 @@ export default function IdeationPage() {
                                         </span>
                                         <span>에게 피드백</span>
                                       </div>
-                                      {/* 아이디어 참조 표시 */}
-                                      {typeof message.payload === "object" &&
-                                        message.payload &&
-                                        "ideaReference" in message.payload &&
-                                        (message.payload as any)
-                                          .ideaReference && (
-                                          <div
-                                            className={`text-xs mb-3 p-2 rounded-lg border-l-2 cursor-pointer hover:bg-opacity-80 ${
-                                              isMyMessage
-                                                ? "bg-blue-400/20 border-blue-200 text-blue-100 hover:bg-blue-400/30"
-                                                : "bg-gray-100 border-gray-300 text-gray-600 hover:bg-gray-200"
-                                            }`}
-                                            onClick={() => {
-                                              if (
-                                                typeof message.payload ===
-                                                  "object" &&
-                                                message.payload &&
-                                                "ideaReference" in
-                                                  message.payload &&
-                                                (message.payload as any)
-                                                  .ideaReference
-                                              ) {
-                                                const ideaRef = (
-                                                  message.payload as any
-                                                ).ideaReference;
-                                                const idea = ideas.find(
-                                                  (i) => i.id === ideaRef.ideaId
-                                                );
-                                                if (idea) {
-                                                  setIdeaDetailModalData(idea);
-                                                  setCurrentIdeaIndex(
-                                                    filteredIdeas.indexOf(idea)
-                                                  );
-                                                  setShowIdeaDetailModal(true);
-                                                }
-                                              }
-                                            }}
-                                          >
-                                            <div className="flex items-center gap-1 mb-1">
-                                              <span className="text-xs">
-                                                💡
-                                              </span>
-                                              <span className="font-medium">
-                                                {
-                                                  (message.payload as any)
-                                                    .ideaReference.authorName
-                                                }
-                                                의 아이디어
-                                              </span>
-                                            </div>
-                                            <p className="text-xs font-medium underline">
-                                              {
-                                                (message.payload as any)
-                                                  .ideaReference.ideaTitle
-                                              }
-                                            </p>
-                                          </div>
-                                        )}
                                       <p
                                         className={`text-sm leading-relaxed ${
                                           isMyMessage
@@ -2337,86 +2241,6 @@ export default function IdeationPage() {
                                   // mention이 없는 경우 일반 메시지로 표시
                                   return (
                                     <div>
-                                      {/* 아이디어 참조 표시 */}
-                                      {typeof message.payload === "object" &&
-                                        message.payload &&
-                                        "ideaReference" in message.payload &&
-                                        (message.payload as any)
-                                          .ideaReference && (
-                                          <div
-                                            className={`text-xs mb-3 p-2 rounded-lg border-l-2 cursor-pointer hover:bg-opacity-80 ${
-                                              isMyMessage
-                                                ? "bg-blue-400/20 border-blue-200 text-blue-100 hover:bg-blue-400/30"
-                                                : "bg-gray-100 border-gray-300 text-gray-600 hover:bg-gray-200"
-                                            }`}
-                                            onClick={() => {
-                                              if (
-                                                typeof message.payload ===
-                                                  "object" &&
-                                                message.payload &&
-                                                "ideaReference" in
-                                                  message.payload &&
-                                                (message.payload as any)
-                                                  .ideaReference
-                                              ) {
-                                                const ideaRef = (
-                                                  message.payload as any
-                                                ).ideaReference;
-                                                const idea = ideas.find(
-                                                  (i) => i.id === ideaRef.ideaId
-                                                );
-                                                if (idea) {
-                                                  setIdeaDetailModalData(idea);
-                                                  setCurrentIdeaIndex(
-                                                    filteredIdeas.indexOf(idea)
-                                                  );
-                                                  setShowIdeaDetailModal(true);
-                                                }
-                                              }
-                                            }}
-                                          >
-                                            <div className="flex items-center gap-1 mb-1">
-                                              <span className="text-xs">
-                                                💡
-                                              </span>
-                                              <span className="font-medium">
-                                                {
-                                                  (message.payload as any)
-                                                    .ideaReference.authorName
-                                                }
-                                                의 아이디어
-                                              </span>
-                                            </div>
-                                            <p className="text-xs font-medium underline">
-                                              {
-                                                (message.payload as any)
-                                                  .ideaReference.ideaTitle
-                                              }
-                                            </p>
-                                          </div>
-                                        )}
-                                      {/* 원본 요청 표시 */}
-                                      {typeof message.payload === "object" &&
-                                        message.payload?.originalRequest && (
-                                          <div
-                                            className={`text-xs mb-3 p-2 rounded-lg border-l-2 ${
-                                              isMyMessage
-                                                ? "bg-blue-400/20 border-blue-200 text-blue-100"
-                                                : "bg-gray-100 border-gray-300 text-gray-600"
-                                            }`}
-                                          >
-                                            <div className="flex items-center gap-1 mb-1">
-                                              <span className="text-xs">↗</span>
-                                              <span className="font-medium">
-                                                요청에 대한 답변
-                                              </span>
-                                            </div>
-                                            <p className="text-xs opacity-80">
-                                              "{message.payload.originalRequest}
-                                              "
-                                            </p>
-                                          </div>
-                                        )}
                                       <p
                                         className={`text-sm leading-relaxed ${
                                           isMyMessage
@@ -3291,11 +3115,11 @@ export default function IdeationPage() {
         sessionData={feedbackSessionData}
         teamId={team?.id}
       />
-      {/* <ViewFeedbackSessionModal
+      <ViewFeedbackSessionModal
         isOpen={showViewSessionModal}
         onClose={() => setShowViewSessionModal(false)}
         sessionId={viewingSessionId}
-      /> */}
+      />
     </div>
   );
 }

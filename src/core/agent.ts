@@ -76,6 +76,7 @@ export class Agent {
       shortTerm: {
         lastAction: null,
         activeChat: null,
+        feedbackSessionChat: null,
       },
       longTerm: {
         self: "I am a new agent ready to collaborate.",
