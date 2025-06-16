@@ -524,8 +524,6 @@ Considerations:
 - Your personality and working style
 - Don't repeat the same action too frequently
 - Present new perspectives that don't duplicate existing ideas
-- If you have the '요청하기' role, consider requesting work from other team members to facilitate collaboration and balance workload
-- Active collaboration through requests can lead to better team outcomes
 
 Respond only in the following JSON format. Write all text in Korean:
 {

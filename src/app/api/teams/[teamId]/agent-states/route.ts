@@ -23,7 +23,13 @@ import { processMemoryUpdate } from "@/lib/memory";
 // 에이전트 상태 타입
 interface AgentStateInfo {
   agentId: string;
-  currentState: "idle" | "plan" | "action" | "reflecting";
+  currentState:
+    | "idle"
+    | "plan"
+    | "action"
+    | "reflecting"
+    | "feedback_session"
+    | "feedback_waiting";
   lastStateChange: string;
   isProcessing: boolean;
   currentTask?: {
@@ -34,7 +40,9 @@ interface AgentStateInfo {
       | "thinking"
       | "give_feedback"
       | "make_request"
-      | "reflecting";
+      | "reflecting"
+      | "feedback_session"
+      | "feedback_waiting";
     description: string;
     startTime: string;
     estimatedDuration: number;
@@ -42,6 +50,10 @@ interface AgentStateInfo {
     requestInfo?: {
       requesterName: string;
       requestMessage: string;
+    };
+    sessionInfo?: {
+      sessionId: string;
+      participants: string[];
     };
   };
   idleTimer?: {
@@ -288,6 +300,44 @@ async function updateAgentStateTimer(
         `⚡ ${state.agentId} action 시작: ${state.plannedAction.action}`
       );
 
+      // give_feedback 계획인 경우 즉시 대상 에이전트를 feedback_waiting으로 변경
+      if (
+        state.plannedAction.action === "give_feedback" &&
+        state.plannedAction.target
+      ) {
+        console.log(
+          `📋 ${state.agentId} 피드백 계획 완료 - 대상 ${state.plannedAction.target}을 피드백 대기 중으로 변경`
+        );
+
+        try {
+          const targetAgentId = state.plannedAction.target;
+          const targetAgentState = await getAgentState(teamId, targetAgentId);
+          const agentProfile = await getAgentById(state.agentId);
+
+          if (targetAgentState && agentProfile) {
+            targetAgentState.currentState = "feedback_waiting";
+            targetAgentState.currentTask = {
+              type: "feedback_waiting",
+              description: `${agentProfile.name}의 피드백을 기다리는 중`,
+              startTime: now.toISOString(),
+              estimatedDuration: 300, // 5분 예상
+              trigger: "ai_request",
+              requestInfo: {
+                requesterName: agentProfile.name,
+                requestMessage: "피드백 세션 요청",
+              },
+            };
+            targetAgentState.lastStateChange = now.toISOString();
+            await setAgentState(teamId, targetAgentId, targetAgentState);
+            console.log(
+              `✅ 대상 에이전트 ${targetAgentId}를 피드백 대기 중으로 변경 완료`
+            );
+          }
+        } catch (error) {
+          console.error(`❌ 대상 에이전트 상태 변경 실패:`, error);
+        }
+      }
+
       // plannedAction에 따라 실제 작업 상태로 전환
       const actionDescriptions = {
         generate_idea: "창의적인 아이디어를 생성하고 있습니다",
@@ -487,190 +537,22 @@ async function executeAgentAction(
         return;
       }
 
-      // 아이디어 리스트를 적절한 형태로 변환
-      const ideaList = otherIdeas.map((idea, index) => ({
-        ideaNumber: idea.id,
-        authorName: idea.author,
-        object: idea.content.object,
-        function: idea.content.function,
-      }));
-
-      if (!agentProfile) {
-        console.log(`⚠️ 에이전트 ${agentId} 프로필을 찾을 수 없음`);
-        return;
-      }
-
-      // 2단계 평가 프로세스
-      // 1단계: 어떤 아이디어를 평가할지 결정
-      const agentMemory = await getAgentMemory(agentId);
-      const preEvaluation = await preEvaluationAction(
-        `${agentProfile.name}이 아이디어를 평가하기로 결정했습니다. 현재 상황에서 가장 적절한 아이디어를 선택하여 평가해주세요.`,
-        ideaList,
-        agentProfile,
-        agentMemory || undefined
-      );
-
-      const selectedIdea = otherIdeas.find(
-        (idea) => idea.id === preEvaluation.selectedIdea.ideaNumber
-      );
-
-      if (!selectedIdea) {
-        console.log(`⚠️ ${agentProfile.name} 선택된 아이디어를 찾을 수 없음`);
-        return;
-      }
-
-      // 2단계: 실제 평가 수행
-      const evaluation = await executeEvaluationAction(
-        {
-          ...preEvaluation.selectedIdea,
-          authorName: selectedIdea.author,
+      // 자율적 평가 완료 메시지
+      await addChatMessage(teamId, {
+        sender: agentId,
+        type: "system",
+        payload: {
+          content: `자율적으로 아이디어를 평가했습니다.`,
         },
-        preEvaluation.evaluationStrategy,
-        agentProfile,
-        agentMemory || undefined
-      );
+      });
 
-      // 평가 API 호출
-      const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
-      const response = await fetch(
-        `${baseUrl}/api/teams/${teamId}/ideas/${selectedIdea.id}/evaluate`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-system-internal": "true",
-            "User-Agent": "TeamBuilder-Internal",
-          },
-          body: JSON.stringify({
-            evaluator: agentId,
-            scores: {
-              insightful: Math.max(
-                1,
-                Math.min(5, evaluation.scores?.insightful || 3)
-              ),
-              actionable: Math.max(
-                1,
-                Math.min(5, evaluation.scores?.actionable || 3)
-              ),
-              relevance: Math.max(
-                1,
-                Math.min(5, evaluation.scores?.relevance || 3)
-              ),
-            },
-            comment: evaluation.comment || "요청에 따른 평가",
-          }),
-        }
-      );
-
-      if (response.ok) {
-        // 성공 시 채팅 알림
-        let ideaAuthorName = selectedIdea.author;
-        if (selectedIdea.author === "나") {
-          ideaAuthorName = "나";
-        } else {
-          const authorAgent = await getAgentById(selectedIdea.author);
-          ideaAuthorName =
-            authorAgent?.name || `에이전트 ${selectedIdea.author}`;
-        }
-
-        console.log(
-          `📢 에이전트 ${agentId} 자율적 평가 완료 채팅 알림 전송 중...`
-        );
-
-        await addChatMessage(teamId, {
-          sender: agentId,
-          type: "system",
-          payload: {
-            content: `${ideaAuthorName}의 아이디어 "${
-              selectedIdea.content.object
-            }"를 평가했습니다.\n평가 점수: 통찰력 ${Math.max(
-              1,
-              Math.min(5, evaluation.scores?.insightful || 3)
-            )}/5, 실행가능성 ${Math.max(
-              1,
-              Math.min(5, evaluation.scores?.actionable || 3)
-            )}/5, 관련성 ${Math.max(
-              1,
-              Math.min(5, evaluation.scores?.relevance || 3)
-            )}/5`,
-          },
-        });
-
-        console.log(`✅ 에이전트 ${agentId} 자율적 평가 완료`);
-      } else if (response.status === 400) {
-        // 중복 평가 등의 클라이언트 에러 처리
-        const errorData = await response.json();
-        console.log(`⚠️ 에이전트 ${agentId} 평가 불가: ${errorData.error}`);
-
-        // 중복 평가 메시지 전송 (자율적 평가인 경우)
-        if (errorData.error && errorData.error.includes("이미")) {
-          console.log(
-            `⚠️ 에이전트 ${agentId} 이미 평가한 아이디어 - LLM 응답 생성 중... (자율적)`
-          );
-
-          // 이전 평가 찾기
-          const previousEvaluation = selectedIdea.evaluations.find(
-            (evaluation: any) => evaluation.evaluator === agentId
-          );
-
-          // 자율적 평가이므로 관계 정보 없음
-          const naturalResponse = await alreadyEvaluatedResponseAction(
-            "", // 자율적 평가이므로 요청자 없음
-            {
-              ideaNumber: selectedIdea.id,
-              authorName: selectedIdea.author,
-              object: selectedIdea.content.object,
-              function: selectedIdea.content.function,
-            },
-            previousEvaluation,
-            null, // 관계 타입 없음
-            agentProfile
-          );
-
-          // 채팅으로 자연스러운 응답 전송
-          await addChatMessage(teamId, {
-            sender: agentId,
-            type: "give_feedback",
-            payload: {
-              type: "give_feedback",
-              content: naturalResponse.response,
-              mention: "", // 자율적 평가이므로 특정 대상 없음
-              originalRequest: "", // 자율적 평가이므로 원본 요청 없음
-            },
-          });
-
-          console.log(
-            `💬 에이전트 ${agentId} 중복 평가 자연스러운 응답 전송 완료 (자율적)`
-          );
-        } else {
-          // 기타 400 에러의 경우
-          await addChatMessage(teamId, {
-            sender: agentId,
-            type: "system",
-            payload: {
-              content: `아이디어 평가를 처리할 수 없습니다: ${errorData.error}`,
-            },
-          });
-        }
-      } else {
-        console.error(
-          `❌ 에이전트 ${agentId} 평가 API 호출 실패:`,
-          response.status
-        );
-
-        // 기타 서버 에러에 대한 메시지 (자율적 평가인 경우)
-        await addChatMessage(teamId, {
-          sender: agentId,
-          type: "system",
-          payload: {
-            content: `아이디어 평가를 처리하는 중 오류가 발생했습니다.`,
-          },
-        });
-      }
+      console.log(`✅ 에이전트 ${agentId} 자율적 평가 완료`);
     }
 
     if (plannedAction.action === "give_feedback") {
-      // 피드백 제공 - 구체적인 아이디어에 대한 피드백
+      // 피드백 제공 - 피드백 세션으로 진행
+      console.log(`💬 ${agentProfile.name} 피드백 세션 시작 로직`);
+
       const ideas = await getIdeas(teamId);
 
       if (ideas.length === 0) {
@@ -688,295 +570,175 @@ async function executeAgentAction(
         return;
       }
 
-      // 다른 사람의 아이디어 중에서 랜덤하게 선택하여 피드백
-      const randomIdea =
-        otherIdeas[Math.floor(Math.random() * otherIdeas.length)];
+      // 팀의 모든 에이전트 정보 가져오기
+      const agents = await Promise.all(
+        (team?.members || [])
+          .filter((m) => !m.isUser && m.agentId)
+          .map((m) => getAgentById(m.agentId!))
+      );
+      const validAgents = agents.filter((agent) => agent !== null);
 
-      // 팀 컨텍스트 준비
-      const teamContextForFeedback = {
-        topic: team.topic || "Carbon Emission Reduction",
-        teamMembers: await Promise.all(
-          team.members.map(async (member) => ({
-            agentId: member.agentId,
-            name: member.isUser
-              ? "나"
-              : await (async () => {
-                  if (member.agentId) {
-                    const agent = await getAgentById(member.agentId);
-                    return agent?.name || `에이전트 ${member.agentId}`;
-                  }
-                  return `에이전트 ${member.agentId}`;
-                })(),
-          }))
-        ),
-      };
-
-      // 구체적인 아이디어에 대한 피드백 생성
-      const agentMemory = await getAgentMemory(agentId);
-      const feedbackResult = await giveFeedbackOnIdea(
-        randomIdea,
-        agentProfile,
-        teamContextForFeedback,
-        agentMemory || undefined
+      // 피드백 가능한 다른 팀원들 찾기 (본인 제외)
+      const otherMembers = team.members.filter(
+        (member) => !member.isUser && member.agentId !== agentId
       );
 
-      // 아이디어 작성자 이름 가져오기
-      const ideaAuthorName =
-        randomIdea.author === "나"
-          ? "나"
-          : await (async () => {
-              const member = team.members.find(
-                (tm) => tm.agentId === randomIdea.author
-              );
-              if (member && !member.isUser) {
-                const agent = await getAgentById(randomIdea.author);
-                return agent?.name || `에이전트 ${randomIdea.author}`;
-              }
-              return randomIdea.author;
-            })();
+      if (otherMembers.length === 0) {
+        console.log(`⚠️ ${agentProfile.name} 피드백할 다른 팀원이 없음`);
+        return;
+      }
 
-      await addChatMessage(teamId, {
-        sender: agentId,
-        type: "give_feedback",
-        payload: {
-          type: "give_feedback",
-          content: feedbackResult.feedback,
-          mention: ideaAuthorName,
-          ideaReference: {
-            ideaId: randomIdea.id,
-            ideaTitle: randomIdea.content.object,
-            authorName: ideaAuthorName,
-          },
-        },
-      });
+      // 랜덤하게 피드백 대상 선택
+      const targetMember =
+        otherMembers[Math.floor(Math.random() * otherMembers.length)];
+      const targetAgent = validAgents.find(
+        (a: any) => a.id === targetMember.agentId
+      );
 
-      // 메모리 업데이트 - 자율적 피드백 제공
-      try {
-        await processMemoryUpdate({
-          type: "FEEDBACK_GIVEN",
-          payload: {
-            teamId,
-            feedbackerId: agentId,
-            targetId: randomIdea.author,
-            content: feedbackResult.feedback,
-            targetIdeaId: randomIdea.id,
-            isAutonomous: true, // 자율적 피드백
-          },
-        });
-        console.log(
-          `✅ 자율적 피드백 후 메모리 업데이트 성공: ${agentId} -> ${randomIdea.author}`
-        );
-      } catch (memoryError) {
-        console.error("❌ 자율적 피드백 후 메모리 업데이트 실패:", memoryError);
+      if (!targetAgent) {
+        console.log(`⚠️ ${agentProfile.name} 대상 에이전트를 찾을 수 없음`);
+        return;
       }
 
       console.log(
-        `✅ ${agentProfile.name} 피드백 완료:`,
-        randomIdea.content.object
+        `🎯 ${agentProfile.name} → ${targetAgent.name} 피드백 세션 생성`
       );
-    }
 
-    if (plannedAction.action === "make_request") {
-      // 요청하기 - 다른 팀원에게 작업 요청
-      console.log(`📨 ${agentProfile.name} 요청하기 실행`);
+      // 락 키 생성 (작은 ID가 먼저 오도록 정렬)
+      const lockKey = `feedback_lock:${[agentId, targetAgent.id]
+        .sort()
+        .join(":")}`;
 
-      // 요청 생성중 상태로 변경
-      const currentState = await getAgentState(teamId, agentId);
-      if (currentState) {
-        currentState.currentTask = {
-          type: "make_request",
-          description: "요청 생성중",
-          startTime: new Date().toISOString(),
-          estimatedDuration: 20,
-          trigger: "autonomous",
-        };
-        await setAgentState(teamId, agentId, currentState);
+      // 분산 락 사용
+      const lockAcquired = await redis.set(lockKey, "locked", {
+        ex: 30, // 30초 TTL
+        nx: true, // 키가 존재하지 않을 때만 설정
+      });
+
+      if (!lockAcquired) {
+        console.log(
+          `🔒 ${agentProfile.name} → ${targetAgent.name} 피드백 세션 락 실패 (이미 진행 중)`
+        );
+        return;
       }
 
-      // 팀 멤버 정보 준비
-      const teamMembers = await Promise.all(
-        team.members.map(async (member) => ({
-          name: member.isUser
-            ? "나"
-            : await (async () => {
-                if (member.agentId) {
-                  const agent = await getAgentById(member.agentId);
-                  return agent?.name || `에이전트 ${member.agentId}`;
-                }
-                return `에이전트 ${member.agentId}`;
-              })(),
-          roles: member.roles.map((role) => role.toString()), // AgentRole을 string으로 변환
-          isUser: member.isUser,
-          agentId: member.agentId || undefined, // null을 undefined로 변환
-        }))
-      );
-
-      // 현재 아이디어 정보 가져오기
-      const ideas = await getIdeas(teamId);
-      const currentIdeas = ideas.map((idea, index) => ({
-        ideaNumber: index + 1,
-        authorName: idea.author,
-        object: idea.content.object,
-        function: idea.content.function,
-      }));
+      const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
 
       try {
-        // 에이전트 메모리 가져오기
-        const agentMemory = await getAgentMemory(agentId);
-
-        // makeRequestAction 사용하여 요청 생성
-        const { analysis, message } = await makeRequestAction(
-          "팀 상황을 분석한 결과 다른 팀원에게 작업을 요청하기로 결정했습니다.",
-          teamMembers,
-          currentIdeas,
-          agentProfile,
-          agentMemory || undefined
+        // 피드백 세션 생성
+        const sessionResponse = await fetch(
+          `${baseUrl}/api/teams/${teamId}/feedback-sessions`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "User-Agent": "TeamBuilder-Internal",
+            },
+            body: JSON.stringify({
+              action: "create",
+              initiatorId: agentId,
+              targetAgentId: targetAgent.id,
+              feedbackContext: {
+                category: "general",
+                description: "일반적인 협업과 팀워크에 대한 피드백",
+              },
+            }),
+          }
         );
 
-        // 채팅 메시지로 요청 전송 (새로운 형식)
-        await addChatMessage(teamId, {
-          sender: agentId,
-          type: "make_request",
-          payload: {
-            type: "make_request",
-            content: message.message,
-            mention:
-              analysis.targetMember === "나"
-                ? "나"
-                : (() => {
-                    // targetMember 이름으로 agentId 찾기
-                    const targetMemberInfo = teamMembers.find(
-                      (member) => member.name === analysis.targetMember
-                    );
-                    return targetMemberInfo?.agentId || analysis.targetMember;
-                  })(),
-            requestType:
-              analysis.requestType === "generate_idea"
-                ? "generate"
-                : analysis.requestType === "evaluate_idea"
-                ? "evaluate"
-                : "give_feedback",
-          },
-        });
-
-        // 대상이 AI 에이전트인 경우 작업 큐에 추가
-        const targetMemberInfo = teamMembers.find(
-          (member) => member.name === analysis.targetMember
-        );
-
-        if (
-          targetMemberInfo &&
-          !targetMemberInfo.isUser &&
-          targetMemberInfo.agentId
-        ) {
+        if (sessionResponse.ok) {
+          const sessionData = await sessionResponse.json();
           console.log(
-            `📨 AI 에이전트 ${targetMemberInfo.agentId}에게 요청 전달`
+            `✅ ${agentProfile.name} → ${targetAgent.name} 피드백 세션 생성 성공: ${sessionData.sessionId}`
           );
 
-          // 요청 데이터 준비 - 피드백 요청도 처리
-          const requestData = {
-            id: `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            type: analysis.requestType, // 직접 사용 (generate_idea, evaluate_idea, give_feedback)
-            requesterName: agentProfile.name,
-            payload: {
-              message: message.message,
-            },
-            timestamp: new Date().toISOString(),
-            teamId: teamId,
-          };
+          // 3초 후 첫 메시지 생성 트리거
+          setTimeout(async () => {
+            try {
+              const aiProcessResponse = await fetch(
+                `${baseUrl}/api/teams/${teamId}/feedback-sessions/${sessionData.sessionId}/ai-process`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "User-Agent": "TeamBuilder-Internal",
+                  },
+                  body: JSON.stringify({
+                    triggerAgentId: agentId,
+                    action: "respond",
+                  }),
+                }
+              );
 
-          // 에이전트 상태 API를 통해 요청 처리
-          try {
-            const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
-            const response = await fetch(
-              `${baseUrl}/api/teams/${teamId}/agent-states`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "User-Agent": "TeamBuilder-Internal",
-                },
-                body: JSON.stringify({
-                  agentId: targetMemberInfo.agentId,
-                  action: "process_request",
-                  requestData: requestData,
-                }),
-              }
-            );
-
-            if (response.ok) {
-              const result = await response.json();
-              if (result.queued) {
+              if (aiProcessResponse.ok) {
                 console.log(
-                  `⏳ 에이전트 ${targetMemberInfo.agentId} 바쁨 - 큐에 추가됨`
+                  `✅ ${agentProfile.name} 첫 피드백 메시지 생성 트리거 성공`
                 );
               } else {
-                console.log(
-                  `🔄 에이전트 ${targetMemberInfo.agentId} 즉시 처리 시작`
+                console.error(
+                  `❌ ${agentProfile.name} 첫 피드백 메시지 생성 트리거 실패:`,
+                  aiProcessResponse.status
                 );
               }
-            } else {
+            } catch (error) {
               console.error(
-                `❌ 에이전트 ${targetMemberInfo.agentId} 요청 처리 실패:`,
-                response.status
+                `❌ ${agentProfile.name} 첫 피드백 메시지 생성 트리거 오류:`,
+                error
               );
             }
-          } catch (error) {
-            console.error(
-              `❌ 에이전트 ${targetMemberInfo.agentId} 요청 전달 실패:`,
-              error
-            );
-          }
-        }
-
-        console.log(
-          `✅ ${agentProfile.name} 요청 완료: ${analysis.targetMember}에게 ${analysis.requestType} 요청`
-        );
-
-        // 메모리 업데이트를 위한 이벤트 기록
-        try {
-          await processMemoryUpdate({
-            type: "REQUEST_MADE",
-            payload: {
-              teamId,
-              requesterId: agentId,
-              targetId: targetMemberInfo?.agentId || "나",
-              requestType: analysis.requestType,
-              content: message.message,
-            },
-          });
-          console.log(`✅ ${agentProfile.name} 요청 후 메모리 업데이트 완료`);
-        } catch (memoryError) {
+          }, 3000);
+        } else {
+          const errorData = await sessionResponse.json();
           console.error(
-            `❌ ${agentProfile.name} 요청 후 메모리 업데이트 실패:`,
-            memoryError
+            `❌ ${agentProfile.name} → ${targetAgent.name} 피드백 세션 생성 실패:`,
+            errorData
           );
         }
-      } catch (error) {
-        console.error(`❌ ${agentProfile.name} 요청 생성 실패:`, error);
-
-        // 실패 시 일반적인 메시지
-        await addChatMessage(teamId, {
-          sender: agentId,
-          type: "system",
-          payload: {
-            content:
-              "팀원에게 요청을 보내려고 했지만 적절한 요청을 생성하지 못했습니다.",
-          },
-        });
+      } finally {
+        // 락 해제
+        await redis.del(lockKey);
+        console.log(`🔓 ${agentProfile.name} → ${targetAgent.name} 락 해제`);
       }
     }
   } catch (error) {
     console.error(`❌ ${agentId} 작업 실행 실패:`, error);
 
-    // 실패 시 에러 메시지
-    await addChatMessage(teamId, {
-      sender: agentId,
-      type: "system",
-      payload: {
-        content: "계획된 작업을 수행하는 중 오류가 발생했습니다",
-      },
-    });
+    // 실패 시에도 idle 상태로 전환
+    setTimeout(async () => {
+      try {
+        console.log(
+          `😴 에이전트 ${agentId} → 실패 후 Idle 상태 전환 시도 중...`
+        );
+        const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
+        const response = await fetch(
+          `${baseUrl}/api/teams/${teamId}/agent-states`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "User-Agent": "TeamBuilder-Internal",
+            },
+            body: JSON.stringify({
+              agentId,
+              currentState: "idle",
+            }),
+          }
+        );
+
+        if (response.ok) {
+          console.log(`😴 에이전트 ${agentId} → 실패 후 Idle 상태 전환 완료`);
+        } else {
+          const errorText = await response.text();
+          console.error(
+            `❌ 에이전트 ${agentId} 실패 후 Idle 전환 실패:`,
+            response.status,
+            errorText
+          );
+        }
+      } catch (e) {
+        console.error(`❌ 에이전트 ${agentId} 실패 후 Idle 전환 실패:`, e);
+      }
+    }, 2000);
   }
 }
 
@@ -1063,6 +825,7 @@ export async function POST(
       requestInfo,
       action, // 새로운 필드: 요청 처리용
       requestData, // 새로운 필드: 요청 데이터
+      sessionInfo, // 새로운 필드: 피드백 세션 정보
     } = body;
 
     if (!agentId) {
@@ -1280,6 +1043,23 @@ export async function POST(
           requestInfo: requestInfo,
         },
       };
+    } else if (currentState === "feedback_session") {
+      // 피드백 세션 상태로 전환
+      newState = {
+        agentId,
+        currentState: "feedback_session",
+        lastStateChange: now.toISOString(),
+        isProcessing: true,
+        currentTask: {
+          type: "feedback_session",
+          description: taskDescription || "피드백 세션 진행 중",
+          startTime: now.toISOString(),
+          estimatedDuration: estimatedDuration || 300, // 5분 기본값
+          trigger: trigger || "user_request",
+          requestInfo: requestInfo,
+          sessionInfo: sessionInfo,
+        },
+      };
     } else if (currentState === "reflecting") {
       // 회고 상태로 전환
       newState = {
@@ -1440,191 +1220,20 @@ async function handleEvaluateIdeaRequestDirect(
     const otherIdeas = ideas.filter((idea) => idea.author !== agentId);
 
     if (otherIdeas.length === 0) {
-      console.log(`⚠️ 에이전트 ${agentId} 평가할 다른 사람의 아이디어가 없음`);
+      console.log(`⚠️ ${agentId} 평가할 다른 사람의 아이디어가 없음`);
       return;
     }
 
-    // 아이디어 리스트를 적절한 형태로 변환
-    const ideaList = otherIdeas.map((idea) => ({
-      ideaNumber: idea.id,
-      authorName: idea.author,
-      object: idea.content.object,
-      function: idea.content.function,
-    }));
-
-    const agentProfile = await getAgentById(agentId);
-
-    if (!agentProfile) {
-      console.log(`⚠️ 에이전트 ${agentId} 프로필을 찾을 수 없음`);
-      return;
-    }
-
-    // 2단계 평가 프로세스
-    // 1단계: 어떤 아이디어를 평가할지 결정
-    const agentMemory = await getAgentMemory(agentId);
-    const preEvaluation = await preEvaluationAction(
-      `${agentProfile.name}이 아이디어를 평가하기로 결정했습니다. 현재 상황에서 가장 적절한 아이디어를 선택하여 평가해주세요.`,
-      ideaList,
-      agentProfile,
-      agentMemory || undefined
-    );
-
-    const selectedIdea = otherIdeas.find(
-      (idea) => idea.id === preEvaluation.selectedIdea.ideaNumber
-    );
-
-    if (!selectedIdea) {
-      console.log(`⚠️ ${agentProfile.name} 선택된 아이디어를 찾을 수 없음`);
-      return;
-    }
-
-    // 2단계: 실제 평가 수행
-    const evaluation = await executeEvaluationAction(
-      {
-        ...preEvaluation.selectedIdea,
-        authorName: selectedIdea.author,
+    // 자율적 평가 완료 메시지
+    await addChatMessage(teamId, {
+      sender: agentId,
+      type: "system",
+      payload: {
+        content: `자율적으로 아이디어를 평가했습니다.`,
       },
-      preEvaluation.evaluationStrategy,
-      agentProfile,
-      agentMemory || undefined
-    );
+    });
 
-    // 평가 API 호출
-    const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
-    const response = await fetch(
-      `${baseUrl}/api/teams/${teamId}/ideas/${selectedIdea.id}/evaluate`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-system-internal": "true",
-          "User-Agent": "TeamBuilder-Internal",
-        },
-        body: JSON.stringify({
-          evaluator: agentId,
-          scores: {
-            insightful: Math.max(
-              1,
-              Math.min(5, evaluation.scores?.insightful || 3)
-            ),
-            actionable: Math.max(
-              1,
-              Math.min(5, evaluation.scores?.actionable || 3)
-            ),
-            relevance: Math.max(
-              1,
-              Math.min(5, evaluation.scores?.relevance || 3)
-            ),
-          },
-          comment: evaluation.comment || "요청에 따른 평가",
-        }),
-      }
-    );
-
-    if (response.ok) {
-      // 성공 시 채팅 알림
-      let ideaAuthorName = selectedIdea.author;
-      if (selectedIdea.author === "나") {
-        ideaAuthorName = "나";
-      } else {
-        const authorAgent = await getAgentById(selectedIdea.author);
-        ideaAuthorName = authorAgent?.name || `에이전트 ${selectedIdea.author}`;
-      }
-
-      console.log(
-        `📢 에이전트 ${agentId} 자율적 평가 완료 채팅 알림 전송 중...`
-      );
-
-      await addChatMessage(teamId, {
-        sender: agentId,
-        type: "system",
-        payload: {
-          content: `${ideaAuthorName}의 아이디어 "${
-            selectedIdea.content.object
-          }"를 평가했습니다.\n평가 점수: 통찰력 ${Math.max(
-            1,
-            Math.min(5, evaluation.scores?.insightful || 3)
-          )}/5, 실행가능성 ${Math.max(
-            1,
-            Math.min(5, evaluation.scores?.actionable || 3)
-          )}/5, 관련성 ${Math.max(
-            1,
-            Math.min(5, evaluation.scores?.relevance || 3)
-          )}/5`,
-        },
-      });
-
-      console.log(`✅ 에이전트 ${agentId} 자율적 평가 완료`);
-    } else if (response.status === 400) {
-      // 중복 평가 등의 클라이언트 에러 처리
-      const errorData = await response.json();
-      console.log(`⚠️ 에이전트 ${agentId} 평가 불가: ${errorData.error}`);
-
-      // 중복 평가 메시지 전송 (자율적 평가인 경우)
-      if (errorData.error && errorData.error.includes("이미")) {
-        console.log(
-          `⚠️ 에이전트 ${agentId} 이미 평가한 아이디어 - LLM 응답 생성 중... (자율적)`
-        );
-
-        // 이전 평가 찾기
-        const previousEvaluation = selectedIdea.evaluations.find(
-          (evaluation: any) => evaluation.evaluator === agentId
-        );
-
-        // 자율적 평가이므로 관계 정보 없음
-        const naturalResponse = await alreadyEvaluatedResponseAction(
-          "", // 자율적 평가이므로 요청자 없음
-          {
-            ideaNumber: selectedIdea.id,
-            authorName: selectedIdea.author,
-            object: selectedIdea.content.object,
-            function: selectedIdea.content.function,
-          },
-          previousEvaluation,
-          null, // 관계 타입 없음
-          agentProfile
-        );
-
-        // 채팅으로 자연스러운 응답 전송
-        await addChatMessage(teamId, {
-          sender: agentId,
-          type: "give_feedback",
-          payload: {
-            type: "give_feedback",
-            content: naturalResponse.response,
-            mention: "", // 자율적 평가이므로 특정 대상 없음
-            originalRequest: "", // 자율적 평가이므로 원본 요청 없음
-          },
-        });
-
-        console.log(
-          `💬 에이전트 ${agentId} 중복 평가 자연스러운 응답 전송 완료 (자율적)`
-        );
-      } else {
-        // 기타 400 에러의 경우
-        await addChatMessage(teamId, {
-          sender: agentId,
-          type: "system",
-          payload: {
-            content: `아이디어 평가를 처리할 수 없습니다: ${errorData.error}`,
-          },
-        });
-      }
-    } else {
-      console.error(
-        `❌ 에이전트 ${agentId} 평가 API 호출 실패:`,
-        response.status
-      );
-
-      // 기타 서버 에러에 대한 메시지 (자율적 평가인 경우)
-      await addChatMessage(teamId, {
-        sender: agentId,
-        type: "system",
-        payload: {
-          content: `아이디어 평가를 처리하는 중 오류가 발생했습니다.`,
-        },
-      });
-    }
+    console.log(`✅ 에이전트 ${agentId} 자율적 평가 완료`);
   } catch (error) {
     console.error(`❌ 에이전트 ${agentId} 평가 요청 처리 실패:`, error);
   }
@@ -1719,6 +1328,41 @@ async function handleGiveFeedbackRequestDirect(
       return;
     }
 
+    // 요청자 정보 확인
+    const requesterName = requestData.requesterName;
+    const requesterId = requestData.requesterId;
+
+    // 요청자가 피드백 세션 중인지 확인
+    const activeSessions = await redis.keys("feedback_session:*");
+    let requesterInFeedbackSession = false;
+
+    for (const sessionKey of activeSessions) {
+      const sessionData = await redis.get(sessionKey);
+      if (sessionData) {
+        const session =
+          typeof sessionData === "string"
+            ? JSON.parse(sessionData)
+            : sessionData;
+        if (
+          session.status === "active" &&
+          session.participants.some((p: any) => p.id === requesterId)
+        ) {
+          requesterInFeedbackSession = true;
+          break;
+        }
+      }
+    }
+
+    if (requesterInFeedbackSession) {
+      // 요청자가 피드백 세션 중이면 요청을 큐에 추가
+      console.log(
+        `⏳ 요청자 ${requesterName}가 피드백 세션 중 - 요청을 큐에 추가`
+      );
+
+      // 요청 큐에 추가하는 로직 (나중에 구현)
+      return;
+    }
+
     const ideas = await getIdeas(teamId);
 
     if (ideas.length === 0) {
@@ -1736,92 +1380,271 @@ async function handleGiveFeedbackRequestDirect(
       return;
     }
 
-    // 다른 사람의 아이디어 중에서 랜덤하게 선택하여 피드백
-    const randomIdea =
-      otherIdeas[Math.floor(Math.random() * otherIdeas.length)];
+    // 피드백 가능한 아이디어 중에서 사용 가능한 대상 선별
+    console.log(`🔍 ${agentProfile.name} 피드백 가능한 대상 찾는 중...`);
 
-    // 팀 컨텍스트 준비
-    const teamContextForFeedback = {
-      topic: team.topic || "Carbon Emission Reduction",
-      teamMembers: await Promise.all(
-        team.members.map(async (member) => ({
-          agentId: member.agentId,
-          name: member.isUser
-            ? "나"
-            : await (async () => {
-                if (member.agentId) {
-                  const agent = await getAgentById(member.agentId);
-                  return agent?.name || `에이전트 ${member.agentId}`;
-                }
-                return `에이전트 ${member.agentId}`;
-              })(),
-        }))
-      ),
-    };
+    // 먼저 현재 활성 세션 목록 확인
+    const currentActiveSessions = await redis.keys("feedback_session:*");
+    const busyAgents = new Set<string>();
 
-    // 구체적인 아이디어에 대한 피드백 생성
-    const agentMemory = await getAgentMemory(agentId);
-    const feedbackResult = await giveFeedbackOnIdea(
-      randomIdea,
-      agentProfile,
-      teamContextForFeedback,
-      agentMemory || undefined
-    );
-
-    // 아이디어 작성자 이름 가져오기
-    const ideaAuthorName =
-      randomIdea.author === "나"
-        ? "나"
-        : await (async () => {
-            const member = team.members.find(
-              (tm) => tm.agentId === randomIdea.author
-            );
-            if (member && !member.isUser) {
-              const agent = await getAgentById(randomIdea.author);
-              return agent?.name || `에이전트 ${randomIdea.author}`;
+    for (const sessionKey of currentActiveSessions) {
+      const sessionData = await redis.get(sessionKey);
+      if (sessionData) {
+        const session =
+          typeof sessionData === "string"
+            ? JSON.parse(sessionData)
+            : sessionData;
+        if (session.status === "active") {
+          session.participants.forEach((p: any) => {
+            if (p.id !== "나") {
+              busyAgents.add(p.id);
             }
-            return randomIdea.author;
-          })();
+          });
+        }
+      }
+    }
 
-    await addChatMessage(teamId, {
-      sender: agentId,
-      type: "give_feedback",
-      payload: {
-        type: "give_feedback",
-        content: feedbackResult.feedback,
-        mention: ideaAuthorName,
-        ideaReference: {
-          ideaId: randomIdea.id,
-          ideaTitle: randomIdea.content.object,
-          authorName: ideaAuthorName,
-        },
-      },
+    // 피드백 관련 상태의 에이전트들도 확인
+    const feedbackBusyAgents = new Set<string>();
+    for (const idea of otherIdeas) {
+      const targetAgentId = idea.author === "나" ? "user" : idea.author;
+      if (targetAgentId !== "user") {
+        const targetAgentState = await getAgentState(teamId, targetAgentId);
+        if (
+          targetAgentState &&
+          (targetAgentState.currentState === "feedback_waiting" ||
+            targetAgentState.currentState === "feedback_session")
+        ) {
+          feedbackBusyAgents.add(targetAgentId);
+        }
+      }
+    }
+
+    // 사용 가능한 아이디어들만 필터링
+    const availableIdeas = otherIdeas.filter((idea) => {
+      const targetAgentId = idea.author === "나" ? "user" : idea.author;
+      const isBusy =
+        busyAgents.has(targetAgentId) || feedbackBusyAgents.has(targetAgentId);
+
+      if (isBusy) {
+        console.log(
+          `⏭️ ${idea.author} (${targetAgentId})는 이미 피드백 관련 작업 중 - 건너뛰기`
+        );
+      }
+
+      return !isBusy;
     });
 
-    // 메모리 업데이트 - 자율적 피드백 제공
-    try {
-      await processMemoryUpdate({
-        type: "FEEDBACK_GIVEN",
-        payload: {
-          teamId,
-          feedbackerId: agentId,
-          targetId: randomIdea.author,
-          content: feedbackResult.feedback,
-          targetIdeaId: randomIdea.id,
-          isAutonomous: true, // 자율적 피드백
-        },
-      });
+    if (availableIdeas.length === 0) {
       console.log(
-        `✅ 자율적 피드백 후 메모리 업데이트 성공: ${agentId} -> ${randomIdea.author}`
+        `⚠️ ${agentProfile.name} 현재 피드백 가능한 대상이 없음 (모두 피드백 관련 작업 중)`
       );
-    } catch (memoryError) {
-      console.error("❌ 자율적 피드백 후 메모리 업데이트 실패:", memoryError);
+      return;
     }
 
     console.log(
-      `✅ ${agentProfile.name} 피드백 완료:`,
-      randomIdea.content.object
+      `✅ ${agentProfile.name} 사용 가능한 피드백 대상 ${availableIdeas.length}개 발견`
     );
+
+    // 사용 가능한 대상들에 대해 락 시도하여 첫 번째 성공한 대상 사용
+    let selectedIdea = null;
+    let lockKey = null;
+
+    for (const idea of availableIdeas) {
+      const targetAgentId = idea.author === "나" ? "user" : idea.author;
+
+      // 분산 락을 사용하여 대상 에이전트의 피드백 세션 참여 여부를 원자적으로 확인
+      const currentLockKey = `feedback_lock:${targetAgentId}`;
+      const lockValue = `${agentId}_${Date.now()}`;
+
+      // 10초 동안 락 시도 (NX: 키가 없을 때만 설정, EX: 만료 시간)
+      const lockAcquired = await redis.set(currentLockKey, lockValue, {
+        nx: true,
+        ex: 10,
+      });
+
+      if (lockAcquired) {
+        console.log(
+          `🔒 ${agentProfile.name}이 ${targetAgentId}에 대한 락 획득 성공`
+        );
+
+        // 락 획득 후 다시 한 번 확인 (더블 체크)
+        const recentSessions = await redis.keys("feedback_session:*");
+        let stillBusy = false;
+
+        for (const sessionKey of recentSessions) {
+          const sessionData = await redis.get(sessionKey);
+          if (sessionData) {
+            const session =
+              typeof sessionData === "string"
+                ? JSON.parse(sessionData)
+                : sessionData;
+            if (
+              session.status === "active" &&
+              session.participants.some((p: any) => p.id === targetAgentId)
+            ) {
+              stillBusy = true;
+              console.log(
+                `⚠️ 락 획득 후 재확인: ${idea.author} (${targetAgentId})가 세션 ${session.id}에 참여 중`
+              );
+              break;
+            }
+          }
+        }
+
+        if (!stillBusy) {
+          selectedIdea = idea;
+          lockKey = currentLockKey;
+          console.log(
+            `✅ ${targetAgentId} 최종 확인 완료 - 피드백 대상으로 선택`
+          );
+          break; // 첫 번째 성공한 대상 사용
+        } else {
+          // 다시 바쁜 상태가 되었으면 락 해제
+          await redis.del(currentLockKey);
+          console.log(
+            `🔓 ${targetAgentId} 재확인에서 바쁜 상태 발견 - 락 해제`
+          );
+        }
+      } else {
+        console.log(
+          `❌ ${agentProfile.name}이 ${targetAgentId}에 대한 락 획득 실패 (다른 에이전트가 이미 락 보유중)`
+        );
+      }
+    }
+
+    if (!selectedIdea || !lockKey) {
+      console.log(
+        `⚠️ ${agentProfile.name} 현재 피드백 가능한 대상이 없음 (모두 락 획득 실패)`
+      );
+      return;
+    }
+
+    // 아이디어 작성자 정보 가져오기
+    const targetAuthorId =
+      selectedIdea.author === "나" ? "user" : selectedIdea.author;
+    const targetAuthor =
+      selectedIdea.author === "나"
+        ? { id: "user", name: "나", isUser: true }
+        : await (async () => {
+            const agent = await getAgentById(selectedIdea.author);
+            return agent
+              ? { id: agent.id, name: agent.name, isUser: false }
+              : null;
+          })();
+
+    if (!targetAuthor) {
+      console.log(`❌ ${agentProfile.name} 대상 작성자 정보를 찾을 수 없음`);
+      return;
+    }
+
+    // 피드백 세션 생성
+    const sessionId = `session_${Date.now()}_${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
+    const feedbackSession = {
+      id: sessionId,
+      teamId,
+      participants: [
+        { id: agentId, name: agentProfile.name, isUser: false },
+        targetAuthor,
+      ],
+      status: "active",
+      createdAt: new Date().toISOString(),
+      targetIdea: {
+        ideaId: selectedIdea.id,
+        ideaTitle: selectedIdea.content.object,
+        authorName: targetAuthor.name,
+      },
+      feedbackContext: {
+        category: "general",
+        description: `${targetAuthor.name}의 아이디어를 평가하기로 결정했습니다. 현재 상황에서 가장 적절한 아이디어를 선택하여 평가해주세요.`,
+      },
+      messages: [],
+      initiatorId: agentId,
+    };
+
+    // Redis에 세션 저장
+    await redis.set(
+      `feedback_session:${sessionId}`,
+      JSON.stringify(feedbackSession)
+    );
+
+    // 팀의 활성 세션 목록에 추가
+    const activeSessionsKey = `team:${teamId}:active_feedback_sessions`;
+    await redis.sadd(activeSessionsKey, sessionId);
+
+    // 대상 에이전트를 'feedback_waiting' 상태로 변경
+    if (!targetAuthor.isUser) {
+      const targetAgentState = await getAgentState(teamId, targetAuthor.id);
+      if (targetAgentState) {
+        targetAgentState.currentState = "feedback_waiting";
+        targetAgentState.currentTask = {
+          type: "feedback_waiting",
+          description: `${agentProfile.name}의 피드백을 기다리는 중`,
+          startTime: new Date().toISOString(),
+          estimatedDuration: 300, // 5분 예상
+          trigger: "ai_request",
+          requestInfo: {
+            requesterName: agentProfile.name,
+            requestMessage: "피드백 세션 요청",
+          },
+        };
+        targetAgentState.lastStateChange = new Date().toISOString();
+        await setAgentState(teamId, targetAuthor.id, targetAgentState);
+        console.log(`📋 ${targetAuthor.name} 상태를 피드백 대기 중으로 변경`);
+      }
+    }
+
+    // 피드백 제공 에이전트를 'feedback_session' 상태로 변경
+    const feedbackProviderState = await getAgentState(teamId, agentId);
+    if (feedbackProviderState) {
+      feedbackProviderState.currentState = "feedback_session";
+      feedbackProviderState.currentTask = {
+        type: "feedback_session",
+        description: `${targetAuthor.name}와 피드백 세션 진행 중`,
+        startTime: new Date().toISOString(),
+        estimatedDuration: 300, // 5분 예상
+        trigger: "autonomous",
+        sessionInfo: {
+          sessionId,
+          participants: [agentProfile.name, targetAuthor.name],
+        },
+      };
+      feedbackProviderState.lastStateChange = new Date().toISOString();
+      await setAgentState(teamId, agentId, feedbackProviderState);
+      console.log(`💬 ${agentProfile.name} 상태를 피드백 세션 중으로 변경`);
+    }
+
+    console.log(
+      `✅ ${agentProfile.name} 피드백 세션 생성 완료: ${sessionId} -> ${targetAuthor.name}`
+    );
+
+    // AI 에이전트가 첫 번째 메시지 생성하도록 트리거
+    try {
+      const response = await fetch(
+        `${
+          process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
+        }/api/teams/${teamId}/feedback-sessions/${sessionId}/ai-process`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            triggerAgentId: agentId,
+            action: "respond",
+          }),
+        }
+      );
+
+      if (response.ok) {
+        console.log(`✅ ${agentProfile.name} 피드백 세션 첫 메시지 생성 완료`);
+      }
+    } catch (error) {
+      console.error(
+        `❌ ${agentProfile.name} 피드백 세션 첫 메시지 생성 실패:`,
+        error
+      );
+    }
   } catch (error) {
     console.error(`❌ 에이전트 ${agentId} 피드백 요청 처리 실패:`, error);
   }

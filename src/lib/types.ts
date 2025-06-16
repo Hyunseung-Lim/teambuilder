@@ -163,11 +163,12 @@ export interface ChatMessagePayload {
   target?: string; // 요청 대상 (make_request용)
   action?: string; // 요청 액션 (make_request용)
   originalRequest?: string; // 원본 요청 메시지 (답글용)
+  // 기존 ideaReference는 하위 호환성을 위해 유지
   ideaReference?: {
     ideaId: number;
     ideaTitle: string;
     authorName: string;
-  }; // 아이디어 참조 정보 (피드백용)
+  };
 }
 
 // 시스템 메시지 페이로드
@@ -175,13 +176,29 @@ export interface SystemMessagePayload {
   content: string;
 }
 
+// 피드백 세션 요약 페이로드
+export interface FeedbackSessionSummaryPayload {
+  sessionId: string;
+  participants: string[];
+  duration: number; // 분 단위
+  messages: FeedbackSessionMessage[]; // 전체 대화 내용
+}
+
 // 채팅 메시지 모델
 export interface ChatMessage {
   id: string | number;
   sender: string; // '나' 또는 agentId
   timestamp: string;
-  type: "give_feedback" | "make_request" | "system";
-  payload: ChatMessagePayload | SystemMessagePayload | string;
+  type:
+    | "give_feedback"
+    | "make_request"
+    | "system"
+    | "feedback_session_summary";
+  payload:
+    | ChatMessagePayload
+    | SystemMessagePayload
+    | FeedbackSessionSummaryPayload
+    | string;
 }
 
 // --- 에이전트 메모리 시스템 ---
@@ -196,6 +213,18 @@ export interface ShortTermMemory {
   activeChat: {
     targetAgentId: string;
     messages: ChatMessage[];
+  } | null;
+  feedbackSessionChat: {
+    sessionId: string;
+    targetAgentId: string;
+    targetAgentName: string;
+    messages: {
+      id: string;
+      sender: string;
+      senderName: string;
+      content: string;
+      timestamp: string;
+    }[];
   } | null;
 }
 
@@ -268,4 +297,48 @@ export interface PlanDecision {
   actionType?: "generate_idea" | "evaluate_idea";
   reasoning: string;
   targetIdeaId?: number; // for evaluation
+}
+
+// --- 피드백 세션 시스템 ---
+
+// 피드백 세션 상태
+export type FeedbackSessionStatus = "active" | "ended";
+
+// 피드백 세션 참가자
+export interface FeedbackSessionParticipant {
+  id: string; // "나" 또는 agentId
+  name: string;
+  isUser: boolean;
+  joinedAt: string;
+}
+
+// 피드백 세션 메시지
+export interface FeedbackSessionMessage {
+  id: string;
+  sender: string; // "나" 또는 agentId
+  content: string;
+  timestamp: string;
+  type: "message" | "system";
+}
+
+// 피드백 세션 (수정됨)
+export interface FeedbackSession {
+  id: string;
+  teamId: string;
+  participants: FeedbackSessionParticipant[];
+  messages: FeedbackSessionMessage[];
+  status: FeedbackSessionStatus;
+  createdAt: string;
+  endedAt?: string;
+  initiatedBy: string; // 세션을 시작한 사람
+}
+
+// 피드백 세션 요약
+export interface FeedbackSessionSummary {
+  sessionId: string;
+  summary: string;
+  keyPoints: string[];
+  participants: string[];
+  duration: number; // 세션 지속 시간 (분)
+  createdAt: string;
 }

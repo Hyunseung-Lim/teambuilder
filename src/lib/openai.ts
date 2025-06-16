@@ -650,3 +650,204 @@ export async function makeRequestAction(
     message: requestMessage,
   };
 }
+
+// 메모리를 프롬프트용으로 포맷팅하는 헬퍼 함수
+function formatMemoryForPrompt(memory: any): string {
+  let formatted = "";
+
+  if (memory.longTerm?.self) {
+    formatted += `### 개인적 성찰\n${memory.longTerm.self}\n\n`;
+  }
+
+  if (
+    memory.longTerm?.relations &&
+    Object.keys(memory.longTerm.relations).length > 0
+  ) {
+    formatted += `### 팀원들과의 관계\n`;
+    Object.entries(memory.longTerm.relations).forEach(
+      ([agentId, relation]: [string, any]) => {
+        formatted += `- ${relation.agentInfo?.name || agentId}: ${
+          relation.myOpinion || "아직 특별한 의견 없음"
+        }\n`;
+      }
+    );
+    formatted += "\n";
+  }
+
+  if (memory.shortTerm?.lastAction) {
+    formatted += `### 최근 활동\n${memory.shortTerm.lastAction.type} (${memory.shortTerm.lastAction.timestamp})\n`;
+  }
+
+  return formatted.trim();
+}
+
+// AI-AI 피드백 세션 대화 생성
+export async function generateFeedbackSessionResponse(
+  agent: any,
+  sessionContext: {
+    sessionId: string;
+    otherParticipant: { id: string; name: string; isUser: boolean };
+    messageHistory: any[];
+    feedbackContext?: {
+      category: string;
+      description?: string;
+    };
+    teamIdeas?: any[];
+  },
+  agentMemory?: any
+): Promise<{
+  response: string;
+  shouldEnd: boolean;
+  reasoning: string;
+}> {
+  try {
+    const { otherParticipant, messageHistory, feedbackContext, teamIdeas } =
+      sessionContext;
+
+    // 메모리 컨텍스트 생성
+    const memoryContext = agentMemory ? formatMemoryForPrompt(agentMemory) : "";
+
+    // 팀 아이디어 컨텍스트 생성 (참고용, 특정 아이디어를 타겟하지 않음)
+    const teamIdeasContext =
+      teamIdeas && teamIdeas.length > 0
+        ? `\n## 팀의 아이디어 현황\n현재 팀에서 ${teamIdeas.length}개의 아이디어가 제안되었습니다. 다양한 접근법과 창의적인 솔루션들이 논의되고 있습니다.\n`
+        : "";
+
+    // 피드백 가이드라인 생성
+    const feedbackGuideline = feedbackContext
+      ? `\n## 피드백 주제\n${feedbackContext.category}: ${
+          feedbackContext.description || "일반적인 협업과 팀워크에 대한 피드백"
+        }\n`
+      : `\n## 피드백 주제\n일반적인 협업과 팀워크, 아이디어 발전 과정에 대한 건설적인 피드백\n`;
+
+    // 대화 히스토리 포맷팅
+    const conversationHistory =
+      messageHistory.length > 0
+        ? `\n## 대화 기록\n${messageHistory
+            .map(
+              (msg) =>
+                `${msg.sender === agent.id ? "나" : otherParticipant.name}: ${
+                  msg.content
+                }`
+            )
+            .join("\n")}\n`
+        : "\n## 대화 기록\n아직 대화가 시작되지 않았습니다.\n";
+
+    const prompt = `당신은 ${agent.name}입니다.\n\n## 상황\n현재 ${
+      otherParticipant.name
+    }와 피드백 세션에 참여하고 있습니다.\n${feedbackGuideline}\n${conversationHistory}\n${memoryContext}\n${teamIdeasContext}\n\n## 성격과 역할\n- 이름: ${
+      agent.name
+    }\n- 나이: ${agent.age}세\n- 성별: ${agent.gender}\n- 직업: ${
+      agent.professional
+    }\n- 전문 기술: ${agent.skills}\n- 성격: ${
+      agent.personality || "협력적이고 건설적"
+    }\n- 가치관: ${
+      agent.value || "팀워크와 혁신을 중시"
+    }\n\n## 피드백 세션 가이드라인\n1. 자연스럽고 친근한 대화체를 사용하세요\n2. 상대방의 전문성과 의견을 존중하며 대화하세요\n3. 구체적이고 실용적인 피드백을 제공하세요\n4. 개인적인 경험이나 예시를 들어 설명하세요\n5. 질문을 통해 상대방의 생각을 더 깊이 이해하려 노력하세요\n6. 대화가 자연스럽게 마무리될 시점을 판단하세요\n7. 특정 아이디어에 국한되지 말고 전반적인 협업과 창의성에 대해 이야기하세요\n\n## 대화 스타일\n- 존댓말보다는 편안한 반말 사용 (동료 간의 친근한 대화)\n- \"어떻게 생각해?\", \"내 경험으로는...\", \"그 부분이 정말 흥미롭네\" 같은 자연스러운 표현\n- 너무 길지 않고 간결하면서도 의미 있는 응답\n- 상대방과의 협업과 창의적 사고에 대해 진심으로 관심을 보이기\n\n## 세션 종료 판단 기준\n다음 중 하나에 해당하면 세션을 종료해야 합니다:\n- 피드백이 충분히 주고받아졌을 때\n- 대화가 반복되거나 더 이상 진전이 없을 때\n- 양측이 만족스러운 결론에 도달했을 때\n- 메시지가 6개 이상 주고받아졌을 때\n\n다음 JSON 형식으로 응답하세요:\n{\n  \"response\": \"피드백 세션에서의 응답 (한국어, 1-3문장)\",\n  \"shouldEnd\": true/false,\n  \"reasoning\": \"세션을 종료하거나 계속하는 이유\"\n}`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.8,
+      max_tokens: 1000,
+    });
+
+    const result = completion.choices[0]?.message?.content;
+    if (!result) {
+      throw new Error("OpenAI 응답이 비어있습니다");
+    }
+
+    const parsed = JSON.parse(result);
+
+    return {
+      response: parsed.response || "피드백을 공유하고 싶습니다.",
+      shouldEnd: parsed.shouldEnd || false,
+      reasoning: parsed.reasoning || "계속 대화하기로 결정",
+    };
+  } catch (error) {
+    console.error("AI 피드백 세션 응답 생성 실패:", error);
+
+    // 기본값 반환
+    return {
+      response: "좋은 의견 감사합니다. 더 자세히 이야기해보면 좋을 것 같아요.",
+      shouldEnd: sessionContext.messageHistory.length >= 6, // 6개 이상이면 종료
+      reasoning: "안전한 기본 응답",
+    };
+  }
+}
+
+// 피드백 세션 요약 생성
+export async function generateFeedbackSessionSummary(
+  messages: any[],
+  participants: any[],
+  feedbackContext?: any
+): Promise<{
+  summary: string;
+  keyInsights: string[];
+  participantContributions: { [participantId: string]: string };
+}> {
+  try {
+    const messagesText = messages
+      .map((msg) => `${msg.sender}: ${msg.content}`)
+      .join("\n");
+
+    const prompt = `다음은 피드백 세션의 대화 내용입니다:
+
+## 참가자들
+${participants
+  .map((p) => `- ${p.name} (${p.isUser ? "사용자" : "AI"})`)
+  .join("\n")}
+
+## 대화 내용
+${messagesText}
+
+## 요약 작성 가이드라인
+이 피드백 세션은 특정 아이디어를 대상으로 한 것이 아니라, 팀워크와 협업, 창의적 사고에 대한 일반적인 피드백 대화입니다.
+
+다음 JSON 형식으로 응답하세요:
+{
+  "summary": "세션의 핵심 내용과 결론을 3-4문장으로 요약",
+  "keyInsights": ["주요 통찰이나 배운점 3-5개 배열"],
+  "participantContributions": {
+    "참가자ID": "해당 참가자가 기여한 주요 내용 1-2문장"
+  }
+}`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7,
+      max_tokens: 1000,
+    });
+
+    const result = completion.choices[0]?.message?.content;
+    if (!result) {
+      throw new Error("OpenAI 응답이 비어있습니다");
+    }
+
+    const parsed = JSON.parse(result);
+
+    return {
+      summary: parsed.summary || "피드백 세션이 완료되었습니다.",
+      keyInsights: parsed.keyInsights || [],
+      participantContributions: parsed.participantContributions || {},
+    };
+  } catch (error) {
+    console.error("피드백 세션 요약 생성 실패:", error);
+
+    // 기본값 반환
+    return {
+      summary: `${participants
+        .map((p) => p.name)
+        .join("과 ")} 간의 건설적인 피드백 세션이 완료되었습니다.`,
+      keyInsights: [
+        "유용한 피드백이 공유되었습니다",
+        "아이디어 개선 방향이 논의되었습니다",
+      ],
+      participantContributions: participants.reduce((acc, p) => {
+        acc[p.id] = `${p.name}이 적극적으로 참여했습니다`;
+        return acc;
+      }, {} as { [key: string]: string }),
+    };
+  }
+}

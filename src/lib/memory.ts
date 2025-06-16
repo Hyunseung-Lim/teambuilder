@@ -87,6 +87,36 @@ type MemoryEvent =
         senderId: string;
         message: ChatMessage;
       };
+    }
+  | {
+      type: "FEEDBACK_SESSION_MESSAGE";
+      payload: {
+        teamId: string;
+        sessionId: string;
+        participantId: string;
+        message: any;
+        otherParticipants: any[];
+      };
+    }
+  | {
+      type: "FEEDBACK_SESSION_ENDED";
+      payload: {
+        teamId: string;
+        sessionId: string;
+        session: any;
+        summary: string;
+        keyPoints: string[];
+      };
+    }
+  | {
+      type: "FEEDBACK_SESSION_COMPLETED";
+      payload: {
+        teamId: string;
+        sessionId: string;
+        session: any;
+        summary: string;
+        keyPoints: string[];
+      };
     };
 
 /**
@@ -379,6 +409,19 @@ async function updateAgentMemoryForEvent(
           break;
         case "CHAT_MESSAGE_SENT":
           await updateMemoryForChatMessage(memory, event.payload, agentId);
+          break;
+        case "FEEDBACK_SESSION_MESSAGE":
+          await handleFeedbackSessionMessage(event.payload);
+          break;
+        case "FEEDBACK_SESSION_ENDED":
+          await handleFeedbackSessionEnded(event.payload);
+          break;
+        case "FEEDBACK_SESSION_COMPLETED":
+          await updateMemoryForFeedbackSessionCompleted(
+            memory,
+            event.payload,
+            agentId
+          );
           break;
         default:
           console.warn(`알 수 없는 이벤트 타입: ${eventType}`);
@@ -988,6 +1031,7 @@ async function createInitialMemory(
     shortTerm: {
       lastAction: null,
       activeChat: null,
+      feedbackSessionChat: null,
     },
     longTerm: {
       self: "팀에 새로 합류했습니다. 앞으로 팀원들과 좋은 관계를 맺고 협력하여 좋은 결과를 만들어가고 싶습니다.", // 초기 성찰
@@ -1024,4 +1068,314 @@ export async function createAgentMemory(
   team: Team
 ): Promise<AgentMemory> {
   return createInitialMemory(agent.id, team);
+}
+
+// 피드백 세션 메시지 처리
+async function handleFeedbackSessionMessage(payload: {
+  teamId: string;
+  sessionId: string;
+  participantId: string;
+  message: any;
+  otherParticipants: any[];
+}): Promise<void> {
+  const { teamId, sessionId, participantId, message, otherParticipants } =
+    payload;
+
+  // 사용자의 경우 메모리 업데이트하지 않음
+  if (participantId === "나") {
+    return;
+  }
+
+  try {
+    const memory = await getAgentMemory(participantId);
+    if (!memory) {
+      console.log(`❌ 에이전트 ${participantId} 메모리를 찾을 수 없음`);
+      return;
+    }
+
+    // Short-term memory에 피드백 세션 전용 채팅 저장
+    if (!memory.shortTerm.feedbackSessionChat) {
+      memory.shortTerm.feedbackSessionChat = {
+        sessionId,
+        targetAgentId: otherParticipants[0]?.id || "unknown",
+        targetAgentName: otherParticipants[0]?.name || "unknown",
+        messages: [],
+      };
+    }
+
+    // 현재 세션이 진행 중이면 메시지 추가
+    if (memory.shortTerm.feedbackSessionChat.sessionId === sessionId) {
+      // 에이전트 이름 조회
+      const senderName =
+        message.sender === participantId
+          ? memory.shortTerm.feedbackSessionChat.targetAgentName || "나"
+          : (async () => {
+              if (message.sender === "나") return "나";
+              const senderAgent = await getAgentById(message.sender);
+              return senderAgent?.name || message.sender;
+            })();
+
+      const resolvedSenderName =
+        typeof senderName === "string" ? senderName : await senderName;
+
+      // 피드백 세션 메시지를 간단한 형태로 저장
+      const sessionMessage = {
+        id: message.id,
+        sender: message.sender,
+        senderName: resolvedSenderName,
+        content: message.content,
+        timestamp: message.timestamp,
+      };
+
+      memory.shortTerm.feedbackSessionChat.messages.push(sessionMessage);
+
+      // 메시지가 너무 많으면 최근 20개만 유지 (피드백 세션은 길어질 수 있음)
+      if (memory.shortTerm.feedbackSessionChat.messages.length > 20) {
+        memory.shortTerm.feedbackSessionChat.messages =
+          memory.shortTerm.feedbackSessionChat.messages.slice(-20);
+      }
+    }
+
+    // Last action 업데이트
+    memory.shortTerm.lastAction = {
+      type: "feedback_session_participate",
+      timestamp: new Date().toISOString(),
+      payload: {
+        sessionId,
+        messageContent: message.content,
+        participants: otherParticipants.map((p) => p.name),
+      },
+    };
+
+    await updateAgentMemory(participantId, memory);
+    console.log(`✅ 피드백 세션 메시지 메모리 업데이트 완료: ${participantId}`);
+  } catch (error) {
+    console.error(
+      `❌ 피드백 세션 메시지 메모리 업데이트 실패 (${participantId}):`,
+      error
+    );
+  }
+}
+
+// 피드백 세션 종료 처리
+async function handleFeedbackSessionEnded(payload: {
+  teamId: string;
+  sessionId: string;
+  session: any;
+  summary: string;
+  keyPoints: string[];
+}): Promise<void> {
+  const { teamId, sessionId, session, summary, keyPoints } = payload;
+
+  console.log(`🏁 피드백 세션 종료 메모리 처리 시작: ${sessionId}`);
+
+  for (const participant of session.participants) {
+    // 사용자의 경우 메모리 업데이트하지 않음
+    if (participant.id === "나") {
+      continue;
+    }
+
+    try {
+      const memory = await getAgentMemory(participant.id);
+      if (!memory) {
+        console.log(`❌ 에이전트 ${participant.id} 메모리를 찾을 수 없음`);
+        continue;
+      }
+
+      // Short-term memory의 feedbackSessionChat을 Long-term memory로 이동
+      if (
+        memory.shortTerm.feedbackSessionChat &&
+        memory.shortTerm.feedbackSessionChat.sessionId === sessionId
+      ) {
+        // 피드백 세션 대화 내용을 요약하여 저장
+        const sessionMessages = memory.shortTerm.feedbackSessionChat.messages;
+        const conversationText = sessionMessages
+          .map((msg) => `${msg.senderName}: ${msg.content}`)
+          .join("\n");
+
+        // Long-term memory에 세션 상세 정보 추가
+        const sessionDate = new Date(session.createdAt).toLocaleDateString();
+        const sessionTime = new Date(session.createdAt).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+
+        // Self memory에 피드백 세션 경험 추가
+        const sessionExperience =
+          `\n\n[피드백 세션 ${sessionDate} ${sessionTime}]\n` +
+          `참가자: ${session.participants
+            .map((p: any) => p.name)
+            .join(", ")}\n` +
+          `지속 시간: ${Math.floor(
+            (new Date(session.endedAt).getTime() -
+              new Date(session.createdAt).getTime()) /
+              (1000 * 60)
+          )}분\n` +
+          `요약: ${summary}\n` +
+          `주요 포인트: ${keyPoints.join("; ")}\n` +
+          `전체 대화:\n${conversationText}\n` +
+          `이 세션을 통해 동료와 깊이 있는 대화를 나누며 서로의 관점을 이해할 수 있었습니다.`;
+
+        memory.longTerm.self += sessionExperience;
+
+        // Short-term feedbackSessionChat 클리어
+        memory.shortTerm.feedbackSessionChat = null;
+      }
+
+      // Active chat도 클리어 (기존 로직 유지)
+      memory.shortTerm.activeChat = null;
+
+      // 다른 참가자들과의 관계 업데이트
+      for (const otherParticipant of session.participants) {
+        if (
+          otherParticipant.id !== participant.id &&
+          otherParticipant.id !== "나"
+        ) {
+          if (!memory.longTerm.relations[otherParticipant.id]) {
+            // 새로운 관계 생성
+            const otherAgent = await getAgentById(otherParticipant.id);
+            memory.longTerm.relations[otherParticipant.id] = {
+              agentInfo: {
+                id: otherParticipant.id,
+                name: otherParticipant.name,
+                professional: otherAgent?.professional || "",
+                personality: otherAgent?.personality || "",
+                skills: otherAgent?.skills || "",
+              },
+              relationship: "FRIEND",
+              interactionHistory: [],
+              myOpinion: "",
+            };
+          }
+
+          // 상호작용 기록에 상세한 피드백 세션 정보 추가
+          memory.longTerm.relations[
+            otherParticipant.id
+          ].interactionHistory.push({
+            timestamp: new Date().toISOString(),
+            action: "participated_in_feedback_session",
+            content: `피드백 세션에서 ${Math.floor(
+              (new Date(session.endedAt).getTime() -
+                new Date(session.createdAt).getTime()) /
+                (1000 * 60)
+            )}분간 대화함. 요약: ${summary}. 주요 포인트: ${keyPoints.join(
+              ", "
+            )}`,
+          });
+
+          // 대화 내용을 바탕으로 관계 의견도 업데이트
+          try {
+            const myMessages = session.messages.filter(
+              (msg: any) =>
+                msg.sender === participant.id && msg.type === "message"
+            );
+            const theirMessages = session.messages.filter(
+              (msg: any) =>
+                msg.sender === otherParticipant.id && msg.type === "message"
+            );
+
+            if (myMessages.length > 0 && theirMessages.length > 0) {
+              const conversationContext = `피드백 세션에서 ${
+                otherParticipant.name
+              }과 ${
+                myMessages.length + theirMessages.length
+              }개의 메시지를 주고받았습니다. 주요 내용: ${summary}`;
+              await updateRelationOpinion(
+                memory.longTerm.relations[otherParticipant.id],
+                conversationContext
+              );
+            }
+          } catch (opinionError) {
+            console.error(
+              `관계 의견 업데이트 실패 (${participant.id} -> ${otherParticipant.id}):`,
+              opinionError
+            );
+          }
+
+          // 상호작용 기록이 너무 많으면 최근 20개만 유지
+          if (
+            memory.longTerm.relations[otherParticipant.id].interactionHistory
+              .length > 20
+          ) {
+            memory.longTerm.relations[otherParticipant.id].interactionHistory =
+              memory.longTerm.relations[
+                otherParticipant.id
+              ].interactionHistory.slice(-20);
+          }
+        }
+      }
+
+      await updateAgentMemory(participant.id, memory);
+      console.log(
+        `✅ 피드백 세션 종료 메모리 업데이트 완료: ${participant.id}`
+      );
+    } catch (error) {
+      console.error(
+        `❌ 피드백 세션 종료 메모리 업데이트 실패 (${participant.id}):`,
+        error
+      );
+    }
+  }
+}
+
+/**
+ * 피드백 세션 완료에 대한 메모리 업데이트
+ */
+async function updateMemoryForFeedbackSessionCompleted(
+  memory: AgentMemory,
+  payload: any,
+  currentAgentId: string
+): Promise<void> {
+  const {
+    sessionId,
+    participantId,
+    otherParticipant,
+    summary,
+    keyInsights,
+    targetIdea,
+    messageCount,
+  } = payload;
+
+  if (currentAgentId === participantId) {
+    // 피드백 세션에 참가한 에이전트
+    memory.shortTerm.lastAction = {
+      type: "completed_feedback_session",
+      timestamp: new Date().toISOString(),
+      payload: {
+        sessionId,
+        otherParticipantId: otherParticipant?.id,
+        summary,
+        keyInsights,
+        messageCount,
+      },
+    };
+
+    // 피드백 세션 완료 후 self reflection 업데이트
+    const otherParticipantName = otherParticipant?.name || "동료";
+    const newReflection = await generateSelfReflection(
+      memory.longTerm.self,
+      `${otherParticipantName}와 피드백 세션을 완료했습니다. ${messageCount}개의 메시지를 주고받으며 깊이 있는 대화를 나누었습니다. 요약: ${summary}. 주요 통찰: ${keyInsights.join(
+        ", "
+      )}. 이런 진솔한 대화를 통해 서로를 더 잘 이해하게 되었고, 팀워크가 한층 더 향상되었다고 느낍니다.`,
+      "feedback_session_completed"
+    );
+    memory.longTerm.self = newReflection;
+
+    // 상대방과의 관계 업데이트
+    if (otherParticipant && otherParticipant.id !== "user") {
+      const relationKey = getRelationKey(otherParticipant.id);
+      if (memory.longTerm.relations[relationKey]) {
+        memory.longTerm.relations[relationKey].interactionHistory.push({
+          action: "completed_feedback_session",
+          content: `피드백 세션 완료. ${messageCount}개 메시지 교환. 핵심 내용: ${summary}`,
+          timestamp: new Date().toISOString(),
+        });
+
+        await updateRelationOpinion(
+          memory.longTerm.relations[relationKey],
+          `피드백 세션을 통한 깊이 있는 대화`
+        );
+      }
+    }
+  }
 }

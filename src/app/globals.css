@@ -15,3 +15,33 @@
 .animate-slide-in-right {
   animation: slideInRight 0.3s ease-out;
 }
+
+/* AI 응답 생성 중 애니메이션 */
+@keyframes dotPulse {
+  0%,
+  80%,
+  100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-dot-pulse {
+  animation: dotPulse 1.4s infinite ease-in-out;
+}
+
+.animation-delay-0 {
+  animation-delay: 0ms;
+}
+
+.animation-delay-200 {
+  animation-delay: 200ms;
+}
+
+.animation-delay-400 {
+  animation-delay: 400ms;
+}

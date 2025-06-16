@@ -103,8 +103,8 @@ export async function GET(
         }
       };
 
-      // 2초마다 변화 체크 (더 빠른 응답)
-      const interval = setInterval(checkForUpdates, 2000);
+      // 1초마다 변화 체크 (더 빠른 응답)
+      const interval = setInterval(checkForUpdates, 1000);
 
       // 연결 종료 시 정리
       request.signal.addEventListener("abort", () => {
