@@ -1783,8 +1783,8 @@ export default function IdeationPage() {
                         <div
                           className={`${
                             isAIOnlySession
-                              ? "bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200"
-                              : "bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200"
+                              ? "bg-gradient-to-r from-purple-50 to-indigo-50"
+                              : "bg-gradient-to-r from-blue-50 to-purple-50"
                           } rounded-2xl p-6 max-w-2xl w-full`}
                         >
                           <div className="flex items-center gap-2 mb-4">
@@ -1842,7 +1842,7 @@ export default function IdeationPage() {
                                   <p className="text-sm text-gray-600 mb-3">
                                     대화 내용
                                   </p>
-                                  <div className="bg-white rounded-lg p-3 space-y-2 max-h-60 overflow-y-auto border">
+                                  <div className="bg-white rounded-lg p-3 space-y-2 max-h-60 overflow-y-auto">
                                     {summaryPayload.sessionMessages.map(
                                       (sessionMsg: any, msgIdx: number) => {
                                         if (sessionMsg.type === "system") {
@@ -1909,7 +1909,7 @@ export default function IdeationPage() {
                                           ) {
                                             // 첫 번째 참가자: 보라색 + 왼쪽
                                             messageStyle =
-                                              "bg-purple-100 text-purple-900 border-l-4 border-purple-400";
+                                              "bg-purple-50 text-purple-900";
                                             isRightAligned = false;
                                           } else if (
                                             senderDisplayName ===
@@ -1917,7 +1917,7 @@ export default function IdeationPage() {
                                           ) {
                                             // 두 번째 참가자: 파란색 + 오른쪽
                                             messageStyle =
-                                              "bg-blue-100 text-blue-900 border-r-4 border-blue-400";
+                                              "bg-blue-50 text-blue-900";
                                             isRightAligned = true;
                                           } else {
                                             // 알 수 없는 발신자
@@ -1958,19 +1958,6 @@ export default function IdeationPage() {
                                                   }`}
                                                 >
                                                   {senderDisplayName}
-                                                  {isAIOnlySession && (
-                                                    <span
-                                                      className={`ml-1 text-xs px-1 py-0.5 rounded ${
-                                                        isRightAligned
-                                                          ? "bg-blue-200 text-blue-800"
-                                                          : "bg-purple-200 text-purple-800"
-                                                      }`}
-                                                    >
-                                                      {isRightAligned
-                                                        ? "B"
-                                                        : "A"}
-                                                    </span>
-                                                  )}
                                                 </div>
                                               )}
                                               <div
