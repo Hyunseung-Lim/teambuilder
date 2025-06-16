@@ -50,8 +50,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import IdeaDetailModal from "@/components/IdeaDetailModal";
-import FeedbackSessionModal from "@/components/FeedbackSessionModal";
 import ViewFeedbackSessionModal from "@/components/ViewFeedbackSessionModal";
+import FeedbackTabContent from "@/components/FeedbackTabContent";
 
 // 에이전트 상태 타입 정의 (확장)
 interface AgentStateInfo {
@@ -524,6 +524,20 @@ export default function IdeationPage() {
   const [evaluatingAutonomouslyAgents, setEvaluatingAutonomouslyAgents] =
     useState<Set<string>>(new Set());
 
+  // 탭 시스템 상태 추가
+  const [activeTab, setActiveTab] = useState<"main" | string>("main");
+  const [feedbackTabs, setFeedbackTabs] = useState<
+    Array<{
+      id: string;
+      name: string;
+      participantId: string;
+      participantName: string;
+      type: "user_to_ai" | "ai_to_user";
+      sessionData?: any;
+      isActive: boolean;
+    }>
+  >([]);
+
   // 피드백 세션 모달 상태 추가
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [feedbackSessionData, setFeedbackSessionData] = useState<{
@@ -702,6 +716,40 @@ export default function IdeationPage() {
     if (diffInMinutes < 60) return `${diffInMinutes}분 전`;
     if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}시간 전`;
     return `${Math.floor(diffInMinutes / 1440)}일 전`;
+  };
+
+  // 탭 관리 함수들
+  const createFeedbackTab = (
+    participantId: string,
+    participantName: string,
+    type: "user_to_ai" | "ai_to_user",
+    sessionData?: any
+  ) => {
+    const tabId = `feedback-${Date.now()}-${participantId}`;
+    const newTab = {
+      id: tabId,
+      name: `${participantName}와의 피드백`,
+      participantId,
+      participantName,
+      type,
+      sessionData,
+      isActive: true,
+    };
+
+    setFeedbackTabs((prev) => [...prev, newTab]);
+    setActiveTab(tabId);
+    return tabId;
+  };
+
+  const closeFeedbackTab = (tabId: string) => {
+    setFeedbackTabs((prev) => prev.filter((tab) => tab.id !== tabId));
+    if (activeTab === tabId) {
+      setActiveTab("main");
+    }
+  };
+
+  const switchTab = (tabId: string) => {
+    setActiveTab(tabId);
   };
 
   // 데이터 로드
@@ -1162,13 +1210,17 @@ export default function IdeationPage() {
       requestType,
     });
 
-    // 피드백 모드일 때는 피드백 세션 모달을 띄우고 리턴
+    // 피드백 모드일 때는 피드백 세션 탭을 생성하고 리턴
     if (chatMode === "give_feedback") {
-      setFeedbackSessionData({
-        mentionedAgent,
-        message: newMessage.trim(),
-      });
-      setShowFeedbackModal(true);
+      const tabId = createFeedbackTab(
+        mentionedAgent.id,
+        mentionedAgent.name,
+        "user_to_ai",
+        {
+          mentionedAgent,
+          message: newMessage.trim(),
+        }
+      );
 
       // 입력 필드 초기화
       setNewMessage("");
@@ -1399,9 +1451,12 @@ export default function IdeationPage() {
     return hasConsonant;
   }
 
+  // 에이전트 메모리 관련 상태
   const [hoveredAgentId, setHoveredAgentId] = useState<string | null>(null);
   const [agentMemory, setAgentMemory] = useState<AgentMemory | null>(null);
   const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0 });
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [showMemoryModal, setShowMemoryModal] = useState(false);
 
   const handleMouseEnter = async (e: React.MouseEvent, agentId: string) => {
     if (!team) return;
@@ -1429,9 +1484,6 @@ export default function IdeationPage() {
     setHoveredAgentId(null);
     setAgentMemory(null);
   };
-
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  const [showMemoryModal, setShowMemoryModal] = useState(false);
 
   const handleAgentClick = async (agentId: string) => {
     if (!team) return;
@@ -1596,7 +1648,7 @@ export default function IdeationPage() {
                 </span>
               </div>
             )}
-            
+
             <div className="text-sm text-gray-600">
               {team.members.length}명의 팀원
             </div>
@@ -1687,733 +1739,817 @@ export default function IdeationPage() {
           {/* 가운데: 채팅 영역 */}
           <div className="flex-1 flex flex-col bg-white">
             {/* 채팅 헤더 */}
-            <div className="p-4 border-b border-gray-200">
-              <div className="flex items-center gap-2">
-                <MessageCircle className="h-5 w-5 text-blue-600" />
-                <h3 className="font-semibold text-gray-900">팀 대화</h3>
+            <div className="border-b border-gray-200">
+              {/* 탭 목록 */}
+              <div className="flex items-center bg-gray-50">
+                {/* 메인 채팅 탭 */}
+                <button
+                  onClick={() => switchTab("main")}
+                  className={`px-4 py-3 text-sm font-medium border-b-2 flex items-center gap-2 ${
+                    activeTab === "main"
+                      ? "text-blue-600 border-blue-600 bg-white"
+                      : "text-gray-500 border-transparent hover:text-gray-700"
+                  }`}
+                >
+                  <MessageCircle className="h-4 w-4" />팀 대화
+                </button>
+
+                {/* 피드백 탭들 */}
+                {feedbackTabs.map((tab) => (
+                  <div key={tab.id} className="flex items-center">
+                    <button
+                      onClick={() => switchTab(tab.id)}
+                      className={`px-4 py-3 text-sm font-medium border-b-2 flex items-center gap-2 ${
+                        activeTab === tab.id
+                          ? "text-orange-600 border-orange-600 bg-white"
+                          : "text-gray-500 border-transparent hover:text-gray-700"
+                      }`}
+                    >
+                      <MessageCircle className="h-4 w-4" />
+                      {tab.name}
+                    </button>
+                    <button
+                      onClick={() => closeFeedbackTab(tab.id)}
+                      className="px-2 py-3 text-gray-400 hover:text-gray-600"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
               </div>
+
+              {/* 탭 컨텐츠 헤더 */}
+              {activeTab === "main" && (
+                <div className="p-4 bg-white">
+                  <div className="flex items-center gap-2">
+                    <MessageCircle className="h-5 w-5 text-blue-600" />
+                    <h3 className="font-semibold text-gray-900">팀 대화</h3>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 메시지 목록 */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {messages
-                .filter((message) => {
-                  // 타입 가드를 사용하여 안전하게 접근
-                  if (typeof message.payload === "string") {
-                    return true; // 문자열 메시지는 모두 표시
-                  }
-
-                  if (
-                    isSystemMessagePayload(message.payload) ||
-                    isChatMessagePayload(message.payload)
-                  ) {
-                    const content = message.payload.content;
-                    // "생성중입니다" 메시지만 필터링 (평가 관련 메시지는 모두 표시)
-                    return (
-                      !content.includes("생성중입니다") &&
-                      !content.includes("생성하고 있습니다")
-                    );
-                  }
-                  return true;
-                })
-                .map((message) => {
-                  // 메시지 발송자 이름 가져오기
-                  const getSenderName = (senderId: string) => {
-                    if (senderId === "나") return "나";
-
-                    // 팀 멤버에서 해당 에이전트 찾기
-                    const member = team?.members.find(
-                      (m) => m.agentId === senderId
-                    );
-                    if (member && !member.isUser) {
-                      const agent = agents.find((a) => a.id === senderId);
-                      return agent?.name || `에이전트 ${senderId}`;
-                    }
-
-                    return senderId;
-                  };
-
-                  const senderName = getSenderName(message.sender);
-
-                  if (message.type === "feedback_session_summary") {
-                    // 피드백 세션 요약 메시지
-                    const summaryPayload = message.payload as any;
-
-                    // AI끼리의 세션인지 확인 (사용자가 포함되지 않은 경우)
-                    const isAIOnlySession = summaryPayload.participants?.every(
-                      (participant: string) => participant !== "나"
-                    );
-
-                    return (
-                      <div
-                        key={message.id}
-                        className="flex justify-center mb-6"
-                      >
-                        <div className="bg-slate-50 rounded-2xl p-6 max-w-2xl w-full">
-                          <div className="flex items-center gap-2 mb-4">
-                            <div
-                              className={`w-6 h-6 ${
-                                isAIOnlySession
-                                  ? "bg-purple-500"
-                                  : "bg-blue-500"
-                              } rounded-full flex items-center justify-center`}
-                            >
-                              <MessageCircle className="h-3 w-3 text-white" />
-                            </div>
-                            <h4 className="text-slate-800">
-                              {summaryPayload.participants?.join(" ↔ ")} 피드백
-                              세션 완료
-                            </h4>
-                          </div>
-
-                          <div className="space-y-3">
-                            {/* 실제 대화 내용 표시 (요약 대신) */}
-                            {(() => {
-                              console.log("🔍 피드백 세션 메시지 디버깅:", {
-                                sessionMessages: summaryPayload.sessionMessages,
-                                hasMessages:
-                                  summaryPayload.sessionMessages &&
-                                  summaryPayload.sessionMessages.length > 0,
-                                messageCount:
-                                  summaryPayload.sessionMessages?.length || 0,
-                                isAIOnlySession,
-                              });
-                              return summaryPayload.sessionMessages &&
-                                summaryPayload.sessionMessages.length > 0 ? (
-                                <div>
-                                  <p className="text-sm text-gray-600 mb-3">
-                                    대화 내용
-                                  </p>
-                                  <div className="bg-white rounded-lg p-3 space-y-2 max-h-60 overflow-y-auto">
-                                    {summaryPayload.sessionMessages.map(
-                                      (sessionMsg: any, msgIdx: number) => {
-                                        if (sessionMsg.type === "system") {
-                                          return (
-                                            <div
-                                              key={msgIdx}
-                                              className="flex justify-center"
-                                            >
-                                              <div className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-xs">
-                                                {sessionMsg.content}
-                                              </div>
-                                            </div>
-                                          );
-                                        }
-
-                                        // 실제 에이전트 정보로 이름 매핑
-                                        const getSenderDisplayName = (
-                                          senderId: string
-                                        ) => {
-                                          if (senderId === "나") return "나";
-
-                                          // 에이전트 목록에서 실제 이름 찾기
-                                          const agent = teamAgents.find(
-                                            (a) => a.id === senderId
-                                          );
-                                          if (agent) {
-                                            return agent.name;
-                                          }
-
-                                          return senderId;
-                                        };
-
-                                        const senderDisplayName =
-                                          getSenderDisplayName(
-                                            sessionMsg.sender
-                                          );
-                                        const isFromUser =
-                                          sessionMsg.sender === "나";
-
-                                        // AI끼리의 세션인 경우 참가자별로 다른 스타일 적용
-                                        let messageStyle =
-                                          "bg-gray-100 text-gray-900"; // 기본 스타일
-                                        let isRightAligned = false;
-
-                                        if (isFromUser) {
-                                          messageStyle =
-                                            "bg-blue-500 text-white";
-                                          isRightAligned = true;
-                                        } else if (
-                                          isAIOnlySession &&
-                                          summaryPayload.participants?.length >=
-                                            2
-                                        ) {
-                                          // AI 참가자들의 정확한 순서 확인
-                                          const participant1Name =
-                                            summaryPayload.participants[0];
-                                          const participant2Name =
-                                            summaryPayload.participants[1];
-
-                                          // 발신자 이름으로 참가자 구분
-                                          if (
-                                            senderDisplayName ===
-                                            participant1Name
-                                          ) {
-                                            // 첫 번째 참가자: 보라색 + 왼쪽
-                                            messageStyle =
-                                              "bg-purple-50 text-purple-900";
-                                            isRightAligned = false;
-                                          } else if (
-                                            senderDisplayName ===
-                                            participant2Name
-                                          ) {
-                                            // 두 번째 참가자: 파란색 + 오른쪽
-                                            messageStyle =
-                                              "bg-blue-50 text-blue-900";
-                                            isRightAligned = true;
-                                          } else {
-                                            // 알 수 없는 발신자
-                                            messageStyle =
-                                              "bg-orange-100 text-orange-900";
-                                            isRightAligned = false;
-                                          }
-                                        } else if (!isFromUser) {
-                                          // 단일 AI 참가자 또는 일반적인 경우
-                                          messageStyle =
-                                            "bg-gray-100 text-gray-900";
-                                        }
-
-                                        return (
-                                          <div
-                                            key={msgIdx}
-                                            className={`flex ${
-                                              isRightAligned
-                                                ? "justify-end"
-                                                : "justify-start"
-                                            }`}
-                                          >
-                                            <div
-                                              className={`max-w-[80%] ${
-                                                isRightAligned
-                                                  ? "ml-auto"
-                                                  : "mr-auto"
-                                              }`}
-                                            >
-                                              {!isFromUser && (
-                                                <div
-                                                  className={`text-xs mb-1 px-2 ${
-                                                    isAIOnlySession
-                                                      ? isRightAligned
-                                                        ? "text-right text-blue-600 font-medium"
-                                                        : "text-left text-purple-600 font-medium"
-                                                      : "text-gray-500"
-                                                  }`}
-                                                >
-                                                  {senderDisplayName}
-                                                </div>
-                                              )}
-                                              <div
-                                                className={`rounded-lg px-3 py-2 text-sm ${messageStyle}`}
-                                              >
-                                                {sessionMsg.content}
-                                              </div>
-                                              {isFromUser && (
-                                                <div className="text-xs text-gray-500 mt-1 px-2 text-right">
-                                                  {senderDisplayName}
-                                                </div>
-                                              )}
-                                            </div>
-                                          </div>
-                                        );
-                                      }
-                                    )}
-                                  </div>
-                                </div>
-                              ) : (
-                                <div>
-                                  <p className="text-sm text-gray-600 mb-1">
-                                    대화 기록 없음
-                                  </p>
-                                  <p className="text-xs text-gray-500">
-                                    메시지가 전송되지 않았거나 로드 중입니다.
-                                  </p>
-                                </div>
-                              );
-                            })()}
-
-                            <div className="flex items-center gap-4 text-xs text-gray-500 pt-2">
-                              <span>
-                                {summaryPayload.messageCount}개 메시지
-                              </span>
-                              <span>{summaryPayload.duration}분 소요</span>
-                              <span>{formatTimestamp(message.timestamp)}</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  if (message.type === "system") {
-                    // 시스템 메시지 (아이디어 생성/평가 알림)
-                    const isGeneratingMessage =
-                      typeof message.payload === "string"
-                        ? false
-                        : (isSystemMessagePayload(message.payload) ||
-                            isChatMessagePayload(message.payload)) &&
-                          (message.payload.content.includes("생성중입니다") ||
-                            message.payload.content.includes(
-                              "생성하고 있습니다"
-                            ) ||
-                            message.payload.content.includes(
-                              "평가하고 있습니다"
-                            ));
-
-                    const isIdeaCompletedMessage =
-                      typeof message.payload === "string"
-                        ? false
-                        : (isSystemMessagePayload(message.payload) ||
-                            isChatMessagePayload(message.payload)) &&
-                          message.payload.content.includes("생성했습니다");
-
-                    const isEvaluationCompletedMessage =
-                      typeof message.payload === "string"
-                        ? false
-                        : (isSystemMessagePayload(message.payload) ||
-                            isChatMessagePayload(message.payload)) &&
-                          (message.payload.content.includes("평가했습니다") ||
-                            message.payload.content.includes(
-                              "평가를 완료했습니다"
-                            ));
-
-                    const messageContent = (() => {
+            <div className="flex-1 overflow-y-auto">
+              {activeTab === "main" ? (
+                <div className="p-4 space-y-4">
+                  {messages
+                    .filter((message) => {
+                      // 타입 가드를 사용하여 안전하게 접근
                       if (typeof message.payload === "string") {
-                        return message.payload;
+                        return true; // 문자열 메시지는 모두 표시
                       }
+
                       if (
                         isSystemMessagePayload(message.payload) ||
                         isChatMessagePayload(message.payload)
                       ) {
-                        return message.payload.content;
+                        const content = message.payload.content;
+                        // "생성중입니다" 메시지만 필터링 (평가 관련 메시지는 모두 표시)
+                        return (
+                          !content.includes("생성중입니다") &&
+                          !content.includes("생성하고 있습니다")
+                        );
                       }
-                      return "작업을 완료했습니다.";
-                    })();
+                      return true;
+                    })
+                    .map((message) => {
+                      // 메시지 발송자 이름 가져오기
+                      const getSenderName = (senderId: string) => {
+                        if (senderId === "나") return "나";
 
-                    // 평가 완료 메시지는 다른 색상으로 표시
-                    const messageStyle = isEvaluationCompletedMessage
-                      ? "bg-orange-50 text-orange-600"
-                      : "bg-blue-50 text-blue-600";
+                        // 팀 멤버에서 해당 에이전트 찾기
+                        const member = team?.members.find(
+                          (m) => m.agentId === senderId
+                        );
+                        if (member && !member.isUser) {
+                          const agent = agents.find((a) => a.id === senderId);
+                          return agent?.name || `에이전트 ${senderId}`;
+                        }
 
-                    return (
-                      <div key={message.id} className="flex justify-center">
-                        <div
-                          className={`${messageStyle} max-w-xl px-8 py-3 rounded-full text-sm font-medium flex flex-col items-center gap-1 whitespace-pre-wrap text-center`}
-                        >
-                          <span>
-                            {senderName}
-                            {getKoreanParticle(senderName, "이", "가")}{" "}
-                            {messageContent}
-                          </span>
-                          {isIdeaCompletedMessage && (
-                            <span
-                              className="underline cursor-pointer text-blue-600 text-sm font-semibold hover:text-blue-800"
-                              onClick={() => {
-                                // 해당 메시지 시간과 가장 가까운 아이디어 찾기
-                                const messageTime = new Date(
-                                  message.timestamp
-                                ).getTime();
+                        return senderId;
+                      };
 
-                                // 해당 작성자의 모든 아이디어 중에서 메시지 시간과 가장 가까운 것 찾기
-                                const authorIdeas = ideas
-                                  .filter(
-                                    (idea) => idea.author === message.sender
-                                  )
-                                  .map((idea) => ({
-                                    ...idea,
-                                    timeDiff: Math.abs(
-                                      new Date(idea.timestamp).getTime() -
-                                        messageTime
-                                    ),
-                                  }))
-                                  .sort((a, b) => a.timeDiff - b.timeDiff);
+                      const senderName = getSenderName(message.sender);
 
-                                const closestIdea = authorIdeas[0];
+                      if (message.type === "feedback_session_summary") {
+                        // 피드백 세션 요약 메시지
+                        const summaryPayload = message.payload as any;
 
-                                if (closestIdea) {
-                                  console.log(
-                                    "🎯 메시지 시간 기준 가장 가까운 아이디어 찾음:",
-                                    {
-                                      messageTime: message.timestamp,
-                                      ideaTime: closestIdea.timestamp,
-                                      timeDiff:
-                                        closestIdea.timeDiff / 1000 + "초 차이",
-                                    }
+                        // AI끼리의 세션인지 확인 (사용자가 포함되지 않은 경우)
+                        const isAIOnlySession =
+                          summaryPayload.participants?.every(
+                            (participant: string) => participant !== "나"
+                          );
+
+                        return (
+                          <div
+                            key={message.id}
+                            className="flex justify-center mb-6"
+                          >
+                            <div className="bg-slate-50 rounded-2xl p-6 max-w-2xl w-full">
+                              <div className="flex items-center gap-2 mb-4">
+                                <div
+                                  className={`w-6 h-6 ${
+                                    isAIOnlySession
+                                      ? "bg-purple-500"
+                                      : "bg-blue-500"
+                                  } rounded-full flex items-center justify-center`}
+                                >
+                                  <MessageCircle className="h-3 w-3 text-white" />
+                                </div>
+                                <h4 className="text-slate-800">
+                                  {summaryPayload.participants?.join(" ↔ ")}{" "}
+                                  피드백 세션 완료
+                                </h4>
+                              </div>
+
+                              <div className="space-y-3">
+                                {/* 실제 대화 내용 표시 (요약 대신) */}
+                                {(() => {
+                                  console.log("🔍 피드백 세션 메시지 디버깅:", {
+                                    sessionMessages:
+                                      summaryPayload.sessionMessages,
+                                    hasMessages:
+                                      summaryPayload.sessionMessages &&
+                                      summaryPayload.sessionMessages.length > 0,
+                                    messageCount:
+                                      summaryPayload.sessionMessages?.length ||
+                                      0,
+                                    isAIOnlySession,
+                                  });
+                                  return summaryPayload.sessionMessages &&
+                                    summaryPayload.sessionMessages.length >
+                                      0 ? (
+                                    <div>
+                                      <p className="text-sm text-gray-600 mb-3">
+                                        대화 내용
+                                      </p>
+                                      <div className="bg-white rounded-lg p-3 space-y-2 max-h-60 overflow-y-auto">
+                                        {summaryPayload.sessionMessages.map(
+                                          (sessionMsg: any, msgIdx: number) => {
+                                            if (sessionMsg.type === "system") {
+                                              return (
+                                                <div
+                                                  key={msgIdx}
+                                                  className="flex justify-center"
+                                                >
+                                                  <div className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-xs">
+                                                    {sessionMsg.content}
+                                                  </div>
+                                                </div>
+                                              );
+                                            }
+
+                                            // 실제 에이전트 정보로 이름 매핑
+                                            const getSenderDisplayName = (
+                                              senderId: string
+                                            ) => {
+                                              if (senderId === "나")
+                                                return "나";
+
+                                              // 에이전트 목록에서 실제 이름 찾기
+                                              const agent = teamAgents.find(
+                                                (a) => a.id === senderId
+                                              );
+                                              if (agent) {
+                                                return agent.name;
+                                              }
+
+                                              return senderId;
+                                            };
+
+                                            const senderDisplayName =
+                                              getSenderDisplayName(
+                                                sessionMsg.sender
+                                              );
+                                            const isFromUser =
+                                              sessionMsg.sender === "나";
+
+                                            // AI끼리의 세션인 경우 참가자별로 다른 스타일 적용
+                                            let messageStyle =
+                                              "bg-gray-100 text-gray-900"; // 기본 스타일
+                                            let isRightAligned = false;
+
+                                            if (isFromUser) {
+                                              messageStyle =
+                                                "bg-blue-500 text-white";
+                                              isRightAligned = true;
+                                            } else if (
+                                              isAIOnlySession &&
+                                              summaryPayload.participants
+                                                ?.length >= 2
+                                            ) {
+                                              // AI 참가자들의 정확한 순서 확인
+                                              const participant1Name =
+                                                summaryPayload.participants[0];
+                                              const participant2Name =
+                                                summaryPayload.participants[1];
+
+                                              // 발신자 이름으로 참가자 구분
+                                              if (
+                                                senderDisplayName ===
+                                                participant1Name
+                                              ) {
+                                                // 첫 번째 참가자: 보라색 + 왼쪽
+                                                messageStyle =
+                                                  "bg-purple-50 text-purple-900";
+                                                isRightAligned = false;
+                                              } else if (
+                                                senderDisplayName ===
+                                                participant2Name
+                                              ) {
+                                                // 두 번째 참가자: 파란색 + 오른쪽
+                                                messageStyle =
+                                                  "bg-blue-50 text-blue-900";
+                                                isRightAligned = true;
+                                              } else {
+                                                // 알 수 없는 발신자
+                                                messageStyle =
+                                                  "bg-orange-100 text-orange-900";
+                                                isRightAligned = false;
+                                              }
+                                            } else if (!isFromUser) {
+                                              // 단일 AI 참가자 또는 일반적인 경우
+                                              messageStyle =
+                                                "bg-gray-100 text-gray-900";
+                                            }
+
+                                            return (
+                                              <div
+                                                key={msgIdx}
+                                                className={`flex ${
+                                                  isRightAligned
+                                                    ? "justify-end"
+                                                    : "justify-start"
+                                                }`}
+                                              >
+                                                <div
+                                                  className={`max-w-[80%] ${
+                                                    isRightAligned
+                                                      ? "ml-auto"
+                                                      : "mr-auto"
+                                                  }`}
+                                                >
+                                                  {!isFromUser && (
+                                                    <div
+                                                      className={`text-xs mb-1 px-2 ${
+                                                        isAIOnlySession
+                                                          ? isRightAligned
+                                                            ? "text-right text-blue-600 font-medium"
+                                                            : "text-left text-purple-600 font-medium"
+                                                          : "text-gray-500"
+                                                      }`}
+                                                    >
+                                                      {senderDisplayName}
+                                                    </div>
+                                                  )}
+                                                  <div
+                                                    className={`rounded-lg px-3 py-2 text-sm ${messageStyle}`}
+                                                  >
+                                                    {sessionMsg.content}
+                                                  </div>
+                                                  {isFromUser && (
+                                                    <div className="text-xs text-gray-500 mt-1 px-2 text-right">
+                                                      {senderDisplayName}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            );
+                                          }
+                                        )}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div>
+                                      <p className="text-sm text-gray-600 mb-1">
+                                        대화 기록 없음
+                                      </p>
+                                      <p className="text-xs text-gray-500">
+                                        메시지가 전송되지 않았거나 로드
+                                        중입니다.
+                                      </p>
+                                    </div>
                                   );
+                                })()}
 
-                                  setIdeaDetailModalData(closestIdea);
-                                  setCurrentIdeaIndex(
-                                    filteredIdeas.indexOf(closestIdea)
-                                  );
-                                  setShowIdeaDetailModal(true);
-                                } else {
-                                  console.log(
-                                    "❌ 해당 작성자의 아이디어를 찾을 수 없음"
-                                  );
-                                }
-                              }}
+                                <div className="flex items-center gap-4 text-xs text-gray-500 pt-2">
+                                  <span>
+                                    {summaryPayload.messageCount}개 메시지
+                                  </span>
+                                  <span>{summaryPayload.duration}분 소요</span>
+                                  <span>
+                                    {formatTimestamp(message.timestamp)}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (message.type === "system") {
+                        // 시스템 메시지 (아이디어 생성/평가 알림)
+                        const isGeneratingMessage =
+                          typeof message.payload === "string"
+                            ? false
+                            : (isSystemMessagePayload(message.payload) ||
+                                isChatMessagePayload(message.payload)) &&
+                              (message.payload.content.includes(
+                                "생성중입니다"
+                              ) ||
+                                message.payload.content.includes(
+                                  "생성하고 있습니다"
+                                ) ||
+                                message.payload.content.includes(
+                                  "평가하고 있습니다"
+                                ));
+
+                        const isIdeaCompletedMessage =
+                          typeof message.payload === "string"
+                            ? false
+                            : (isSystemMessagePayload(message.payload) ||
+                                isChatMessagePayload(message.payload)) &&
+                              message.payload.content.includes("생성했습니다");
+
+                        const isEvaluationCompletedMessage =
+                          typeof message.payload === "string"
+                            ? false
+                            : (isSystemMessagePayload(message.payload) ||
+                                isChatMessagePayload(message.payload)) &&
+                              (message.payload.content.includes(
+                                "평가했습니다"
+                              ) ||
+                                message.payload.content.includes(
+                                  "평가를 완료했습니다"
+                                ));
+
+                        const messageContent = (() => {
+                          if (typeof message.payload === "string") {
+                            return message.payload;
+                          }
+                          if (
+                            isSystemMessagePayload(message.payload) ||
+                            isChatMessagePayload(message.payload)
+                          ) {
+                            return message.payload.content;
+                          }
+                          return "작업을 완료했습니다.";
+                        })();
+
+                        // 평가 완료 메시지는 다른 색상으로 표시
+                        const messageStyle = isEvaluationCompletedMessage
+                          ? "bg-orange-50 text-orange-600"
+                          : "bg-blue-50 text-blue-600";
+
+                        return (
+                          <div key={message.id} className="flex justify-center">
+                            <div
+                              className={`${messageStyle} max-w-xl px-8 py-3 rounded-full text-sm font-medium flex flex-col items-center gap-1 whitespace-pre-wrap text-center`}
                             >
-                              "
-                              {(() => {
-                                // 메시지 시간과 가장 가까운 아이디어의 제목 찾기
-                                const messageTime = new Date(
-                                  message.timestamp
-                                ).getTime();
-                                const authorIdeas = ideas
-                                  .filter(
-                                    (idea) => idea.author === message.sender
-                                  )
-                                  .map((idea) => ({
-                                    ...idea,
-                                    timeDiff: Math.abs(
-                                      new Date(idea.timestamp).getTime() -
-                                        messageTime
-                                    ),
-                                  }))
-                                  .sort((a, b) => a.timeDiff - b.timeDiff);
+                              <span>
+                                {senderName}
+                                {getKoreanParticle(senderName, "이", "가")}{" "}
+                                {messageContent}
+                              </span>
+                              {isIdeaCompletedMessage && (
+                                <span
+                                  className="underline cursor-pointer text-blue-600 text-sm font-semibold hover:text-blue-800"
+                                  onClick={() => {
+                                    // 해당 메시지 시간과 가장 가까운 아이디어 찾기
+                                    const messageTime = new Date(
+                                      message.timestamp
+                                    ).getTime();
 
+                                    // 해당 작성자의 모든 아이디어 중에서 메시지 시간과 가장 가까운 것 찾기
+                                    const authorIdeas = ideas
+                                      .filter(
+                                        (idea) => idea.author === message.sender
+                                      )
+                                      .map((idea) => ({
+                                        ...idea,
+                                        timeDiff: Math.abs(
+                                          new Date(idea.timestamp).getTime() -
+                                            messageTime
+                                        ),
+                                      }))
+                                      .sort((a, b) => a.timeDiff - b.timeDiff);
+
+                                    const closestIdea = authorIdeas[0];
+
+                                    if (closestIdea) {
+                                      console.log(
+                                        "🎯 메시지 시간 기준 가장 가까운 아이디어 찾음:",
+                                        {
+                                          messageTime: message.timestamp,
+                                          ideaTime: closestIdea.timestamp,
+                                          timeDiff:
+                                            closestIdea.timeDiff / 1000 +
+                                            "초 차이",
+                                        }
+                                      );
+
+                                      setIdeaDetailModalData(closestIdea);
+                                      setCurrentIdeaIndex(
+                                        filteredIdeas.indexOf(closestIdea)
+                                      );
+                                      setShowIdeaDetailModal(true);
+                                    } else {
+                                      console.log(
+                                        "❌ 해당 작성자의 아이디어를 찾을 수 없음"
+                                      );
+                                    }
+                                  }}
+                                >
+                                  "
+                                  {(() => {
+                                    // 메시지 시간과 가장 가까운 아이디어의 제목 찾기
+                                    const messageTime = new Date(
+                                      message.timestamp
+                                    ).getTime();
+                                    const authorIdeas = ideas
+                                      .filter(
+                                        (idea) => idea.author === message.sender
+                                      )
+                                      .map((idea) => ({
+                                        ...idea,
+                                        timeDiff: Math.abs(
+                                          new Date(idea.timestamp).getTime() -
+                                            messageTime
+                                        ),
+                                      }))
+                                      .sort((a, b) => a.timeDiff - b.timeDiff);
+
+                                    return (
+                                      authorIdeas[0]?.content.object ||
+                                      "아이디어"
+                                    );
+                                  })()}
+                                  "
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // 일반 메시지
+                      const isMyMessage = message.sender === "나";
+
+                      return (
+                        <div
+                          key={message.id}
+                          className={`flex ${
+                            isMyMessage ? "justify-end" : "justify-start"
+                          } mb-4`}
+                        >
+                          <div
+                            className={`max-w-md ${
+                              isMyMessage ? "order-2" : "order-1"
+                            }`}
+                          >
+                            {!isMyMessage && (
+                              <div className="text-xs text-gray-500 mb-1 px-3">
+                                {senderName} •{" "}
+                                {formatTimestamp(message.timestamp)}
+                              </div>
+                            )}
+
+                            <div
+                              className={`rounded-2xl px-4 py-3 ${(() => {
+                                // 메시지 타입에 따른 색상 결정
+                                if (
+                                  typeof message.payload === "object" &&
+                                  message.payload !== null &&
+                                  "type" in message.payload
+                                ) {
+                                  const isRequest =
+                                    message.payload.type === "make_request";
+                                  if (isMyMessage) {
+                                    return isRequest
+                                      ? "bg-indigo-500 text-white"
+                                      : "bg-blue-500 text-white";
+                                  } else {
+                                    return isRequest
+                                      ? "bg-yellow-100 text-gray-900"
+                                      : "bg-slate-200 text-gray-900";
+                                  }
+                                }
+                                // 기본값
+                                return isMyMessage
+                                  ? "bg-blue-500 text-white"
+                                  : "bg-gray-100 text-gray-900";
+                              })()}`}
+                            >
+                              {(() => {
+                                // Check if payload is the new object format
+                                if (
+                                  typeof message.payload === "object" &&
+                                  message.payload !== null &&
+                                  "type" in message.payload
+                                ) {
+                                  const {
+                                    type,
+                                    mention,
+                                    requestType,
+                                    content,
+                                  } = message.payload;
+                                  const isRequest =
+                                    type === "make_request" &&
+                                    mention &&
+                                    requestType;
+                                  const isFeedback = type === "give_feedback";
+
+                                  if (isRequest) {
+                                    const reqType = requestType as
+                                      | "generate"
+                                      | "evaluate"
+                                      | "give_feedback";
+                                    const requestText =
+                                      {
+                                        generate: "아이디어 생성",
+                                        evaluate: "아이디어 평가",
+                                        give_feedback: "피드백",
+                                      }[reqType] || "요청";
+
+                                    return (
+                                      <div>
+                                        <div
+                                          className={`text-sm font-medium mb-2 ${
+                                            isMyMessage
+                                              ? "text-indigo-100"
+                                              : "text-yellow-800"
+                                          }`}
+                                        >
+                                          <span className="font-medium">
+                                            @{getAuthorName(mention)}
+                                          </span>
+                                          <span>에게 {requestText} 요청</span>
+                                        </div>
+                                        <p
+                                          className={`text-sm leading-relaxed ${
+                                            isMyMessage
+                                              ? "text-white"
+                                              : "text-gray-800"
+                                          }`}
+                                        >
+                                          {content}
+                                        </p>
+                                      </div>
+                                    );
+                                  }
+
+                                  if (isFeedback) {
+                                    // mention이 있는 경우 헤더 포함
+                                    if (mention && mention.trim()) {
+                                      return (
+                                        <div>
+                                          <div
+                                            className={`text-sm mb-2 ${
+                                              isMyMessage
+                                                ? "text-blue-100"
+                                                : "text-slate-600"
+                                            }`}
+                                          >
+                                            <span className="font-medium">
+                                              @{getAuthorName(mention)}
+                                            </span>
+                                            <span>에게 피드백</span>
+                                          </div>
+                                          <p
+                                            className={`text-sm leading-relaxed ${
+                                              isMyMessage
+                                                ? "text-white"
+                                                : "text-gray-800"
+                                            }`}
+                                          >
+                                            {content || "메시지 내용 없음"}
+                                          </p>
+                                        </div>
+                                      );
+                                    } else {
+                                      // mention이 없는 경우 일반 메시지로 표시
+                                      return (
+                                        <div>
+                                          <p
+                                            className={`text-sm leading-relaxed ${
+                                              isMyMessage
+                                                ? "text-white"
+                                                : "text-gray-800"
+                                            }`}
+                                          >
+                                            {content || "메시지 내용 없음"}
+                                          </p>
+                                        </div>
+                                      );
+                                    }
+                                  }
+                                }
+
+                                // Fallback for older string-based messages or other types
+                                const messageContent = (() => {
+                                  if (typeof message.payload === "string") {
+                                    return message.payload;
+                                  }
+                                  if (
+                                    isSystemMessagePayload(message.payload) ||
+                                    isChatMessagePayload(message.payload)
+                                  ) {
+                                    return message.payload.content;
+                                  }
+                                  return "메시지 내용 없음";
+                                })();
                                 return (
-                                  authorIdeas[0]?.content.object || "아이디어"
+                                  <p
+                                    className={`text-sm leading-relaxed ${
+                                      isMyMessage
+                                        ? "text-white"
+                                        : "text-gray-800"
+                                    }`}
+                                  >
+                                    {messageContent}
+                                  </p>
                                 );
                               })()}
-                              "
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  }
+                            </div>
 
-                  // 일반 메시지
-                  const isMyMessage = message.sender === "나";
-
-                  return (
-                    <div
-                      key={message.id}
-                      className={`flex ${
-                        isMyMessage ? "justify-end" : "justify-start"
-                      } mb-4`}
-                    >
-                      <div
-                        className={`max-w-md ${
-                          isMyMessage ? "order-2" : "order-1"
-                        }`}
-                      >
-                        {!isMyMessage && (
-                          <div className="text-xs text-gray-500 mb-1 px-3">
-                            {senderName} • {formatTimestamp(message.timestamp)}
+                            {isMyMessage && (
+                              <div className="text-xs text-gray-500 mt-1 px-3 text-right">
+                                {formatTimestamp(message.timestamp)}
+                              </div>
+                            )}
                           </div>
-                        )}
-
-                        <div
-                          className={`rounded-2xl px-4 py-3 ${(() => {
-                            // 메시지 타입에 따른 색상 결정
-                            if (
-                              typeof message.payload === "object" &&
-                              message.payload !== null &&
-                              "type" in message.payload
-                            ) {
-                              const isRequest =
-                                message.payload.type === "make_request";
-                              if (isMyMessage) {
-                                return isRequest
-                                  ? "bg-indigo-500 text-white"
-                                  : "bg-blue-500 text-white";
-                              } else {
-                                return isRequest
-                                  ? "bg-yellow-100 text-gray-900"
-                                  : "bg-slate-200 text-gray-900";
-                              }
-                            }
-                            // 기본값
-                            return isMyMessage
-                              ? "bg-blue-500 text-white"
-                              : "bg-gray-100 text-gray-900";
-                          })()}`}
-                        >
-                          {(() => {
-                            // Check if payload is the new object format
-                            if (
-                              typeof message.payload === "object" &&
-                              message.payload !== null &&
-                              "type" in message.payload
-                            ) {
-                              const { type, mention, requestType, content } =
-                                message.payload;
-                              const isRequest =
-                                type === "make_request" &&
-                                mention &&
-                                requestType;
-                              const isFeedback = type === "give_feedback";
-
-                              if (isRequest) {
-                                const reqType = requestType as
-                                  | "generate"
-                                  | "evaluate"
-                                  | "give_feedback";
-                                const requestText =
-                                  {
-                                    generate: "아이디어 생성",
-                                    evaluate: "아이디어 평가",
-                                    give_feedback: "피드백",
-                                  }[reqType] || "요청";
-
-                                return (
-                                  <div>
-                                    <div
-                                      className={`text-sm font-medium mb-2 ${
-                                        isMyMessage
-                                          ? "text-indigo-100"
-                                          : "text-yellow-800"
-                                      }`}
-                                    >
-                                      <span className="font-medium">
-                                        @{getAuthorName(mention)}
-                                      </span>
-                                      <span>에게 {requestText} 요청</span>
-                                    </div>
-                                    <p
-                                      className={`text-sm leading-relaxed ${
-                                        isMyMessage
-                                          ? "text-white"
-                                          : "text-gray-800"
-                                      }`}
-                                    >
-                                      {content}
-                                    </p>
-                                  </div>
-                                );
-                              }
-
-                              if (isFeedback) {
-                                // mention이 있는 경우 헤더 포함
-                                if (mention && mention.trim()) {
-                                  return (
-                                    <div>
-                                      <div
-                                        className={`text-sm mb-2 ${
-                                          isMyMessage
-                                            ? "text-blue-100"
-                                            : "text-slate-600"
-                                        }`}
-                                      >
-                                        <span className="font-medium">
-                                          @{getAuthorName(mention)}
-                                        </span>
-                                        <span>에게 피드백</span>
-                                      </div>
-                                      <p
-                                        className={`text-sm leading-relaxed ${
-                                          isMyMessage
-                                            ? "text-white"
-                                            : "text-gray-800"
-                                        }`}
-                                      >
-                                        {content || "메시지 내용 없음"}
-                                      </p>
-                                    </div>
-                                  );
-                                } else {
-                                  // mention이 없는 경우 일반 메시지로 표시
-                                  return (
-                                    <div>
-                                      <p
-                                        className={`text-sm leading-relaxed ${
-                                          isMyMessage
-                                            ? "text-white"
-                                            : "text-gray-800"
-                                        }`}
-                                      >
-                                        {content || "메시지 내용 없음"}
-                                      </p>
-                                    </div>
-                                  );
-                                }
-                              }
-                            }
-
-                            // Fallback for older string-based messages or other types
-                            const messageContent = (() => {
-                              if (typeof message.payload === "string") {
-                                return message.payload;
-                              }
-                              if (
-                                isSystemMessagePayload(message.payload) ||
-                                isChatMessagePayload(message.payload)
-                              ) {
-                                return message.payload.content;
-                              }
-                              return "메시지 내용 없음";
-                            })();
-                            return (
-                              <p
-                                className={`text-sm leading-relaxed ${
-                                  isMyMessage ? "text-white" : "text-gray-800"
-                                }`}
-                              >
-                                {messageContent}
-                              </p>
-                            );
-                          })()}
                         </div>
-
-                        {isMyMessage && (
-                          <div className="text-xs text-gray-500 mt-1 px-3 text-right">
-                            {formatTimestamp(message.timestamp)}
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                      );
+                    })}
+                  <div ref={messagesEndRef} />
+                </div>
+              ) : (
+                // 피드백 탭 - FeedbackTabContent 컴포넌트
+                (() => {
+                  const currentTab = feedbackTabs.find(
+                    (tab) => tab.id === activeTab
                   );
-                })}
-              <div ref={messagesEndRef} />
+                  return currentTab ? (
+                    <FeedbackTabContent
+                      tab={currentTab}
+                      teamId={team?.id || ""}
+                      onClose={() => closeFeedbackTab(currentTab.id)}
+                    />
+                  ) : null;
+                })()
+              )}
             </div>
 
             {/* 메시지 입력 */}
-            <div className="p-4 border-t border-gray-200">
-              <div className="relative">
-                {/* 멘션 및 요청 타입 UI */}
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="relative">
-                    <button
-                      onClick={() =>
-                        setShowMentionDropdown(!showMentionDropdown)
-                      }
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-200"
-                    >
-                      <span className="text-gray-500">@</span>
-                      <span>
-                        {mentionedAgent ? mentionedAgent.name : "팀원 선택"}
-                      </span>
-                    </button>
-                    {showMentionDropdown && (
-                      <div className="absolute bottom-full left-0 mb-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-10">
-                        {getFilteredAgentsForRequest().map((agent) => (
-                          <button
-                            key={agent.id}
-                            onClick={() => {
-                              setMentionedAgent(agent);
-                              setShowMentionDropdown(false);
+            {activeTab === "main" && (
+              <div className="p-4 border-t border-gray-200">
+                <div className="relative">
+                  {/* 멘션 및 요청 타입 UI */}
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="relative">
+                      <button
+                        onClick={() =>
+                          setShowMentionDropdown(!showMentionDropdown)
+                        }
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-200"
+                      >
+                        <span className="text-gray-500">@</span>
+                        <span>
+                          {mentionedAgent ? mentionedAgent.name : "팀원 선택"}
+                        </span>
+                      </button>
+                      {showMentionDropdown && (
+                        <div className="absolute bottom-full left-0 mb-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-10">
+                          {getFilteredAgentsForRequest().map((agent) => (
+                            <button
+                              key={agent.id}
+                              onClick={() => {
+                                setMentionedAgent(agent);
+                                setShowMentionDropdown(false);
 
-                              // 선택된 에이전트가 현재 요청 타입을 수행할 수 없다면 요청 타입 초기화
-                              if (
-                                chatMode === "make_request" &&
-                                requestType &&
-                                !canAgentPerformRole(agent, requestType)
-                              ) {
-                                setRequestType(null);
-                              }
-                            }}
-                            className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
-                          >
-                            {agent.name}
-                          </button>
-                        ))}
-                        {getFilteredAgentsForRequest().length === 0 &&
-                          chatMode === "make_request" &&
-                          requestType && (
-                            <div className="px-3 py-2 text-sm text-gray-500">
-                              해당 역할을 수행할 수 있는 에이전트가 없습니다.
-                            </div>
-                          )}
-                      </div>
-                    )}
-                  </div>
+                                // 선택된 에이전트가 현재 요청 타입을 수행할 수 없다면 요청 타입 초기화
+                                if (
+                                  chatMode === "make_request" &&
+                                  requestType &&
+                                  !canAgentPerformRole(agent, requestType)
+                                ) {
+                                  setRequestType(null);
+                                }
+                              }}
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                            >
+                              {agent.name}
+                            </button>
+                          ))}
+                          {getFilteredAgentsForRequest().length === 0 &&
+                            chatMode === "make_request" &&
+                            requestType && (
+                              <div className="px-3 py-2 text-sm text-gray-500">
+                                해당 역할을 수행할 수 있는 에이전트가 없습니다.
+                              </div>
+                            )}
+                        </div>
+                      )}
+                    </div>
 
-                  <span className="text-sm text-gray-500">에게</span>
+                    <span className="text-sm text-gray-500">에게</span>
 
-                  <select
-                    value={chatMode}
-                    onChange={(e) => {
-                      setChatMode(
-                        e.target.value as "give_feedback" | "make_request"
-                      );
-                      // 채팅 모드 변경 시 요청 타입과 멘션된 에이전트 초기화
-                      if (e.target.value === "make_request") {
-                        setRequestType(null);
-                      }
-                    }}
-                    className="px-3 py-1.5 bg-gray-100 border-none rounded-md text-sm font-medium text-gray-700 focus:ring-0"
-                  >
-                    <option value="give_feedback">피드백</option>
-                    <option value="make_request">요청</option>
-                  </select>
-
-                  {chatMode === "make_request" && (
                     <select
-                      value={requestType || ""}
+                      value={chatMode}
                       onChange={(e) => {
-                        const newRequestType = e.target.value as
-                          | "generate"
-                          | "evaluate"
-                          | "give_feedback";
-                        setRequestType(newRequestType);
-
-                        // 요청 타입 변경 시, 현재 선택된 에이전트가 해당 역할을 수행할 수 없다면 초기화
-                        if (
-                          mentionedAgent &&
-                          !canAgentPerformRole(mentionedAgent, newRequestType)
-                        ) {
-                          setMentionedAgent(null);
+                        setChatMode(
+                          e.target.value as "give_feedback" | "make_request"
+                        );
+                        // 채팅 모드 변경 시 요청 타입과 멘션된 에이전트 초기화
+                        if (e.target.value === "make_request") {
+                          setRequestType(null);
                         }
                       }}
                       className="px-3 py-1.5 bg-gray-100 border-none rounded-md text-sm font-medium text-gray-700 focus:ring-0"
                     >
-                      <option value="" disabled>
-                        요청 선택
-                      </option>
-                      {getAvailableRequestTypes().map((type) => (
-                        <option key={type.value} value={type.value}>
-                          {type.label}
-                        </option>
-                      ))}
+                      <option value="give_feedback">피드백</option>
+                      <option value="make_request">요청</option>
                     </select>
-                  )}
-                </div>
 
-                {/* 메시지 입력창 */}
-                <div className="flex gap-2">
-                  <Input
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    placeholder={
-                      userInFeedbackSession
-                        ? "피드백 세션 진행 중입니다. 세션이 끝나면 채팅할 수 있습니다."
-                        : chatMode === "give_feedback"
-                        ? `${
-                            mentionedAgent ? mentionedAgent.name : "팀원"
-                          }에게 피드백을 보내세요...`
-                        : `${
-                            mentionedAgent ? mentionedAgent.name : "팀원"
-                          }에게 요청할 내용을 입력하세요...`
-                    }
-                    onKeyPress={(e) =>
-                      e.key === "Enter" &&
-                      !userInFeedbackSession &&
-                      handleSendMessage()
-                    }
-                    className="flex-1"
-                    disabled={
-                      isAutoGenerating ||
-                      isGeneratingIdea ||
-                      userInFeedbackSession
-                    }
-                  />
-                  <Button
-                    onClick={handleSendMessage}
-                    size="icon"
-                    disabled={
-                      isAutoGenerating ||
-                      isGeneratingIdea ||
-                      !mentionedAgent ||
-                      (chatMode === "make_request" && !requestType)
-                    }
-                    className="self-center"
-                  >
-                    <Send className="w-4" />
-                  </Button>
+                    {chatMode === "make_request" && (
+                      <select
+                        value={requestType || ""}
+                        onChange={(e) => {
+                          const newRequestType = e.target.value as
+                            | "generate"
+                            | "evaluate"
+                            | "give_feedback";
+                          setRequestType(newRequestType);
+
+                          // 요청 타입 변경 시, 현재 선택된 에이전트가 해당 역할을 수행할 수 없다면 초기화
+                          if (
+                            mentionedAgent &&
+                            !canAgentPerformRole(mentionedAgent, newRequestType)
+                          ) {
+                            setMentionedAgent(null);
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-gray-100 border-none rounded-md text-sm font-medium text-gray-700 focus:ring-0"
+                      >
+                        <option value="" disabled>
+                          요청 선택
+                        </option>
+                        {getAvailableRequestTypes().map((type) => (
+                          <option key={type.value} value={type.value}>
+                            {type.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+
+                  {/* 메시지 입력창 */}
+                  <div className="flex gap-2">
+                    <Input
+                      value={newMessage}
+                      onChange={(e) => setNewMessage(e.target.value)}
+                      placeholder={
+                        userInFeedbackSession
+                          ? "피드백 세션 진행 중입니다. 세션이 끝나면 채팅할 수 있습니다."
+                          : chatMode === "give_feedback"
+                          ? `${
+                              mentionedAgent ? mentionedAgent.name : "팀원"
+                            }에게 피드백을 보내세요...`
+                          : `${
+                              mentionedAgent ? mentionedAgent.name : "팀원"
+                            }에게 요청할 내용을 입력하세요...`
+                      }
+                      onKeyPress={(e) =>
+                        e.key === "Enter" &&
+                        !userInFeedbackSession &&
+                        handleSendMessage()
+                      }
+                      className="flex-1"
+                      disabled={
+                        isAutoGenerating ||
+                        isGeneratingIdea ||
+                        userInFeedbackSession
+                      }
+                    />
+                    <Button
+                      onClick={handleSendMessage}
+                      size="icon"
+                      disabled={
+                        isAutoGenerating ||
+                        isGeneratingIdea ||
+                        !mentionedAgent ||
+                        (chatMode === "make_request" && !requestType)
+                      }
+                      className="self-center"
+                    >
+                      <Send className="w-4" />
+                    </Button>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* 오른쪽: 아이디어 목록 */}
@@ -3084,12 +3220,6 @@ export default function IdeationPage() {
       )}
 
       {/* 피드백 세션 모달 */}
-      <FeedbackSessionModal
-        isOpen={showFeedbackModal}
-        onClose={() => setShowFeedbackModal(false)}
-        sessionData={feedbackSessionData}
-        teamId={team?.id}
-      />
       <ViewFeedbackSessionModal
         isOpen={showViewSessionModal}
         onClose={() => setShowViewSessionModal(false)}
