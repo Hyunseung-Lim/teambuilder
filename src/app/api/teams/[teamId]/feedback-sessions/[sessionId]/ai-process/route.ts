@@ -95,10 +95,18 @@ export async function POST(
         agentMemory
       );
 
+      // 실제 대화 메시지 수 확인 (디버깅용)
+      const actualMessageCount = session.messages.filter(
+        (msg) => msg.type === "message"
+      ).length;
+
       console.log(`🎯 AI 응답 생성 결과:`, {
         agent: agent.name,
+        totalMessages: session.messages.length,
+        actualMessages: actualMessageCount,
         shouldEnd: responseResult.shouldEnd,
         reasoning: responseResult.reasoning,
+        response: responseResult.response.substring(0, 50) + "...",
       });
 
       // 응답 메시지 생성
@@ -169,6 +177,7 @@ export async function POST(
 
         session.status = "completed";
         session.endedAt = new Date().toISOString();
+        session.endedBy = "ai"; // AI가 종료했음을 명시
 
         // 피드백 세션 요약 생성
         console.log(`📋 피드백 세션 요약 생성 중: ${sessionId}`);
@@ -221,35 +230,59 @@ export async function POST(
           messageCount: session.messages.length,
         });
 
-        await addChatMessage(teamId, {
-          sender: "system",
-          type: "feedback_session_summary",
-          payload: {
-            type: "feedback_session_summary",
-            sessionId,
-            participants: session.participants.map((p) => p.name),
-            summary: summary.summary,
-            keyInsights: summary.keyInsights,
-            messageCount: session.messages.length,
-            duration: session.endedAt
-              ? Math.round(
-                  (new Date(session.endedAt).getTime() -
-                    new Date(session.createdAt).getTime()) /
-                    1000 /
-                    60
-                )
-              : 0,
-            sessionMessages: session.messages,
-          },
-        });
+        // 중복 체크를 위해 고유한 요약 ID 생성
+        const summaryId = `${sessionId}_summary`;
 
-        console.log(`📢 피드백 세션 요약이 팀 채팅에 공개됨: ${sessionId}`);
+        // 이미 해당 세션의 요약이 팀 채팅에 있는지 확인
+        const existingSummaryCheck = await redis.get(
+          `summary_check:${summaryId}`
+        );
+        if (existingSummaryCheck) {
+          console.log(
+            `⚠️ 세션 ${sessionId}의 요약이 이미 생성되었습니다. (AI 종료)`
+          );
+        } else {
+          // 직접 addChatMessage 함수 호출 (인증 문제 해결)
+          try {
+            await addChatMessage(teamId, {
+              sender: "system",
+              type: "feedback_session_summary",
+              payload: {
+                type: "feedback_session_summary",
+                sessionId,
+                participants: session.participants.map((p) => p.name),
+                summary: summary.summary,
+                keyInsights: summary.keyInsights,
+                messageCount: session.messages.length,
+                duration: session.endedAt
+                  ? Math.round(
+                      (new Date(session.endedAt).getTime() -
+                        new Date(session.createdAt).getTime()) /
+                        1000 /
+                        60
+                    )
+                  : 0,
+                sessionMessages: session.messages,
+                endedBy: session.endedBy, // 종료 주체 정보 추가
+              },
+            });
+
+            console.log(`✅ 피드백 세션 요약이 팀 채팅에 공개됨: ${sessionId}`);
+
+            // 요약 생성 완료 표시 (1시간 후 자동 삭제)
+            await redis.set(`summary_check:${summaryId}`, "completed", {
+              ex: 3600,
+            });
+          } catch (chatError) {
+            console.error("❌ 피드백 세션 요약 채팅 추가 실패:", chatError);
+          }
+        }
 
         // 활성 세션 목록에서 제거
         const activeSessionsKey = `team:${teamId}:active_feedback_sessions`;
         await redis.srem(activeSessionsKey, sessionId);
 
-        // 참가자들의 에이전트 상태를 idle로 되돌리기
+        // 참가자들의 에이전트 상태를 idle로 되돌리기 (에러 무시)
         for (const participant of session.participants) {
           if (!participant.isUser && participant.id !== "나") {
             try {
@@ -275,19 +308,24 @@ export async function POST(
                   `✅ 에이전트 ${participant.id} 상태가 idle로 변경됨`
                 );
               } else {
-                console.error(
-                  `❌ 에이전트 ${participant.id} idle 상태 변경 실패:`,
-                  response.status
+                console.warn(
+                  `⚠️ 에이전트 ${participant.id} idle 상태 변경 실패: ${response.status} (무시됨)`
                 );
               }
             } catch (error) {
-              console.error(
-                `❌ 에이전트 ${participant.id} idle 상태 변경 오류:`,
-                error
+              console.warn(
+                `⚠️ 에이전트 ${participant.id} idle 상태 변경 오류: ${error} (무시됨)`
               );
             }
           }
         }
+
+        // 세션 저장
+        await redis.set(
+          `feedback_session:${sessionId}`,
+          JSON.stringify(session),
+          { ex: 3600 * 24 * 7 } // 7일 보관
+        );
 
         return NextResponse.json({
           success: true,

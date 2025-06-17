@@ -58,6 +58,7 @@ export default function FeedbackSessionModal({
   const [isLoading, setIsLoading] = useState(false);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
+  const [sessionEnded, setSessionEnded] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -115,6 +116,16 @@ export default function FeedbackSessionModal({
             data.session.messages.length !== session.messages.length
           ) {
             setSession(data.session);
+
+            // 세션이 종료되었는지 확인
+            if (
+              data.session.status === "completed" ||
+              data.session.status === "ended"
+            ) {
+              setAiGenerating(false);
+              setSessionEnded(true);
+              console.log("✅ 피드백 세션이 AI에 의해 종료됨");
+            }
           }
         }
       } catch (error) {
@@ -122,7 +133,8 @@ export default function FeedbackSessionModal({
       }
     };
 
-    pollIntervalRef.current = setInterval(pollSession, 2000);
+    // 500ms마다 폴링 (더 빠른 업데이트)
+    pollIntervalRef.current = setInterval(pollSession, 500);
 
     return () => {
       if (pollIntervalRef.current) {
@@ -133,7 +145,8 @@ export default function FeedbackSessionModal({
 
   // 메시지 전송
   const handleSendMessage = async () => {
-    if (!newMessage.trim() || isLoading || !session || !teamId) return;
+    if (!newMessage.trim() || isLoading || !session || !teamId || sessionEnded)
+      return;
 
     setIsLoading(true);
     try {
@@ -158,6 +171,7 @@ export default function FeedbackSessionModal({
 
         // AI 응답 트리거
         setTimeout(async () => {
+          let aiData;
           try {
             setAiGenerating(true); // AI 응답 생성 시작
             const aiResponse = await fetch(
@@ -175,19 +189,28 @@ export default function FeedbackSessionModal({
             );
 
             if (aiResponse.ok) {
-              const aiData = await aiResponse.json();
+              aiData = await aiResponse.json();
               setSession(aiData.session);
 
               if (aiData.sessionEnded) {
                 console.log("AI가 세션을 종료했습니다");
+                setAiGenerating(false);
+                setSessionEnded(true);
+
+                // 세션 종료 시 3초 후 모달 닫기
+                setTimeout(() => {
+                  onClose();
+                }, 3000);
               }
             }
           } catch (error) {
             console.error("AI 응답 요청 실패:", error);
           } finally {
-            setAiGenerating(false); // AI 응답 생성 완료
+            if (!aiData?.sessionEnded) {
+              setAiGenerating(false); // AI 응답 생성 완료
+            }
           }
-        }, 1500);
+        }, 1000); // 1초 후 응답 (더 빠른 응답)
       }
     } catch (error) {
       console.error("메시지 전송 실패:", error);
@@ -436,35 +459,30 @@ export default function FeedbackSessionModal({
         </div>
 
         {/* 메시지 입력 */}
-        {session.status === "active" && (
-          <div className="p-4 border-t border-gray-200">
-            <div className="flex gap-2">
-              <Input
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                placeholder="피드백을 입력하세요..."
-                onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
-                className="flex-1"
-                disabled={isLoading}
-              />
-              <Button
-                onClick={handleSendMessage}
-                size="icon"
-                disabled={isLoading || !newMessage.trim()}
-              >
-                <Send className="h-4 w-4" />
-              </Button>
-              <Button
-                onClick={handleEndSession}
-                variant="outline"
-                size="sm"
-                className="text-red-600 border-red-300 hover:bg-red-50"
-              >
-                세션 종료
-              </Button>
-            </div>
+        <div className="p-4 border-t border-gray-200 bg-white">
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+              placeholder={
+                sessionEnded
+                  ? "세션이 종료되었습니다."
+                  : `${sessionData.mentionedAgent.name}에게 메시지를 보내세요...`
+              }
+              disabled={isLoading || sessionEnded}
+              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+            />
+            <Button
+              onClick={handleSendMessage}
+              disabled={!newMessage.trim() || isLoading || sessionEnded}
+              className="px-6 bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50"
+            >
+              {isLoading ? "전송 중..." : "전송"}
+            </Button>
           </div>
-        )}
+        </div>
 
         {/* 세션 종료 상태 */}
         {session.status === "ended" && (
@@ -472,6 +490,32 @@ export default function FeedbackSessionModal({
             <p className="text-sm text-gray-600">
               피드백 세션이 종료되었습니다.
             </p>
+          </div>
+        )}
+
+        {/* 세션 종료 알림 */}
+        {sessionEnded && (
+          <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full mx-4">
+              <div className="text-center">
+                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <MessageCircle className="w-6 h-6 text-red-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                  대화가 종료되었습니다
+                </h3>
+                <p className="text-gray-600 mb-4">
+                  {sessionData.mentionedAgent.name}가 피드백 세션을
+                  종료했습니다.
+                </p>
+                <Button
+                  onClick={onClose}
+                  className="bg-red-500 hover:bg-red-600 text-white px-6 py-2"
+                >
+                  대화 종료하기
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </div>

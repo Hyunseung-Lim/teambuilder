@@ -147,6 +147,7 @@ export async function getAgentById(id: string): Promise<AIAgent | null> {
     age: Number(agentData.age) || 0,
     autonomy: Number(agentData.autonomy) || 3,
     createdAt: agentData.createdAt, // 문자열로 유지
+    roles: roles, // 파싱된 roles 배열 추가
   } as unknown as AIAgent;
 }
 

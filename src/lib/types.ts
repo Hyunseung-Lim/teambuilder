@@ -178,10 +178,16 @@ export interface SystemMessagePayload {
 
 // 피드백 세션 요약 페이로드
 export interface FeedbackSessionSummaryPayload {
+  type: "feedback_session_summary";
   sessionId: string;
   participants: string[];
+  targetIdea?: any;
+  summary: string;
+  keyInsights: string[];
+  messageCount: number;
   duration: number; // 분 단위
-  messages: FeedbackSessionMessage[]; // 전체 대화 내용
+  sessionMessages: FeedbackSessionMessage[]; // 전체 대화 내용
+  endedBy?: "user" | "ai"; // 세션을 종료한 주체
 }
 
 // 채팅 메시지 모델
@@ -330,7 +336,15 @@ export interface FeedbackSession {
   status: FeedbackSessionStatus;
   createdAt: string;
   endedAt?: string;
+  endedBy?: "user" | "ai"; // 세션을 종료한 주체
   initiatedBy: string; // 세션을 시작한 사람
+  feedbackContext?: {
+    category: string;
+    description?: string;
+  };
+  targetIdea?: any;
+  summary?: FeedbackSessionSummary;
+  lastActivityAt?: string;
 }
 
 // 피드백 세션 요약

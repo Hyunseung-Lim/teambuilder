@@ -19,129 +19,14 @@ import {
   alreadyEvaluatedResponseAction,
 } from "@/lib/openai";
 import { processMemoryUpdate } from "@/lib/memory";
-
-// 에이전트 상태 타입
-interface AgentStateInfo {
-  agentId: string;
-  currentState:
-    | "idle"
-    | "plan"
-    | "action"
-    | "reflecting"
-    | "feedback_session"
-    | "feedback_waiting";
-  lastStateChange: string;
-  isProcessing: boolean;
-  currentTask?: {
-    type:
-      | "generate_idea"
-      | "evaluate_idea"
-      | "planning"
-      | "thinking"
-      | "give_feedback"
-      | "make_request"
-      | "reflecting"
-      | "feedback_session"
-      | "feedback_waiting";
-    description: string;
-    startTime: string;
-    estimatedDuration: number;
-    trigger?: "autonomous" | "user_request" | "ai_request";
-    requestInfo?: {
-      requesterName: string;
-      requestMessage: string;
-    };
-    sessionInfo?: {
-      sessionId: string;
-      participants: string[];
-    };
-  };
-  idleTimer?: {
-    startTime: string;
-    plannedDuration: number;
-    remainingTime: number;
-  };
-  plannedAction?: {
-    action:
-      | "generate_idea"
-      | "evaluate_idea"
-      | "give_feedback"
-      | "make_request"
-      | "wait";
-    reasoning: string;
-    target?: string;
-  };
-}
-
-// 에이전트 상태를 Redis에서 가져오기
-async function getAgentState(
-  teamId: string,
-  agentId: string
-): Promise<AgentStateInfo | null> {
-  try {
-    const stateKey = `agent_state:${teamId}:${agentId}`;
-    const stateData = await redis.get(stateKey);
-
-    if (!stateData) {
-      // 기본 idle 상태 생성
-      const defaultState: AgentStateInfo = {
-        agentId,
-        currentState: "idle",
-        lastStateChange: new Date().toISOString(),
-        isProcessing: false,
-        idleTimer: {
-          startTime: new Date().toISOString(),
-          plannedDuration: Math.floor(Math.random() * 30) + 60, // 60-90초
-          remainingTime: Math.floor(Math.random() * 30) + 60,
-        },
-      };
-
-      // Redis에 저장 시도 (실패해도 기본 상태 반환)
-      try {
-        await redis.set(stateKey, JSON.stringify(defaultState), { ex: 3600 }); // 1시간 TTL
-      } catch (saveError) {
-        console.error(`에이전트 ${agentId} 기본 상태 저장 실패:`, saveError);
-      }
-
-      return defaultState;
-    }
-
-    // 문자열인 경우 파싱, 이미 객체인 경우 그대로 사용
-    const parsedState =
-      typeof stateData === "string" ? JSON.parse(stateData) : stateData;
-    return parsedState;
-  } catch (error) {
-    console.error(`에이전트 ${agentId} 상태 조회 실패:`, error);
-
-    // 에러 발생 시 기본 idle 상태 반환
-    return {
-      agentId,
-      currentState: "idle",
-      lastStateChange: new Date().toISOString(),
-      isProcessing: false,
-      idleTimer: {
-        startTime: new Date().toISOString(),
-        plannedDuration: 75, // 75초 고정
-        remainingTime: 75,
-      },
-    };
-  }
-}
-
-// 에이전트 상태를 Redis에 저장
-async function setAgentState(
-  teamId: string,
-  agentId: string,
-  state: AgentStateInfo
-): Promise<void> {
-  try {
-    const stateKey = `agent_state:${teamId}:${agentId}`;
-    await redis.set(stateKey, JSON.stringify(state), { ex: 3600 }); // 1시간 TTL
-  } catch (error) {
-    console.error(`에이전트 ${agentId} 상태 저장 실패:`, error);
-    // 저장 실패해도 계속 진행 (상태는 메모리에서 관리)
-  }
-}
+import {
+  AgentStateInfo,
+  getAgentState,
+  setAgentState,
+  isFeedbackSessionActive,
+  validateTimer,
+  createNewIdleTimer,
+} from "@/lib/agent-state-utils";
 
 // 에이전트 상태 업데이트 (시간 경과 반영)
 async function updateAgentStateTimer(
@@ -150,265 +35,158 @@ async function updateAgentStateTimer(
 ): Promise<AgentStateInfo> {
   const now = new Date();
 
+  // 피드백 세션 중인 에이전트는 자동 상태 전환하지 않음
+  if (isFeedbackSessionActive(state)) {
+    console.log(`🔒 ${state.agentId} 피드백 세션 중 - 자동 상태 전환 차단`);
+    return state;
+  }
+
   if (state.currentState === "idle" && state.idleTimer) {
+    // 타이머 안정성 검사
+    if (!validateTimer(state)) {
+      console.warn(`⚠️ ${state.agentId} 비정상적인 타이머 상태 감지, 초기화`);
+      state.idleTimer = createNewIdleTimer();
+      return state;
+    }
+
     // idle 타이머 업데이트
-    const elapsed = Math.floor(
-      (now.getTime() - new Date(state.idleTimer.startTime).getTime()) / 1000
-    );
-    state.idleTimer.remainingTime = Math.max(
+    const startTime = new Date(state.idleTimer.startTime).getTime();
+    const elapsed = Math.floor((now.getTime() - startTime) / 1000);
+    const newRemainingTime = Math.max(
       0,
       state.idleTimer.plannedDuration - elapsed
     );
 
+    state.idleTimer.remainingTime = newRemainingTime;
+
     // 타이머가 끝나면 planning 실행
-    if (state.idleTimer.remainingTime <= 0) {
+    if (newRemainingTime <= 0) {
       console.log(`🧠 ${state.agentId} planning 시작`);
 
       try {
-        // 팀 정보와 컨텍스트 수집
         const team = await getTeamById(teamId);
         const agentProfile = await getAgentById(state.agentId);
         const ideas = await getIdeas(teamId);
         const recentMessages = await getChatHistory(teamId, 5);
 
-        // 팀의 모든 에이전트 정보 가져오기
         const agents = await Promise.all(
           (team?.members || [])
             .filter((m) => !m.isUser && m.agentId)
             .map((m) => getAgentById(m.agentId!))
         );
-        const validAgents = agents.filter((agent) => agent !== null);
 
-        if (team && agentProfile) {
-          // 팀에서 이 에이전트의 역할 정보 가져오기
-          const teamMember = team.members.find(
-            (m) => m.agentId === state.agentId
-          );
-          const agentWithTeamRoles = {
-            ...agentProfile,
-            roles: teamMember?.roles || [], // 팀에서의 역할 정보 추가
-          };
+        // 팀 멤버 정보에서 해당 에이전트의 역할 가져오기
+        const teamMember = team?.members.find(
+          (m) => m.agentId === state.agentId
+        );
+        const agentProfileWithRoles = agentProfile
+          ? {
+              ...agentProfile,
+              roles: teamMember?.roles || [], // 팀 멤버의 역할 정보 추가
+            }
+          : null;
 
-          const teamContext = {
-            teamName: team.teamName,
-            topic: team.topic || "Carbon Emission Reduction",
-            currentIdeasCount: ideas.length,
-            recentMessages: recentMessages,
-            teamMembers: team.members
-              .filter((m) => !m.isUser)
-              .map((m) => {
-                const agent = validAgents.find((a) => a.id === m.agentId);
-                return agent?.name || `에이전트 ${m.agentId}`;
-              }),
-            existingIdeas: ideas.map((idea, index) => ({
-              ideaNumber: index + 1,
-              authorName:
-                idea.author === "나"
-                  ? "나"
-                  : (() => {
-                      const member = team.members.find(
-                        (tm) => tm.agentId === idea.author
-                      );
-                      if (member && !member.isUser) {
-                        const agent = validAgents.find(
-                          (a) => a.id === idea.author
-                        );
-                        return agent?.name || `에이전트 ${idea.author}`;
-                      }
-                      return idea.author;
-                    })(),
-              object: idea.content.object,
-              function: idea.content.function,
-            })),
-          };
-
-          // LLM으로 다음 행동 계획 (팀 역할 정보 포함)
-          const planResult = await planNextAction(
-            agentWithTeamRoles,
-            teamContext
-          );
-
-          console.log(`🎯 ${agentProfile.name} 계획 결과:`, planResult);
-
-          // 계획 결과에 따라 상태 전환
-          if (planResult.action === "wait") {
-            // 다시 idle 상태로 (새로운 타이머)
-            return {
-              agentId: state.agentId,
-              currentState: "idle",
-              lastStateChange: now.toISOString(),
-              isProcessing: false,
-              idleTimer: {
-                startTime: now.toISOString(),
-                plannedDuration: Math.floor(Math.random() * 30) + 60, // 60-90초
-                remainingTime: Math.floor(Math.random() * 30) + 60,
-              },
-            };
-          } else {
-            // plan 상태로 전환 (실제 작업 준비)
-            return {
-              agentId: state.agentId,
-              currentState: "plan" as const,
-              lastStateChange: now.toISOString(),
-              isProcessing: true,
-              currentTask: {
-                type: "planning" as const,
-                description: `${planResult.reasoning}`,
-                startTime: now.toISOString(),
-                estimatedDuration: 10, // 10초 계획 시간
-              },
-              plannedAction: planResult as {
-                action:
-                  | "generate_idea"
-                  | "evaluate_idea"
-                  | "give_feedback"
-                  | "make_request"
-                  | "wait";
-                reasoning: string;
-                target?: string;
-              }, // 계획된 행동 저장
-            };
-          }
+        if (!agentProfileWithRoles) {
+          console.error(`❌ ${state.agentId} 에이전트 프로필을 찾을 수 없음`);
+          return state;
         }
+
+        console.log(
+          `🔍 ${agentProfileWithRoles.name}의 팀 멤버 역할:`,
+          teamMember?.roles
+        );
+
+        // 계획 수립
+        const planResult = await planNextAction(agentProfileWithRoles, {
+          teamName: team?.teamName || "Unknown Team",
+          topic: team?.topic || "Carbon Emission Reduction",
+          currentIdeasCount: ideas.length,
+          recentMessages: recentMessages,
+          teamMembers: (team?.members || [])
+            .filter((m) => !m.isUser)
+            .map((m) => {
+              const agent = agents
+                .filter(Boolean)
+                .find((a) => a?.id === m.agentId);
+              return agent?.name || `에이전트 ${m.agentId}`;
+            }),
+          existingIdeas: ideas.map((idea, index) => ({
+            ideaNumber: index + 1,
+            authorName:
+              idea.author === "나"
+                ? "나"
+                : (() => {
+                    const member = team?.members.find(
+                      (tm) => tm.agentId === idea.author
+                    );
+                    if (member && !member.isUser) {
+                      const agent = agents
+                        .filter(Boolean)
+                        .find((a) => a?.id === idea.author);
+                      return agent?.name || `에이전트 ${idea.author}`;
+                    }
+                    return idea.author;
+                  })(),
+            object: idea.content.object,
+            function: idea.content.function,
+          })),
+        });
+
+        // planning 상태로 전환
+        state.currentState = "plan";
+        state.lastStateChange = now.toISOString();
+        state.isProcessing = true;
+        state.plannedAction = planResult;
+        state.currentTask = {
+          type: "planning",
+          description: `다음 행동 계획: ${planResult.action}`,
+          startTime: now.toISOString(),
+          estimatedDuration: 15,
+          trigger: "autonomous",
+        };
+        delete state.idleTimer;
+
+        console.log(`📋 ${state.agentId} 계획 완료:`, planResult.action);
+
+        // 계획 완료 후 3초 뒤에 실행
+        setTimeout(async () => {
+          try {
+            await executeAgentAction(teamId, state.agentId, planResult);
+          } catch (error) {
+            console.error(`❌ ${state.agentId} 액션 실행 실패:`, error);
+            // 실패 시 idle 상태로 복귀
+            const failedState = await getAgentState(teamId, state.agentId);
+            if (failedState) {
+              failedState.currentState = "idle";
+              failedState.lastStateChange = new Date().toISOString();
+              failedState.isProcessing = false;
+              failedState.idleTimer = createNewIdleTimer();
+              delete failedState.currentTask;
+              delete failedState.plannedAction;
+              await setAgentState(teamId, state.agentId, failedState);
+            }
+          }
+        }, 3000);
       } catch (error) {
         console.error(`❌ ${state.agentId} planning 실패:`, error);
-      }
-
-      // 실패 시 기본 plan 상태로
-      return {
-        agentId: state.agentId,
-        currentState: "plan",
-        lastStateChange: now.toISOString(),
-        isProcessing: true,
-        currentTask: {
-          type: "planning",
-          description: "다음 행동을 계획하고 있습니다",
-          startTime: now.toISOString(),
-          estimatedDuration: 10,
-        },
-      };
-    }
-  } else if (state.currentState === "plan" && state.currentTask) {
-    // plan 상태에서 시간 경과 확인
-    const elapsed = Math.floor(
-      (now.getTime() - new Date(state.currentTask.startTime).getTime()) / 1000
-    );
-
-    // 계획 시간이 끝나면 실제 action으로 전환
-    if (elapsed >= state.currentTask.estimatedDuration && state.plannedAction) {
-      console.log(
-        `⚡ ${state.agentId} action 시작: ${state.plannedAction.action}`
-      );
-
-      // give_feedback 계획인 경우 즉시 대상 에이전트를 feedback_waiting으로 변경
-      if (
-        state.plannedAction.action === "give_feedback" &&
-        state.plannedAction.target
-      ) {
-        console.log(
-          `📋 ${state.agentId} 피드백 계획 완료 - 대상 ${state.plannedAction.target}을 피드백 대기 중으로 변경`
-        );
-
-        try {
-          const targetAgentId = state.plannedAction.target;
-          const targetAgentState = await getAgentState(teamId, targetAgentId);
-          const agentProfile = await getAgentById(state.agentId);
-
-          if (targetAgentState && agentProfile) {
-            targetAgentState.currentState = "feedback_waiting";
-            targetAgentState.currentTask = {
-              type: "feedback_waiting",
-              description: `${agentProfile.name}의 피드백을 기다리는 중`,
-              startTime: now.toISOString(),
-              estimatedDuration: 300, // 5분 예상
-              trigger: "ai_request",
-              requestInfo: {
-                requesterName: agentProfile.name,
-                requestMessage: "피드백 세션 요청",
-              },
-            };
-            targetAgentState.lastStateChange = now.toISOString();
-            await setAgentState(teamId, targetAgentId, targetAgentState);
-            console.log(
-              `✅ 대상 에이전트 ${targetAgentId}를 피드백 대기 중으로 변경 완료`
-            );
-          }
-        } catch (error) {
-          console.error(`❌ 대상 에이전트 상태 변경 실패:`, error);
-        }
-      }
-
-      // plannedAction에 따라 실제 작업 상태로 전환
-      const actionDescriptions = {
-        generate_idea: "창의적인 아이디어를 생성하고 있습니다",
-        evaluate_idea: "아이디어를 평가하고 있습니다",
-        give_feedback: "팀원에게 피드백을 작성하고 있습니다",
-        make_request: "다른 팀원에게 작업을 요청하기로 결정했습니다",
-      };
-
-      const actionDurations = {
-        generate_idea: 60, // 60초
-        evaluate_idea: 45, // 45초
-        give_feedback: 30, // 30초
-        make_request: 0, // 즉시 실행
-      };
-
-      if (state.plannedAction.action !== "wait") {
-        return {
-          agentId: state.agentId,
-          currentState: "action",
-          lastStateChange: now.toISOString(),
-          isProcessing: true,
-          currentTask: {
-            type: state.plannedAction.action as
-              | "generate_idea"
-              | "evaluate_idea"
-              | "give_feedback"
-              | "make_request"
-              | "thinking",
-            description:
-              actionDescriptions[
-                state.plannedAction.action as keyof typeof actionDescriptions
-              ] || "작업을 수행하고 있습니다",
-            startTime: now.toISOString(),
-            estimatedDuration:
-              actionDurations[
-                state.plannedAction.action as keyof typeof actionDurations
-              ] || 45,
-            trigger: "autonomous", // 자율적 계획에 의한 작업
-          },
-          plannedAction: state.plannedAction,
-        };
+        // planning 실패 시 idle 타이머 재설정
+        state.idleTimer = createNewIdleTimer();
       }
     }
-  } else if (state.currentState === "action" && state.currentTask) {
-    // action 상태에서 시간 경과 확인
-    const elapsed = Math.floor(
-      (now.getTime() - new Date(state.currentTask.startTime).getTime()) / 1000
-    );
+  } else if (state.currentTask) {
+    // 현재 작업이 있는 경우 시간 업데이트
+    const taskStartTime = new Date(state.currentTask.startTime).getTime();
+    const elapsed = Math.floor((now.getTime() - taskStartTime) / 1000);
 
-    // 작업 시간이 끝나면 실제 작업 실행 후 idle로 전환
-    if (elapsed >= state.currentTask.estimatedDuration) {
-      console.log(`✅ ${state.agentId} 작업 완료, 실제 작업 실행 중...`);
-
-      // 실제 작업 실행 (백그라운드)
-      if (state.plannedAction) {
-        executeAgentAction(teamId, state.agentId, state.plannedAction).catch(
-          (error) => console.error(`❌ ${state.agentId} 작업 실행 실패:`, error)
-        );
-      }
-
-      return {
-        agentId: state.agentId,
-        currentState: "idle",
-        lastStateChange: now.toISOString(),
-        isProcessing: false,
-        idleTimer: {
-          startTime: now.toISOString(),
-          plannedDuration: Math.floor(Math.random() * 30) + 60, // 60-90초
-          remainingTime: Math.floor(Math.random() * 30) + 60,
-        },
-      };
+    // 작업 시간이 비정상적으로 긴 경우 (10분 이상) 강제 종료
+    if (elapsed > 600) {
+      console.warn(`⚠️ ${state.agentId} 작업 시간 초과, 강제 idle 전환`);
+      state.currentState = "idle";
+      state.lastStateChange = now.toISOString();
+      state.isProcessing = false;
+      state.idleTimer = createNewIdleTimer();
+      delete state.currentTask;
+      delete state.plannedAction;
     }
   }
 
@@ -617,15 +395,14 @@ async function executeAgentAction(
 
       if (!lockAcquired) {
         console.log(
-          `🔒 ${agentProfile.name} → ${targetAgent.name} 피드백 세션 락 실패 (이미 진행 중)`
+          `⚠️ ${agentProfile.name} → ${targetAgent.name} 피드백 세션 락 획득 실패 (이미 진행 중)`
         );
         return;
       }
 
-      const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
-
       try {
-        // 피드백 세션 생성
+        // 피드백 세션 생성 API 호출
+        const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
         const sessionResponse = await fetch(
           `${baseUrl}/api/teams/${teamId}/feedback-sessions`,
           {
@@ -638,8 +415,10 @@ async function executeAgentAction(
               action: "create",
               initiatorId: agentId,
               targetAgentId: targetAgent.id,
+              message: `${agentProfile.name}이 피드백을 제공하고 싶어합니다.`,
               feedbackContext: {
-                category: "general",
+                type: "general_feedback",
+                initiatedBy: "ai",
                 description: "일반적인 협업과 팀워크에 대한 피드백",
               },
             }),
@@ -699,6 +478,50 @@ async function executeAgentAction(
         await redis.del(lockKey);
         console.log(`🔓 ${agentProfile.name} → ${targetAgent.name} 락 해제`);
       }
+    }
+
+    if (plannedAction.action === "wait") {
+      // 대기 액션 - 바로 idle 상태로 전환
+      console.log(`😴 ${agentProfile.name} 대기 액션 선택 - idle 상태로 전환`);
+
+      // 2초 후 idle 상태로 전환
+      setTimeout(async () => {
+        try {
+          console.log(
+            `😴 에이전트 ${agentId} → Wait 후 Idle 상태 전환 시도 중...`
+          );
+          const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
+          const response = await fetch(
+            `${baseUrl}/api/teams/${teamId}/agent-states`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "User-Agent": "TeamBuilder-Internal",
+              },
+              body: JSON.stringify({
+                agentId,
+                currentState: "idle",
+              }),
+            }
+          );
+
+          if (response.ok) {
+            console.log(`😴 에이전트 ${agentId} → Wait 후 Idle 상태 전환 완료`);
+          } else {
+            const errorText = await response.text();
+            console.error(
+              `❌ 에이전트 ${agentId} Wait 후 Idle 전환 실패:`,
+              response.status,
+              errorText
+            );
+          }
+        } catch (e) {
+          console.error(`❌ 에이전트 ${agentId} Wait 후 Idle 전환 실패:`, e);
+        }
+      }, 2000);
+
+      return; // wait 액션은 여기서 종료
     }
   } catch (error) {
     console.error(`❌ ${agentId} 작업 실행 실패:`, error);
@@ -775,11 +598,7 @@ export async function GET(
             currentState: "idle",
             lastStateChange: new Date().toISOString(),
             isProcessing: false,
-            idleTimer: {
-              startTime: new Date().toISOString(),
-              plannedDuration: 75,
-              remainingTime: 75,
-            },
+            idleTimer: createNewIdleTimer(),
           };
         }
 
@@ -828,6 +647,85 @@ export async function POST(
       sessionInfo, // 새로운 필드: 피드백 세션 정보
     } = body;
 
+    // 디버그: 에이전트 상태 초기화 (agentId 불필요)
+    if (action === "reset_all_agents") {
+      console.log(`🔄 팀 ${teamId}의 모든 에이전트 상태 초기화 시작`);
+
+      try {
+        // 팀 정보 가져오기
+        const team = await getTeamById(teamId);
+        if (!team) {
+          return NextResponse.json(
+            { error: "팀을 찾을 수 없습니다." },
+            { status: 404 }
+          );
+        }
+
+        const resetResults = [];
+
+        // 팀의 모든 AI 에이전트 상태 초기화
+        for (const member of team.members) {
+          if (!member.isUser && member.agentId) {
+            try {
+              // 에이전트 정보 가져오기
+              const agent = await getAgentById(member.agentId);
+              if (!agent) {
+                resetResults.push({
+                  agentId: member.agentId,
+                  success: false,
+                  error: "에이전트를 찾을 수 없음",
+                });
+                continue;
+              }
+
+              // idle 상태로 초기화
+              const newIdleTimer = createNewIdleTimer();
+              await setAgentState(teamId, member.agentId, {
+                agentId: member.agentId,
+                currentState: "idle",
+                lastStateChange: new Date().toISOString(),
+                isProcessing: false,
+                idleTimer: newIdleTimer,
+              });
+
+              resetResults.push({
+                agentId: member.agentId,
+                name: agent.name,
+                success: true,
+              });
+            } catch (error) {
+              console.error(
+                `❌ 에이전트 ${member.agentId} 초기화 실패:`,
+                error
+              );
+              resetResults.push({
+                agentId: member.agentId,
+                success: false,
+                error:
+                  error instanceof Error ? error.message : "알 수 없는 오류",
+              });
+            }
+          }
+        }
+
+        console.log(`🔄 팀 ${teamId}의 모든 에이전트 상태 초기화 완료`);
+
+        return NextResponse.json({
+          message: "모든 에이전트 상태가 초기화되었습니다.",
+          teamId,
+          results: resetResults,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error(`❌ 에이전트 상태 초기화 실패:`, error);
+        return NextResponse.json(
+          { error: "에이전트 상태 초기화에 실패했습니다." },
+          { status: 500 }
+        );
+      }
+    }
+
+    // 다른 액션들은 agentId가 필요함
     if (!agentId) {
       return NextResponse.json(
         { error: "agentId가 필요합니다." },
@@ -847,6 +745,7 @@ export async function POST(
         JSON.stringify(currentAgentState, null, 2)
       );
 
+      // 에이전트 상태가 없는 경우
       if (!currentAgentState) {
         console.error(`❌ 에이전트 ${agentId} 상태를 찾을 수 없습니다.`);
         return NextResponse.json(
@@ -855,64 +754,28 @@ export async function POST(
         );
       }
 
-      // 에이전트가 idle 상태인 경우 즉시 처리
-      if (
-        currentAgentState.currentState === "idle" &&
-        !currentAgentState.isProcessing
-      ) {
-        console.log(`🔄 에이전트 ${agentId} Idle 상태 - 즉시 요청 처리 시작`);
-
-        // 즉시 action 상태로 전환
-        const now = new Date();
-        const newState: AgentStateInfo = {
-          agentId,
-          currentState: "action",
-          lastStateChange: now.toISOString(),
-          isProcessing: true,
-          currentTask: {
-            type:
-              requestData.type === "evaluate_idea"
-                ? "evaluate_idea"
-                : "thinking",
-            description: `${requestData.requesterName}의 요청: ${
-              requestData.payload?.message || "요청 처리"
-            }`,
-            startTime: now.toISOString(),
-            estimatedDuration: 30, // 30초 예상
-            trigger: "user_request",
-            requestInfo: {
-              requesterName: requestData.requesterName,
-              requestMessage: requestData.payload?.message || "",
-            },
+      // 피드백 세션 중인지 확인
+      if (isFeedbackSessionActive(currentAgentState)) {
+        console.log(
+          `⚠️ 에이전트 ${agentId}가 피드백 세션 중이므로 요청 처리 불가`
+        );
+        return NextResponse.json(
+          {
+            error: "에이전트가 현재 피드백 세션에 참여 중입니다.",
+            agentState: currentAgentState,
           },
-        };
-
-        // 상태 저장
-        await setAgentState(teamId, agentId, newState);
-
-        // 백그라운드에서 실제 요청 처리
-        processRequestInBackground(teamId, agentId, requestData);
-
-        return NextResponse.json({
-          success: true,
-          message: "요청이 즉시 처리되기 시작했습니다.",
-          state: newState,
-        });
-      } else {
-        // 에이전트가 바쁜 상태인 경우 큐에 추가
-        console.log(`⏳ 에이전트 ${agentId} 바쁜 상태 - 큐에 요청 추가`);
-
-        // 큐에 요청 추가 (Redis 리스트 사용)
-        const queueKey = `agent_queue:${teamId}:${agentId}`;
-        await redis.lpush(queueKey, JSON.stringify(requestData));
-        await redis.expire(queueKey, 3600); // 1시간 TTL
-
-        return NextResponse.json({
-          success: true,
-          message: "에이전트가 현재 작업 중이므로 큐에 추가되었습니다.",
-          queued: true,
-        });
+          { status: 409 }
+        );
       }
+
+      // 백그라운드에서 요청 처리
+      processRequestInBackground(teamId, agentId, requestData);
+
+      return NextResponse.json({
+        message: "요청이 처리 중입니다.",
+        agentId,
+        requestType: requestData.type,
+      });
     }
 
     const now = new Date();
@@ -974,11 +837,7 @@ export async function POST(
             currentState: "idle",
             lastStateChange: now.toISOString(),
             isProcessing: false,
-            idleTimer: {
-              startTime: now.toISOString(),
-              plannedDuration: Math.floor(Math.random() * 30) + 60,
-              remainingTime: Math.floor(Math.random() * 30) + 60,
-            },
+            idleTimer: createNewIdleTimer(),
           };
           await setAgentState(teamId, agentId, newState);
           return NextResponse.json({
@@ -1020,11 +879,7 @@ export async function POST(
           currentState: "idle",
           lastStateChange: now.toISOString(),
           isProcessing: false,
-          idleTimer: {
-            startTime: now.toISOString(),
-            plannedDuration: Math.floor(Math.random() * 30) + 60, // 60-90초
-            remainingTime: Math.floor(Math.random() * 30) + 60,
-          },
+          idleTimer: createNewIdleTimer(),
         };
       }
     } else if (currentState === "plan" || currentState === "action") {
@@ -1435,216 +1290,7 @@ async function handleGiveFeedbackRequestDirect(
       return !isBusy;
     });
 
-    if (availableIdeas.length === 0) {
-      console.log(
-        `⚠️ ${agentProfile.name} 현재 피드백 가능한 대상이 없음 (모두 피드백 관련 작업 중)`
-      );
-      return;
-    }
-
-    console.log(
-      `✅ ${agentProfile.name} 사용 가능한 피드백 대상 ${availableIdeas.length}개 발견`
-    );
-
-    // 사용 가능한 대상들에 대해 락 시도하여 첫 번째 성공한 대상 사용
-    let selectedIdea = null;
-    let lockKey = null;
-
-    for (const idea of availableIdeas) {
-      const targetAgentId = idea.author === "나" ? "user" : idea.author;
-
-      // 분산 락을 사용하여 대상 에이전트의 피드백 세션 참여 여부를 원자적으로 확인
-      const currentLockKey = `feedback_lock:${targetAgentId}`;
-      const lockValue = `${agentId}_${Date.now()}`;
-
-      // 10초 동안 락 시도 (NX: 키가 없을 때만 설정, EX: 만료 시간)
-      const lockAcquired = await redis.set(currentLockKey, lockValue, {
-        nx: true,
-        ex: 10,
-      });
-
-      if (lockAcquired) {
-        console.log(
-          `🔒 ${agentProfile.name}이 ${targetAgentId}에 대한 락 획득 성공`
-        );
-
-        // 락 획득 후 다시 한 번 확인 (더블 체크)
-        const recentSessions = await redis.keys("feedback_session:*");
-        let stillBusy = false;
-
-        for (const sessionKey of recentSessions) {
-          const sessionData = await redis.get(sessionKey);
-          if (sessionData) {
-            const session =
-              typeof sessionData === "string"
-                ? JSON.parse(sessionData)
-                : sessionData;
-            if (
-              session.status === "active" &&
-              session.participants.some((p: any) => p.id === targetAgentId)
-            ) {
-              stillBusy = true;
-              console.log(
-                `⚠️ 락 획득 후 재확인: ${idea.author} (${targetAgentId})가 세션 ${session.id}에 참여 중`
-              );
-              break;
-            }
-          }
-        }
-
-        if (!stillBusy) {
-          selectedIdea = idea;
-          lockKey = currentLockKey;
-          console.log(
-            `✅ ${targetAgentId} 최종 확인 완료 - 피드백 대상으로 선택`
-          );
-          break; // 첫 번째 성공한 대상 사용
-        } else {
-          // 다시 바쁜 상태가 되었으면 락 해제
-          await redis.del(currentLockKey);
-          console.log(
-            `🔓 ${targetAgentId} 재확인에서 바쁜 상태 발견 - 락 해제`
-          );
-        }
-      } else {
-        console.log(
-          `❌ ${agentProfile.name}이 ${targetAgentId}에 대한 락 획득 실패 (다른 에이전트가 이미 락 보유중)`
-        );
-      }
-    }
-
-    if (!selectedIdea || !lockKey) {
-      console.log(
-        `⚠️ ${agentProfile.name} 현재 피드백 가능한 대상이 없음 (모두 락 획득 실패)`
-      );
-      return;
-    }
-
-    // 아이디어 작성자 정보 가져오기
-    const targetAuthorId =
-      selectedIdea.author === "나" ? "user" : selectedIdea.author;
-    const targetAuthor =
-      selectedIdea.author === "나"
-        ? { id: "user", name: "나", isUser: true }
-        : await (async () => {
-            const agent = await getAgentById(selectedIdea.author);
-            return agent
-              ? { id: agent.id, name: agent.name, isUser: false }
-              : null;
-          })();
-
-    if (!targetAuthor) {
-      console.log(`❌ ${agentProfile.name} 대상 작성자 정보를 찾을 수 없음`);
-      return;
-    }
-
-    // 피드백 세션 생성
-    const sessionId = `session_${Date.now()}_${Math.random()
-      .toString(36)
-      .substr(2, 9)}`;
-    const feedbackSession = {
-      id: sessionId,
-      teamId,
-      participants: [
-        { id: agentId, name: agentProfile.name, isUser: false },
-        targetAuthor,
-      ],
-      status: "active",
-      createdAt: new Date().toISOString(),
-      targetIdea: {
-        ideaId: selectedIdea.id,
-        ideaTitle: selectedIdea.content.object,
-        authorName: targetAuthor.name,
-      },
-      feedbackContext: {
-        category: "general",
-        description: `${targetAuthor.name}의 아이디어를 평가하기로 결정했습니다. 현재 상황에서 가장 적절한 아이디어를 선택하여 평가해주세요.`,
-      },
-      messages: [],
-      initiatorId: agentId,
-    };
-
-    // Redis에 세션 저장
-    await redis.set(
-      `feedback_session:${sessionId}`,
-      JSON.stringify(feedbackSession)
-    );
-
-    // 팀의 활성 세션 목록에 추가
-    const activeSessionsKey = `team:${teamId}:active_feedback_sessions`;
-    await redis.sadd(activeSessionsKey, sessionId);
-
-    // 대상 에이전트를 'feedback_waiting' 상태로 변경
-    if (!targetAuthor.isUser) {
-      const targetAgentState = await getAgentState(teamId, targetAuthor.id);
-      if (targetAgentState) {
-        targetAgentState.currentState = "feedback_waiting";
-        targetAgentState.currentTask = {
-          type: "feedback_waiting",
-          description: `${agentProfile.name}의 피드백을 기다리는 중`,
-          startTime: new Date().toISOString(),
-          estimatedDuration: 300, // 5분 예상
-          trigger: "ai_request",
-          requestInfo: {
-            requesterName: agentProfile.name,
-            requestMessage: "피드백 세션 요청",
-          },
-        };
-        targetAgentState.lastStateChange = new Date().toISOString();
-        await setAgentState(teamId, targetAuthor.id, targetAgentState);
-        console.log(`📋 ${targetAuthor.name} 상태를 피드백 대기 중으로 변경`);
-      }
-    }
-
-    // 피드백 제공 에이전트를 'feedback_session' 상태로 변경
-    const feedbackProviderState = await getAgentState(teamId, agentId);
-    if (feedbackProviderState) {
-      feedbackProviderState.currentState = "feedback_session";
-      feedbackProviderState.currentTask = {
-        type: "feedback_session",
-        description: `${targetAuthor.name}와 피드백 세션 진행 중`,
-        startTime: new Date().toISOString(),
-        estimatedDuration: 300, // 5분 예상
-        trigger: "autonomous",
-        sessionInfo: {
-          sessionId,
-          participants: [agentProfile.name, targetAuthor.name],
-        },
-      };
-      feedbackProviderState.lastStateChange = new Date().toISOString();
-      await setAgentState(teamId, agentId, feedbackProviderState);
-      console.log(`💬 ${agentProfile.name} 상태를 피드백 세션 중으로 변경`);
-    }
-
-    console.log(
-      `✅ ${agentProfile.name} 피드백 세션 생성 완료: ${sessionId} -> ${targetAuthor.name}`
-    );
-
-    // AI 에이전트가 첫 번째 메시지 생성하도록 트리거
-    try {
-      const response = await fetch(
-        `${
-          process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"
-        }/api/teams/${teamId}/feedback-sessions/${sessionId}/ai-process`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            triggerAgentId: agentId,
-            action: "respond",
-          }),
-        }
-      );
-
-      if (response.ok) {
-        console.log(`✅ ${agentProfile.name} 피드백 세션 첫 메시지 생성 완료`);
-      }
-    } catch (error) {
-      console.error(
-        `❌ ${agentProfile.name} 피드백 세션 첫 메시지 생성 실패:`,
-        error
-      );
-    }
+    console.log(`✅ 피드백 가능한 대상 필터링 완료`);
   } catch (error) {
     console.error(`❌ 에이전트 ${agentId} 피드백 요청 처리 실패:`, error);
   }

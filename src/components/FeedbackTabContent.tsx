@@ -29,6 +29,10 @@ export default function FeedbackTabContent({
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [sessionEnded, setSessionEnded] = useState(false);
+  const [endReason, setEndReason] = useState<string | null>(null);
+  const [isUserEnded, setIsUserEnded] = useState(false);
+  const [isEndingSession, setIsEndingSession] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -53,8 +57,88 @@ export default function FeedbackTabContent({
     }
   }, [tab]);
 
+  // 실시간 메시지 업데이트를 위한 폴링
+  useEffect(() => {
+    if (!tab.id || sessionEnded || isEndingSession) return; // 종료 상태에서는 폴링하지 않음
+
+    const pollMessages = async () => {
+      // 종료 상태라면 폴링 중단
+      if (sessionEnded || isEndingSession) return;
+
+      try {
+        const response = await fetch(
+          `/api/teams/${teamId}/feedback-sessions?sessionId=${tab.id}`
+        );
+        if (response.ok) {
+          const result = await response.json();
+          if (result.session && result.session.messages) {
+            // 시스템 메시지 제외하고 실제 대화 메시지만 표시
+            const chatMessages = result.session.messages
+              .filter((msg: any) => msg.type === "message")
+              .map((msg: any) => ({
+                id: msg.id,
+                sender: msg.sender,
+                content: msg.content,
+                timestamp: msg.timestamp,
+                type: "feedback",
+              }));
+
+            console.log(`🔄 피드백 세션 ${tab.id} 메시지 업데이트:`, {
+              totalMessages: result.session.messages.length,
+              chatMessages: chatMessages.length,
+              currentMessages: messages.length,
+            });
+
+            // 새로운 메시지가 있을 때만 업데이트
+            if (chatMessages.length !== messages.length) {
+              setMessages(chatMessages);
+            }
+
+            // 세션이 종료되었다면 상태 업데이트 (사용자가 종료한 경우가 아닐 때만)
+            if (
+              (result.session.status === "ended" ||
+                result.session.status === "completed") &&
+              !isUserEnded
+            ) {
+              console.log(`✅ 피드백 세션 ${tab.id} AI에 의해 종료됨`);
+              setSessionEnded(true);
+              setEndReason("AI가 대화를 종료했습니다.");
+
+              // 3초 후 자동으로 탭 닫기
+              setTimeout(() => {
+                onClose();
+              }, 3000);
+            }
+          }
+        } else {
+          console.error("피드백 세션 조회 실패:", response.status);
+        }
+      } catch (error) {
+        console.error("피드백 세션 메시지 폴링 실패:", error);
+      }
+    };
+
+    // 초기 로드
+    pollMessages();
+
+    // 세션이 종료되지 않았을 때만 폴링
+    if (!sessionEnded && !isEndingSession) {
+      // 500ms마다 폴링 (더 빠른 업데이트)
+      const interval = setInterval(pollMessages, 500);
+      return () => clearInterval(interval);
+    }
+  }, [
+    tab.id,
+    teamId,
+    onClose,
+    messages.length,
+    sessionEnded,
+    isUserEnded,
+    isEndingSession,
+  ]);
+
   const handleSendMessage = async () => {
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() || sessionEnded) return;
 
     const userMessage = {
       id: `msg-${Date.now()}`,
@@ -79,13 +163,17 @@ export default function FeedbackTabContent({
           action: "send_message",
           sessionId: tab.id,
           message: userMessage.content,
-          participantId: tab.participantId,
+          senderId: "나",
         }),
       });
 
       if (response.ok) {
         // 성공적으로 전송됨
         console.log("피드백 메시지 전송 완료");
+        const result = await response.json();
+        console.log("AI 응답 트리거됨:", result);
+      } else {
+        console.error("피드백 메시지 전송 실패:", response.status);
       }
     } catch (error) {
       console.error("피드백 메시지 전송 실패:", error);
@@ -95,6 +183,18 @@ export default function FeedbackTabContent({
   };
 
   const handleEndSession = async () => {
+    // 이미 종료 요청 중이거나 세션이 종료되었다면 중복 요청 방지
+    if (isEndingSession || sessionEnded) return;
+
+    setIsEndingSession(true);
+    setIsUserEnded(true);
+    setSessionEnded(true);
+    setEndReason("대화가 종료되었습니다.");
+
+    // 즉시 탭 닫기
+    onClose();
+
+    // 백그라운드에서 세션 종료 API 호출
     try {
       const response = await fetch(`/api/teams/${teamId}/feedback-sessions`, {
         method: "POST",
@@ -102,17 +202,21 @@ export default function FeedbackTabContent({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          action: "end_session",
+          action: "end",
           sessionId: tab.id,
-          participantId: tab.participantId,
+          endedBy: "user", // 사용자가 종료했음을 명시
         }),
       });
 
       if (response.ok) {
-        onClose();
+        console.log("피드백 세션 종료 완료");
+      } else {
+        console.error("피드백 세션 종료 실패:", response.status);
       }
     } catch (error) {
       console.error("피드백 세션 종료 실패:", error);
+    } finally {
+      setIsEndingSession(false);
     }
   };
 
@@ -139,16 +243,41 @@ export default function FeedbackTabContent({
             variant="outline"
             size="sm"
             className="text-orange-600 border-orange-300 hover:bg-orange-100"
+            disabled={sessionEnded || isEndingSession}
           >
-            세션 종료
+            {isEndingSession ? "종료 중..." : "피드백 종료"}
           </Button>
         </div>
       </div>
+
+      {/* 세션 종료 알림 */}
+      {sessionEnded && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg mx-4 mb-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-red-500 rounded-full"></div>
+              <span className="text-red-800 font-medium">{endReason}</span>
+            </div>
+            <Button
+              onClick={onClose}
+              variant="outline"
+              size="sm"
+              className="text-red-600 border-red-300 hover:bg-red-100"
+            >
+              닫기
+            </Button>
+          </div>
+          <div className="text-xs text-red-600 mt-2">
+            3초 후 자동으로 닫힙니다.
+          </div>
+        </div>
+      )}
 
       {/* 메시지 목록 */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message) => {
           const isMyMessage = message.sender === "나";
+          const senderName = isMyMessage ? "나" : tab.participantName;
 
           return (
             <div
@@ -162,7 +291,7 @@ export default function FeedbackTabContent({
               >
                 {!isMyMessage && (
                   <div className="text-xs text-gray-500 mb-1 px-3">
-                    {tab.participantName} •{" "}
+                    {senderName} •{" "}
                     {new Date(message.timestamp).toLocaleTimeString()}
                   </div>
                 )}
@@ -206,23 +335,23 @@ export default function FeedbackTabContent({
       {/* 메시지 입력 */}
       <div className="p-4 border-t border-gray-200 bg-white">
         <div className="flex gap-2">
-          <Input
+          <input
+            type="text"
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
-            placeholder={`${tab.participantName}에게 메시지를 보내세요...`}
-            onKeyPress={(e) =>
-              e.key === "Enter" && !isLoading && handleSendMessage()
+            onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+            placeholder={
+              sessionEnded ? "세션이 종료되었습니다." : "메시지를 입력하세요..."
             }
-            className="flex-1"
-            disabled={isLoading}
+            disabled={isLoading || sessionEnded}
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
           />
           <Button
             onClick={handleSendMessage}
-            size="icon"
-            disabled={!newMessage.trim() || isLoading}
-            className="self-center"
+            disabled={!newMessage.trim() || isLoading || sessionEnded}
+            className="px-6 bg-orange-500 hover:bg-orange-600 text-white"
           >
-            <Send className="w-4" />
+            {isLoading ? "전송 중..." : "전송"}
           </Button>
         </div>
       </div>

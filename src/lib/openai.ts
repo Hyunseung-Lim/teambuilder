@@ -312,7 +312,31 @@ export async function planNextAction(
   reasoning: string;
   target?: string;
 }> {
+  // 역할 확인 헬퍼 함수
+  const agentRoles = userProfile.roles || [];
+  const hasRole = (roleName: string) => {
+    if (!agentRoles) return false;
+    if (Array.isArray(agentRoles)) {
+      return agentRoles.includes(roleName);
+    }
+    if (typeof agentRoles === "string") {
+      return agentRoles.includes(roleName);
+    }
+    return false;
+  };
+
   try {
+    console.log(
+      `🔍 ${userProfile.name} 프로필 전체 디버깅:`,
+      JSON.stringify(userProfile, null, 2)
+    );
+    console.log(
+      `🔍 ${userProfile.name}의 역할 배열 타입:`,
+      typeof agentRoles,
+      Array.isArray(agentRoles)
+    );
+    console.log(`🔍 ${userProfile.name}의 역할 내용:`, agentRoles);
+
     const prompt = createPlanningPrompt(userProfile, teamContext);
 
     const completion = await openai.chat.completions.create({
@@ -349,17 +373,16 @@ export async function planNextAction(
       throw new Error(`Invalid action: ${planResult.action}`);
     }
 
-    // 🔥 역할 기반 필터링 추가
-    const agentRoles = userProfile.roles || [];
-
     // 에이전트가 수행할 수 없는 행동인지 확인
     if (
       planResult.action === "generate_idea" &&
-      !agentRoles.includes("아이디어 생성하기")
+      !hasRole("아이디어 생성하기")
     ) {
       console.log(
         `⚠️ ${userProfile.name}은 아이디어 생성 역할이 없어서 대기로 변경`
       );
+      console.log(`🔍 ${userProfile.name}의 실제 역할:`, agentRoles);
+      console.log(`🔍 확인하려는 역할: "아이디어 생성하기"`);
       return {
         action: "wait",
         reasoning: `아이디어 생성 역할이 없어서 대기합니다. (원래 계획: ${planResult.reasoning})`,
@@ -368,33 +391,33 @@ export async function planNextAction(
 
     if (
       planResult.action === "evaluate_idea" &&
-      !agentRoles.includes("아이디어 평가하기")
+      !hasRole("아이디어 평가하기")
     ) {
       console.log(
         `⚠️ ${userProfile.name}은 아이디어 평가 역할이 없어서 대기로 변경`
       );
+      console.log(`🔍 ${userProfile.name}의 실제 역할:`, agentRoles);
+      console.log(`🔍 확인하려는 역할: "아이디어 평가하기"`);
       return {
         action: "wait",
         reasoning: `아이디어 평가 역할이 없어서 대기합니다. (원래 계획: ${planResult.reasoning})`,
       };
     }
 
-    if (
-      planResult.action === "give_feedback" &&
-      !agentRoles.includes("피드백하기")
-    ) {
+    if (planResult.action === "give_feedback" && !hasRole("피드백하기")) {
       console.log(`⚠️ ${userProfile.name}은 피드백 역할이 없어서 대기로 변경`);
+      console.log(`🔍 ${userProfile.name}의 실제 역할:`, agentRoles);
+      console.log(`🔍 확인하려는 역할: "피드백하기"`);
       return {
         action: "wait",
         reasoning: `피드백 역할이 없어서 대기합니다. (원래 계획: ${planResult.reasoning})`,
       };
     }
 
-    if (
-      planResult.action === "make_request" &&
-      !agentRoles.includes("요청하기")
-    ) {
+    if (planResult.action === "make_request" && !hasRole("요청하기")) {
       console.log(`⚠️ ${userProfile.name}은 요청 역할이 없어서 대기로 변경`);
+      console.log(`🔍 ${userProfile.name}의 실제 역할:`, agentRoles);
+      console.log(`🔍 확인하려는 역할: "요청하기"`);
       return {
         action: "wait",
         reasoning: `요청 역할이 없어서 대기합니다. (원래 계획: ${planResult.reasoning})`,
@@ -415,14 +438,14 @@ export async function planNextAction(
     console.error("Planning 실패:", error);
 
     // 실패 시 기본 행동 (역할에 따라)
-    if (userProfile.roles?.includes("아이디어 생성하기")) {
+    if (hasRole("아이디어 생성하기")) {
       return {
         action: "generate_idea",
         reasoning:
           "Default action due to planning error - generating idea based on role",
       };
     } else if (
-      userProfile.roles?.includes("아이디어 평가하기") &&
+      hasRole("아이디어 평가하기") &&
       teamContext.currentIdeasCount > 0
     ) {
       return {
@@ -430,7 +453,7 @@ export async function planNextAction(
         reasoning:
           "Default action due to planning error - evaluating ideas based on role",
       };
-    } else if (userProfile.roles?.includes("요청하기")) {
+    } else if (hasRole("요청하기")) {
       return {
         action: "make_request",
         reasoning:
@@ -704,6 +727,21 @@ export async function generateFeedbackSessionResponse(
     const { otherParticipant, messageHistory, feedbackContext, teamIdeas } =
       sessionContext;
 
+    // 현재 메시지 수 확인 (system 메시지 제외하고 실제 대화 메시지만)
+    const actualMessageCount = messageHistory.filter(
+      (msg) => msg.type === "message"
+    ).length;
+
+    console.log(`🔍 피드백 세션 메시지 수 확인:`, {
+      totalMessages: messageHistory.length,
+      actualMessages: actualMessageCount,
+      agent: agent.name,
+    });
+
+    // 최소 대화 횟수 미만이면 강제로 계속 진행
+    const minMessages = 4; // 최소 4개 메시지 (사용자 1회 + AI 1회 + 사용자 1회 + AI 1회)
+    const shouldForceContinue = actualMessageCount < minMessages;
+
     // 메모리 컨텍스트 생성
     const memoryContext = agentMemory ? formatMemoryForPrompt(agentMemory) : "";
 
@@ -724,6 +762,7 @@ export async function generateFeedbackSessionResponse(
     const conversationHistory =
       messageHistory.length > 0
         ? `\n## 대화 기록\n${messageHistory
+            .filter((msg) => msg.type === "message")
             .map(
               (msg) =>
                 `${msg.sender === agent.id ? "나" : otherParticipant.name}: ${
@@ -733,9 +772,14 @@ export async function generateFeedbackSessionResponse(
             .join("\n")}\n`
         : "\n## 대화 기록\n아직 대화가 시작되지 않았습니다.\n";
 
+    // 종료 조건 가이드라인 생성
+    const endingGuideline = shouldForceContinue
+      ? `\n## 중요: 대화 지속 필수\n현재 대화가 ${actualMessageCount}개 메시지만 주고받아졌습니다. 피드백 세션은 최소한 ${minMessages}개의 메시지가 오간 후에 종료할 수 있습니다. 반드시 대화를 계속 진행하세요. (shouldEnd: false로 설정 필수)\n`
+      : `\n## 대화 종료 판단\n현재까지 ${actualMessageCount}개의 메시지가 주고받아졌습니다. 충분한 피드백이 오갔다고 판단되면 자연스럽게 마무리할 수 있습니다.\n`;
+
     const prompt = `당신은 ${agent.name}입니다.\n\n## 상황\n현재 ${
       otherParticipant.name
-    }와 피드백 세션에 참여하고 있습니다.\n${feedbackGuideline}\n${conversationHistory}\n${memoryContext}\n${teamIdeasContext}\n\n## 성격과 역할\n- 이름: ${
+    }와 피드백 세션에 참여하고 있습니다.\n${feedbackGuideline}\n${conversationHistory}\n${memoryContext}\n${teamIdeasContext}\n${endingGuideline}\n\n## 성격과 역할\n- 이름: ${
       agent.name
     }\n- 나이: ${agent.age}세\n- 성별: ${agent.gender}\n- 직업: ${
       agent.professional
@@ -743,10 +787,20 @@ export async function generateFeedbackSessionResponse(
       agent.personality || "협력적이고 건설적"
     }\n- 가치관: ${
       agent.value || "팀워크와 혁신을 중시"
-    }\n\n## 피드백 세션 가이드라인\n1. 자연스럽고 친근한 대화체를 사용하세요\n2. 상대방의 전문성과 의견을 존중하며 대화하세요\n3. 구체적이고 실용적인 피드백을 제공하세요\n4. 개인적인 경험이나 예시를 들어 설명하세요\n5. 질문을 통해 상대방의 생각을 더 깊이 이해하려 노력하세요\n6. 대화가 자연스럽게 마무리될 시점을 판단하세요\n7. 특정 아이디어에 국한되지 말고 전반적인 협업과 창의성에 대해 이야기하세요\n\n## 대화 스타일\n- 존댓말보다는 편안한 반말 사용 (동료 간의 친근한 대화)\n- \"어떻게 생각해?\", \"내 경험으로는...\", \"그 부분이 정말 흥미롭네\" 같은 자연스러운 표현\n- 너무 길지 않고 간결하면서도 의미 있는 응답\n- 상대방과의 협업과 창의적 사고에 대해 진심으로 관심을 보이기\n\n## 세션 종료 판단 기준\n다음 중 하나에 해당하면 세션을 종료해야 합니다:\n- 피드백이 충분히 주고받아졌을 때\n- 대화가 반복되거나 더 이상 진전이 없을 때\n- 양측이 만족스러운 결론에 도달했을 때\n- 메시지가 6개 이상 주고받아졌을 때\n\n다음 JSON 형식으로 응답하세요:\n{\n  \"response\": \"피드백 세션에서의 응답 (한국어, 1-3문장)\",\n  \"shouldEnd\": true/false,\n  \"reasoning\": \"세션을 종료하거나 계속하는 이유\"\n}`;
+    }\n\n## 피드백 세션 가이드라인\n1. 상대방의 전문성과 의견을 존중하며 대화하세요\n2. 구체적이고 실용적인 피드백을 제공하세요\n3. 질문을 통해 상대방의 생각을 더 깊이 이해하려 노력하세요\n4. 상대방의 가장 최근 메시지에 직접적으로 답변하되, 답변을 생성할 때 자신의 메모리와 과거 경험을 적극적으로 활용하세요\n\n## 대화 스타일\n- 상대와의 관계를 고려한 대화 스타일\n- 너무 길지 않고 간결하면서도 의미 있는 응답\n- 상대방과의 협업과 창의적 사고에 대해 진심으로 관심을 보이기\n- 메모리에 있는 과거 상호작용, 자기 성찰, 관계 정보를 바탕으로 개인화된 응답 제공\n\n## 세션 종료 판단 기준\n${
+      shouldForceContinue
+        ? "**중요: 현재는 대화를 계속 진행해야 합니다. shouldEnd를 반드시 false로 설정하세요.**"
+        : `다음 중 하나에 해당하면 세션을 종료할 수 있습니다:
+- 피드백이 충분히 주고받아졌을 때 (최소 ${minMessages}개 메시지 이후)
+- 대화가 반복되거나 더 이상 진전이 없을 때
+- 양측이 만족스러운 결론에 도달했을 때
+- 메시지가 8개 이상 주고받아졌을 때`
+    }\n\n다음 JSON 형식으로 응답하세요:\n{\n  \"response\": \"피드백 세션에서의 응답 (한국어, 1-3문장)\",\n  \"shouldEnd\": ${
+      shouldForceContinue ? "false" : "true/false"
+    },\n  \"reasoning\": \"세션을 종료하거나 계속하는 이유\"\n}`;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.8,
       max_tokens: 1000,
@@ -757,21 +811,51 @@ export async function generateFeedbackSessionResponse(
       throw new Error("OpenAI 응답이 비어있습니다");
     }
 
-    const parsed = JSON.parse(result);
+    // ```json으로 감싸진 응답 처리
+    let jsonString = result.trim();
+    if (jsonString.startsWith("```json")) {
+      jsonString = jsonString.replace(/^```json\s*/, "").replace(/\s*```$/, "");
+    } else if (jsonString.startsWith("```")) {
+      jsonString = jsonString.replace(/^```\s*/, "").replace(/\s*```$/, "");
+    }
+
+    const parsed = JSON.parse(jsonString);
+
+    // 강제로 계속 진행해야 하는 경우 shouldEnd를 false로 override
+    const finalShouldEnd = shouldForceContinue
+      ? false
+      : parsed.shouldEnd || false;
+
+    console.log(`🎯 피드백 세션 응답 결과:`, {
+      agent: agent.name,
+      messageCount: actualMessageCount,
+      shouldForceContinue,
+      originalShouldEnd: parsed.shouldEnd,
+      finalShouldEnd,
+      reasoning: parsed.reasoning,
+    });
 
     return {
       response: parsed.response || "피드백을 공유하고 싶습니다.",
-      shouldEnd: parsed.shouldEnd || false,
-      reasoning: parsed.reasoning || "계속 대화하기로 결정",
+      shouldEnd: finalShouldEnd,
+      reasoning: shouldForceContinue
+        ? `대화 지속 필요 (현재 ${actualMessageCount}개 메시지, 최소 ${minMessages}개 필요)`
+        : parsed.reasoning || "계속 대화하기로 결정",
     };
   } catch (error) {
     console.error("AI 피드백 세션 응답 생성 실패:", error);
 
+    // 현재 메시지 수를 기반으로 기본값 결정
+    const actualMessageCount = sessionContext.messageHistory.filter(
+      (msg) => msg.type === "message"
+    ).length;
+    const shouldEndDefault = actualMessageCount >= 6; // 6개 이상이면 종료
+
     // 기본값 반환
     return {
       response: "좋은 의견 감사합니다. 더 자세히 이야기해보면 좋을 것 같아요.",
-      shouldEnd: sessionContext.messageHistory.length >= 6, // 6개 이상이면 종료
-      reasoning: "안전한 기본 응답",
+      shouldEnd: shouldEndDefault,
+      reasoning: `안전한 기본 응답 (메시지 수: ${actualMessageCount})`,
     };
   }
 }
@@ -814,7 +898,7 @@ ${messagesText}
 }`;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       messages: [{ role: "user", content: prompt }],
       temperature: 0.7,
       max_tokens: 1000,
@@ -825,7 +909,15 @@ ${messagesText}
       throw new Error("OpenAI 응답이 비어있습니다");
     }
 
-    const parsed = JSON.parse(result);
+    // ```json으로 감싸진 응답 처리
+    let jsonString = result.trim();
+    if (jsonString.startsWith("```json")) {
+      jsonString = jsonString.replace(/^```json\s*/, "").replace(/\s*```$/, "");
+    } else if (jsonString.startsWith("```")) {
+      jsonString = jsonString.replace(/^```\s*/, "").replace(/\s*```$/, "");
+    }
+
+    const parsed = JSON.parse(jsonString);
 
     return {
       summary: parsed.summary || "피드백 세션이 완료되었습니다.",

@@ -719,32 +719,122 @@ export default function IdeationPage() {
   };
 
   // 탭 관리 함수들
-  const createFeedbackTab = (
+  const createFeedbackTab = async (
     participantId: string,
     participantName: string,
     type: "user_to_ai" | "ai_to_user",
     sessionData?: any
   ) => {
-    const tabId = `feedback-${Date.now()}-${participantId}`;
-    const newTab = {
-      id: tabId,
-      name: `${participantName}와의 피드백`,
-      participantId,
-      participantName,
-      type,
-      sessionData,
-      isActive: true,
-    };
+    try {
+      console.log("🔄 피드백 세션 생성 시작:", {
+        participantId,
+        participantName,
+        type,
+        message: sessionData?.message,
+      });
 
-    setFeedbackTabs((prev) => [...prev, newTab]);
-    setActiveTab(tabId);
-    return tabId;
+      // 백엔드에 피드백 세션 생성 요청
+      const response = await fetch(`/api/teams/${team?.id}/feedback-sessions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "create",
+          initiatorId: "나",
+          targetAgentId: participantId,
+          message: sessionData?.message,
+          feedbackContext: {
+            type: "general_feedback",
+            initiatedBy: "user",
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+
+        if (response.status === 409 && errorData.busy) {
+          // 에이전트가 바쁜 경우 토스트 메시지 표시
+          const toastMessage = `${participantName}는 현재 다른 피드백 세션에 참여 중입니다. 잠시 후 다시 시도해주세요.`;
+
+          // 간단한 토스트 알림 (브라우저 기본 alert 사용)
+          alert(toastMessage);
+
+          console.log(
+            `⚠️ ${participantName} 피드백 세션 생성 실패: 에이전트 바쁨`
+          );
+          return null;
+        }
+
+        throw new Error(`피드백 세션 생성 실패: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log("✅ 피드백 세션 생성 완료:", result.sessionId);
+
+      // 프론트엔드 탭 생성
+      const tabId = result.sessionId; // 백엔드에서 생성된 실제 세션 ID 사용
+      const newTab = {
+        id: tabId,
+        name: `${participantName}와의 피드백`,
+        participantId,
+        participantName,
+        type,
+        sessionData: {
+          ...sessionData,
+          realSessionId: result.sessionId, // 실제 세션 ID 저장
+        },
+        isActive: true,
+      };
+
+      setFeedbackTabs((prev) => [...prev, newTab]);
+      setActiveTab(tabId);
+      return tabId;
+    } catch (error) {
+      console.error("❌ 피드백 세션 생성 실패:", error);
+      // 에러 발생 시 사용자에게 알림
+      alert("피드백 세션 생성에 실패했습니다. 다시 시도해주세요.");
+      return null;
+    }
   };
 
-  const closeFeedbackTab = (tabId: string) => {
+  const closeFeedbackTab = async (tabId: string) => {
+    try {
+      // 백엔드 세션 종료 요청
+      const response = await fetch(`/api/teams/${team?.id}/feedback-sessions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          action: "end",
+          sessionId: tabId,
+        }),
+      });
+
+      if (response.ok) {
+        console.log(`✅ 피드백 세션 ${tabId} 백엔드 종료 완료`);
+      } else {
+        console.warn(
+          `⚠️ 피드백 세션 ${tabId} 백엔드 종료 실패:`,
+          response.status
+        );
+      }
+    } catch (error) {
+      console.error(`❌ 피드백 세션 ${tabId} 백엔드 종료 오류:`, error);
+    }
+
+    // 프론트엔드 탭 제거
     setFeedbackTabs((prev) => prev.filter((tab) => tab.id !== tabId));
+
+    // 현재 활성 탭이 닫히는 탭이면 메인으로 전환하고 스크롤
     if (activeTab === tabId) {
       setActiveTab("main");
+      // 메인 채팅으로 돌아갈 때 최하단으로 스크롤
+      setTimeout(() => {
+        scrollToBottom();
+      }, 100); // DOM 업데이트 후 스크롤
     }
   };
 
@@ -1212,7 +1302,7 @@ export default function IdeationPage() {
 
     // 피드백 모드일 때는 피드백 세션 탭을 생성하고 리턴
     if (chatMode === "give_feedback") {
-      const tabId = createFeedbackTab(
+      const tabId = await createFeedbackTab(
         mentionedAgent.id,
         mentionedAgent.name,
         "user_to_ai",
@@ -1222,11 +1312,13 @@ export default function IdeationPage() {
         }
       );
 
-      // 입력 필드 초기화
-      setNewMessage("");
-      setMentionedAgent(null);
-      setChatMode("give_feedback");
-      setRequestType(null);
+      // 탭 생성에 성공한 경우에만 입력 필드 초기화
+      if (tabId) {
+        setNewMessage("");
+        setMentionedAgent(null);
+        setChatMode("give_feedback");
+        setRequestType(null);
+      }
       return;
     }
 
@@ -1536,11 +1628,47 @@ export default function IdeationPage() {
 
         setActiveFeedbackSessions(activeSessions.map((s: any) => s.id));
 
-        // 사용자가 참여중인 세션이 있는지 확인
-        const userParticipating = activeSessions.some((session: any) =>
-          session.participants.some((p: any) => p.id === "user" || p.isUser)
+        // 사용자가 참여중인 세션이 있는지 확인하되, 실제로 탭이 열려있는 경우만 채크
+        const userParticipatingInActiveSessions = activeSessions.some(
+          (session: any) =>
+            session.participants.some((p: any) => p.id === "user" || p.isUser)
         );
-        setUserInFeedbackSession(userParticipating);
+
+        // 실제 프론트엔드에서 사용자가 피드백 탭을 열고 있는지 확인
+        const hasUserFeedbackTab = feedbackTabs.some(
+          (tab) =>
+            (tab.type === "user_to_ai" || tab.type === "ai_to_user") &&
+            activeSessions.some((session: any) => session.id === tab.id)
+        );
+
+        // 백엔드에 활성 세션이 있지만 프론트엔드에 탭이 없는 경우, 해당 세션들을 정리
+        if (userParticipatingInActiveSessions && !hasUserFeedbackTab) {
+          console.log("🧹 백엔드에 남은 사용자 피드백 세션을 정리합니다.");
+
+          // 사용자가 참여한 활성 세션들을 종료
+          const userSessions = activeSessions.filter((session: any) =>
+            session.participants.some((p: any) => p.id === "user" || p.isUser)
+          );
+
+          for (const session of userSessions) {
+            try {
+              await fetch(`/api/teams/${team.id}/feedback-sessions`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  action: "end",
+                  sessionId: session.id,
+                }),
+              });
+              console.log(`✅ 세션 ${session.id} 정리 완료`);
+            } catch (error) {
+              console.error(`❌ 세션 ${session.id} 정리 실패:`, error);
+            }
+          }
+        }
+
+        // 실제로 피드백 탭이 열려있는 경우만 채팅 차단
+        setUserInFeedbackSession(hasUserFeedbackTab);
 
         // AI 간 피드백 세션 정보 업데이트 (사용자가 참여하지 않은 세션만)
         const aiSessions = activeSessions
@@ -1558,14 +1686,16 @@ export default function IdeationPage() {
         console.log("🔍 활성 피드백 세션 확인:", {
           totalSessions: data.sessions?.length || 0,
           activeSessions: activeSessions.length,
-          userParticipating,
+          userParticipatingInActiveSessions,
+          hasUserFeedbackTab,
+          finalUserInFeedbackSession: hasUserFeedbackTab,
           aiSessionCount: aiSessions.length,
         });
       }
     } catch (error) {
       console.error("활성 피드백 세션 확인 실패:", error);
     }
-  }, [team?.id]);
+  }, [team?.id, feedbackTabs]);
 
   // 주기적으로 피드백 세션 상태 확인
   useEffect(() => {
@@ -1640,14 +1770,62 @@ export default function IdeationPage() {
             </div>
 
             {/* 피드백 세션 상태 표시 */}
-            {userInFeedbackSession && (
+            {feedbackTabs.length > 0 && (
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
                 <span className="text-xs text-orange-600 font-medium">
-                  피드백 세션 진행 중
+                  피드백 세션 진행 중 ({feedbackTabs.length}개 탭)
                 </span>
               </div>
             )}
+
+            {/* 디버그 버튼 */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                if (confirm("모든 에이전트 상태를 초기화하시겠습니까?")) {
+                  try {
+                    const response = await fetch(
+                      `/api/teams/${team?.id}/agent-states`,
+                      {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({
+                          action: "reset_all_agents",
+                        }),
+                      }
+                    );
+
+                    if (response.ok) {
+                      const result = await response.json();
+                      alert(
+                        `에이전트 상태 초기화 완료!\n성공: ${
+                          result.results.filter(
+                            (r: any) => r.status === "success"
+                          ).length
+                        }개\n실패: ${
+                          result.results.filter(
+                            (r: any) => r.status === "error"
+                          ).length
+                        }개`
+                      );
+                    } else {
+                      const error = await response.json();
+                      alert(`초기화 실패: ${error.error}`);
+                    }
+                  } catch (error) {
+                    console.error("에이전트 상태 초기화 실패:", error);
+                    alert("초기화 중 오류가 발생했습니다.");
+                  }
+                }
+              }}
+              className="text-xs"
+            >
+              🔄 상태 초기화
+            </Button>
 
             <div className="text-sm text-gray-600">
               {team.members.length}명의 팀원
@@ -1756,37 +1934,20 @@ export default function IdeationPage() {
 
                 {/* 피드백 탭들 */}
                 {feedbackTabs.map((tab) => (
-                  <div key={tab.id} className="flex items-center">
-                    <button
-                      onClick={() => switchTab(tab.id)}
-                      className={`px-4 py-3 text-sm font-medium border-b-2 flex items-center gap-2 ${
-                        activeTab === tab.id
-                          ? "text-orange-600 border-orange-600 bg-white"
-                          : "text-gray-500 border-transparent hover:text-gray-700"
-                      }`}
-                    >
-                      <MessageCircle className="h-4 w-4" />
-                      {tab.name}
-                    </button>
-                    <button
-                      onClick={() => closeFeedbackTab(tab.id)}
-                      className="px-2 py-3 text-gray-400 hover:text-gray-600"
-                    >
-                      ×
-                    </button>
-                  </div>
+                  <button
+                    key={tab.id}
+                    onClick={() => switchTab(tab.id)}
+                    className={`px-4 py-3 text-sm font-medium border-b-2 flex items-center gap-2 ${
+                      activeTab === tab.id
+                        ? "text-orange-600 border-orange-600 bg-white"
+                        : "text-gray-500 border-transparent hover:text-gray-700"
+                    }`}
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    {tab.name}
+                  </button>
                 ))}
               </div>
-
-              {/* 탭 컨텐츠 헤더 */}
-              {activeTab === "main" && (
-                <div className="p-4 bg-white">
-                  <div className="flex items-center gap-2">
-                    <MessageCircle className="h-5 w-5 text-blue-600" />
-                    <h3 className="font-semibold text-gray-900">팀 대화</h3>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* 메시지 목록 */}
@@ -1842,6 +2003,25 @@ export default function IdeationPage() {
                             (participant: string) => participant !== "나"
                           );
 
+                        // 사용자가 참여한 세션인지 확인
+                        const hasUserParticipant =
+                          summaryPayload.participants?.includes("나");
+
+                        // 종료 주체에 따른 메시지 생성
+                        const getEndMessage = () => {
+                          if (hasUserParticipant) {
+                            // 사용자가 참여한 세션
+                            if (summaryPayload.endedBy === "user") {
+                              return "피드백 세션이 종료되었습니다.";
+                            } else {
+                              return "AI가 피드백 세션을 종료했습니다.";
+                            }
+                          } else {
+                            // AI끼리의 세션
+                            return "AI 피드백 세션이 완료되었습니다.";
+                          }
+                        };
+
                         return (
                           <div
                             key={message.id}
@@ -1858,10 +2038,15 @@ export default function IdeationPage() {
                                 >
                                   <MessageCircle className="h-3 w-3 text-white" />
                                 </div>
-                                <h4 className="text-slate-800">
-                                  {summaryPayload.participants?.join(" ↔ ")}{" "}
-                                  피드백 세션 완료
-                                </h4>
+                                <div>
+                                  <h4 className="text-slate-800">
+                                    {summaryPayload.participants?.join(" ↔ ")}{" "}
+                                    피드백 세션 완료
+                                  </h4>
+                                  <p className="text-xs text-slate-600 mt-1">
+                                    {getEndMessage()}
+                                  </p>
+                                </div>
                               </div>
 
                               <div className="space-y-3">
@@ -2247,7 +2432,8 @@ export default function IdeationPage() {
                                 if (
                                   typeof message.payload === "object" &&
                                   message.payload !== null &&
-                                  "type" in message.payload
+                                  "type" in message.payload &&
+                                  isChatMessagePayload(message.payload)
                                 ) {
                                   const {
                                     type,
@@ -2511,8 +2697,8 @@ export default function IdeationPage() {
                       value={newMessage}
                       onChange={(e) => setNewMessage(e.target.value)}
                       placeholder={
-                        userInFeedbackSession
-                          ? "피드백 세션 진행 중입니다. 세션이 끝나면 채팅할 수 있습니다."
+                        feedbackTabs.length > 0 && activeTab !== "main"
+                          ? "피드백 세션이 진행 중입니다. 메인 탭에서 채팅하세요."
                           : chatMode === "give_feedback"
                           ? `${
                               mentionedAgent ? mentionedAgent.name : "팀원"
@@ -2523,14 +2709,14 @@ export default function IdeationPage() {
                       }
                       onKeyPress={(e) =>
                         e.key === "Enter" &&
-                        !userInFeedbackSession &&
+                        activeTab === "main" &&
                         handleSendMessage()
                       }
                       className="flex-1"
                       disabled={
                         isAutoGenerating ||
                         isGeneratingIdea ||
-                        userInFeedbackSession
+                        activeTab !== "main"
                       }
                     />
                     <Button
@@ -2539,6 +2725,7 @@ export default function IdeationPage() {
                       disabled={
                         isAutoGenerating ||
                         isGeneratingIdea ||
+                        activeTab !== "main" ||
                         !mentionedAgent ||
                         (chatMode === "make_request" && !requestType)
                       }
@@ -2922,264 +3109,6 @@ export default function IdeationPage() {
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* 메모리 팝오버 */}
-      {hoveredAgentId && agentMemory && (
-        <div
-          className="absolute bg-white border border-gray-200 rounded-lg shadow-xl p-4 w-[600px] z-50 max-h-[80vh] overflow-y-auto"
-          style={{ top: popoverPosition.top, left: popoverPosition.left }}
-        >
-          <h3 className="font-bold text-lg mb-4 text-blue-600 border-b pb-2">
-            🧠 Memory of {getAuthorName(hoveredAgentId)}
-          </h3>
-
-          {/* Short-term Memory */}
-          <div className="mb-6">
-            <h4 className="font-semibold text-md mb-3 text-green-600">
-              📋 Short-term Memory
-            </h4>
-            <div className="space-y-3">
-              {/* Last Action */}
-              <div className="bg-green-50 p-3 rounded-lg">
-                <h5 className="font-medium text-sm mb-2 text-green-800">
-                  Last Action:
-                </h5>
-                {agentMemory.shortTerm?.lastAction ? (
-                  <div className="text-sm space-y-1">
-                    <p>
-                      <strong>Type:</strong>{" "}
-                      {agentMemory.shortTerm.lastAction.type}
-                    </p>
-                    <p>
-                      <strong>Timestamp:</strong>{" "}
-                      {new Date(
-                        agentMemory.shortTerm.lastAction.timestamp
-                      ).toLocaleString()}
-                    </p>
-                    {agentMemory.shortTerm.lastAction.payload && (
-                      <div>
-                        <strong>Payload:</strong>
-                        <pre className="mt-1 text-xs bg-white p-2 rounded border overflow-x-auto">
-                          {JSON.stringify(
-                            agentMemory.shortTerm.lastAction.payload,
-                            null,
-                            2
-                          )}
-                        </pre>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-500">No recent actions</p>
-                )}
-              </div>
-
-              {/* Active Chat */}
-              <div className="bg-green-50 p-3 rounded-lg">
-                <h5 className="font-medium text-sm mb-2 text-green-800">
-                  Active Chat:
-                </h5>
-                {agentMemory.shortTerm?.activeChat ? (
-                  <div className="text-sm space-y-1">
-                    <p>
-                      <strong>Target:</strong>{" "}
-                      {getAuthorName(
-                        agentMemory.shortTerm.activeChat.targetAgentId
-                      )}
-                    </p>
-                    <p>
-                      <strong>Messages:</strong>{" "}
-                      {agentMemory.shortTerm.activeChat.messages?.length || 0}{" "}
-                      messages
-                    </p>
-                    {agentMemory.shortTerm.activeChat.messages &&
-                      agentMemory.shortTerm.activeChat.messages.length > 0 && (
-                        <div className="mt-2">
-                          <strong>Recent Messages:</strong>
-                          <div className="max-h-32 overflow-y-auto mt-1">
-                            {agentMemory.shortTerm.activeChat.messages
-                              .slice(-3)
-                              .map((msg, idx) => (
-                                <div
-                                  key={idx}
-                                  className="text-xs bg-white p-2 rounded border mb-1"
-                                >
-                                  <div>
-                                    <strong>
-                                      {getAuthorName(msg.sender)}:
-                                    </strong>
-                                  </div>
-                                  <div>
-                                    {typeof msg.payload === "string"
-                                      ? msg.payload
-                                      : JSON.stringify(msg.payload)}
-                                  </div>
-                                </div>
-                              ))}
-                          </div>
-                        </div>
-                      )}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-500">No active chat</p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Long-term Memory */}
-          <div>
-            <h4 className="font-semibold text-md mb-3 text-purple-600">
-              🧩 Long-term Memory
-            </h4>
-
-            {/* Self Reflections */}
-            <div className="mb-4">
-              <h5 className="font-medium text-sm mb-2 text-purple-800">
-                🪞 Self Reflections
-              </h5>
-              {agentMemory.longTerm?.self &&
-              agentMemory.longTerm.self.trim().length > 0 ? (
-                <div className="space-y-3">
-                  <div className="bg-white p-3 rounded border">
-                    <div className="text-sm space-y-1">
-                      <p className="text-gray-700 leading-relaxed">
-                        {agentMemory.longTerm.self}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-gray-500 text-sm">
-                  아직 특별한 성찰 내용이 없습니다.
-                </p>
-              )}
-            </div>
-
-            {/* Relations */}
-            <div>
-              <h5 className="font-medium text-sm mb-2 text-purple-800">
-                👥 Relations (
-                {Object.keys(agentMemory.longTerm?.relations || {}).length})
-              </h5>
-              <div className="bg-purple-50 p-3 rounded-lg max-h-64 overflow-y-auto">
-                {agentMemory.longTerm?.relations &&
-                Object.keys(agentMemory.longTerm.relations).length > 0 ? (
-                  <div className="space-y-4">
-                    {Object.entries(agentMemory.longTerm.relations).map(
-                      ([agentId, relation]) => (
-                        <div
-                          key={agentId}
-                          className="bg-white p-3 rounded border"
-                        >
-                          <div className="space-y-2">
-                            {/* Agent Info */}
-                            <div className="border-b pb-2">
-                              <h6 className="font-semibold text-sm text-gray-800">
-                                {getAuthorName(agentId)} ({agentId})
-                              </h6>
-                              <div className="text-xs text-gray-600 mt-1">
-                                <p>
-                                  <strong>Professional:</strong>{" "}
-                                  {relation.agentInfo?.professional || "N/A"}
-                                </p>
-                                <p>
-                                  <strong>Personality:</strong>{" "}
-                                  {relation.agentInfo?.personality || "N/A"}
-                                </p>
-                                <p>
-                                  <strong>Skills:</strong>{" "}
-                                  {relation.agentInfo?.skills || "N/A"}
-                                </p>
-                              </div>
-                            </div>
-
-                            {/* Relationship */}
-                            <div>
-                              <p className="text-sm">
-                                <strong>Relationship:</strong>{" "}
-                                {relation.relationship}
-                              </p>
-                            </div>
-
-                            {/* My Opinion */}
-                            <div>
-                              <p className="text-sm">
-                                <strong>My Opinion:</strong>
-                              </p>
-                              <p className="text-xs text-gray-700 bg-gray-50 p-2 rounded mt-1">
-                                {relation.myOpinion || "No opinion yet"}
-                              </p>
-                            </div>
-
-                            {/* Interaction History */}
-                            <div>
-                              <p className="text-sm">
-                                <strong>
-                                  Interaction History (
-                                  {relation.interactionHistory?.length || 0}):
-                                </strong>
-                              </p>
-                              {relation.interactionHistory &&
-                              relation.interactionHistory.length > 0 ? (
-                                <div className="max-h-32 overflow-y-auto mt-1">
-                                  {relation.interactionHistory.map(
-                                    (interaction, idx) => (
-                                      <div
-                                        key={idx}
-                                        className="text-xs bg-gray-50 p-2 rounded mb-1"
-                                      >
-                                        <p>
-                                          <strong>Action:</strong>{" "}
-                                          {interaction.action}
-                                        </p>
-                                        <p>
-                                          <strong>Content:</strong>{" "}
-                                          {interaction.content}
-                                        </p>
-                                        <p>
-                                          <strong>Time:</strong>{" "}
-                                          {new Date(
-                                            interaction.timestamp
-                                          ).toLocaleString()}
-                                        </p>
-                                      </div>
-                                    )
-                                  )}
-                                </div>
-                              ) : (
-                                <p className="text-xs text-gray-500 mt-1">
-                                  No interactions yet
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-500">
-                    No relations established
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Raw Memory Data (for debugging) */}
-          <div className="mt-4 pt-4 border-t">
-            <details className="text-xs">
-              <summary className="cursor-pointer text-gray-600 hover:text-gray-800 font-medium">
-                🔍 Raw Memory Data (Debug)
-              </summary>
-              <pre className="mt-2 bg-gray-100 p-3 rounded text-xs overflow-x-auto max-h-48 overflow-y-auto">
-                {JSON.stringify(agentMemory, null, 2)}
-              </pre>
-            </details>
           </div>
         </div>
       )}
