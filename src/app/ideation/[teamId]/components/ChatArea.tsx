@@ -189,7 +189,7 @@ export default function ChatArea({
                     if (hasUserParticipant) {
                       // 사용자가 참여한 세션
                       if (summaryPayload.endedBy === "user") {
-                        return "피드백 세션이 종료되었습니다.";
+                        return "피드백 세션을 종료했습니다.";
                       } else {
                         return "AI가 피드백 세션을 종료했습니다.";
                       }

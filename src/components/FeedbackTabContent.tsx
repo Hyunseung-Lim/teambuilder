@@ -188,8 +188,9 @@ export default function FeedbackTabContent({
 
     setIsEndingSession(true);
     setIsUserEnded(true);
-    setSessionEnded(true);
-    setEndReason("대화가 종료되었습니다.");
+    // 사용자가 직접 종료했을 때는 종료 알림을 표시하지 않음
+    // setSessionEnded(true);
+    // setEndReason("대화가 종료되었습니다.");
 
     // 즉시 탭 닫기
     onClose();
@@ -250,8 +251,8 @@ export default function FeedbackTabContent({
         </div>
       </div>
 
-      {/* 세션 종료 알림 */}
-      {sessionEnded && (
+      {/* 세션 종료 알림 - AI가 종료했을 때만 표시 */}
+      {sessionEnded && !isUserEnded && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg mx-4 mb-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
