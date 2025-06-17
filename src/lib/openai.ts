@@ -177,7 +177,7 @@ export async function generateIdeaAction(
     enhancedContext += `\n위 메모리를 바탕으로 당신의 성격과 경험을 반영한 아이디어를 생성하세요.`;
   }
 
-  const prompt = generateIdeaPrompt(enhancedContext, userProfile);
+  const prompt = generateIdeaPrompt(enhancedContext, userProfile, memory);
   return getJsonResponse(prompt, userProfile);
 }
 
@@ -572,6 +572,15 @@ export async function preRequestAction(
     roles: string[];
     isUser: boolean;
     agentId?: string;
+    userInfo?: {
+      // 인간 팀원인 경우 추가 정보
+      age?: number;
+      gender?: string;
+      professional?: string;
+      skills?: string;
+      personality?: string;
+      value?: string;
+    };
   }>,
   currentIdeas: Array<{
     ideaNumber: number;
@@ -601,7 +610,16 @@ export async function executeRequestAction(
   userProfile?: any,
   memory?: AgentMemory,
   originalRequest?: string,
-  originalRequester?: string
+  originalRequester?: string,
+  targetMemberInfo?: {
+    isUser: boolean;
+    age?: number;
+    gender?: string;
+    professional?: string;
+    skills?: string;
+    personality?: string;
+    value?: string;
+  }
 ) {
   const prompt = executeRequestPrompt(
     targetMember,
@@ -612,7 +630,8 @@ export async function executeRequestAction(
     relationshipType,
     memory,
     originalRequest,
-    originalRequester
+    originalRequester,
+    targetMemberInfo
   );
   return getJsonResponse(prompt, userProfile);
 }
@@ -625,6 +644,15 @@ export async function makeRequestAction(
     roles: string[];
     isUser: boolean;
     agentId?: string;
+    userInfo?: {
+      // 인간 팀원인 경우 추가 정보
+      age?: number;
+      gender?: string;
+      professional?: string;
+      skills?: string;
+      personality?: string;
+      value?: string;
+    };
   }>,
   currentIdeas: Array<{
     ideaNumber: number;
@@ -665,7 +693,20 @@ export async function makeRequestAction(
     userProfile,
     memory,
     originalRequest,
-    originalRequester
+    originalRequester,
+    targetMemberInfo.isUser
+      ? {
+          isUser: true,
+          age: targetMemberInfo.userInfo?.age,
+          gender: targetMemberInfo.userInfo?.gender,
+          professional: targetMemberInfo.userInfo?.professional,
+          skills: targetMemberInfo.userInfo?.skills,
+          personality: targetMemberInfo.userInfo?.personality,
+          value: targetMemberInfo.userInfo?.value,
+        }
+      : {
+          isUser: false,
+        }
   );
 
   return {
@@ -676,6 +717,18 @@ export async function makeRequestAction(
 
 // 메모리를 프롬프트용으로 포맷팅하는 헬퍼 함수
 function formatMemoryForPrompt(memory: any): string {
+  if (!memory) return "";
+
+  // 새로운 메모리 구조인지 확인
+  if (
+    memory.longTerm?.knowledge &&
+    memory.longTerm?.actionPlan &&
+    memory.longTerm?.relation
+  ) {
+    return formatNewMemoryForPrompt(memory);
+  }
+
+  // 기존 메모리 구조 처리
   let formatted = "";
 
   if (memory.longTerm?.self) {
@@ -699,6 +752,79 @@ function formatMemoryForPrompt(memory: any): string {
 
   if (memory.shortTerm?.lastAction) {
     formatted += `### 최근 활동\n${memory.shortTerm.lastAction.type} (${memory.shortTerm.lastAction.timestamp})\n`;
+  }
+
+  return formatted.trim();
+}
+
+// 새로운 메모리 구조를 프롬프트용으로 포맷팅하는 함수
+function formatNewMemoryForPrompt(memory: any): string {
+  let formatted = "";
+
+  // Knowledge 섹션
+  if (memory.longTerm?.knowledge) {
+    formatted += `### 🧠 아이디에이션 지식\n${memory.longTerm.knowledge}\n\n`;
+  }
+
+  // Action Plan 섹션
+  if (memory.longTerm?.actionPlan) {
+    formatted += `### 📋 행동 계획\n`;
+    const actionPlan = memory.longTerm.actionPlan;
+    formatted += `- **아이디어 생성**: ${actionPlan.idea_generation}\n`;
+    formatted += `- **아이디어 평가**: ${actionPlan.idea_evaluation}\n`;
+    formatted += `- **피드백 제공**: ${actionPlan.feedback}\n`;
+    formatted += `- **요청하기**: ${actionPlan.request}\n`;
+    formatted += `- **응답하기**: ${actionPlan.response}\n\n`;
+  }
+
+  // Relation 섹션
+  if (
+    memory.longTerm?.relation &&
+    Object.keys(memory.longTerm.relation).length > 0
+  ) {
+    formatted += `### 👥 팀원 관계\n`;
+    Object.entries(memory.longTerm.relation).forEach(
+      ([agentId, relation]: [string, any]) => {
+        formatted += `- **${relation.agentInfo?.name || agentId}** (${
+          relation.relationship
+        }): ${relation.myOpinion}\n`;
+
+        // 최근 상호작용 기록 (최대 3개)
+        if (relation.interactionHistory?.length > 0) {
+          const recentInteractions = relation.interactionHistory.slice(-3);
+          formatted += `  최근 상호작용: ${recentInteractions
+            .map((i: any) => i.actionItem)
+            .join(", ")}\n`;
+        }
+      }
+    );
+    formatted += "\n";
+  }
+
+  // Short-term Memory 섹션
+  if (memory.shortTerm) {
+    formatted += `### ⚡ 현재 상황\n`;
+
+    // 최근 액션
+    if (memory.shortTerm.actionHistory) {
+      formatted += `- **최근 행동**: ${memory.shortTerm.actionHistory.type} (${memory.shortTerm.actionHistory.timestamp})\n`;
+    }
+
+    // 대기 중인 요청들
+    if (memory.shortTerm.requestList?.length > 0) {
+      formatted += `- **대기 중인 요청** (${memory.shortTerm.requestList.length}개):\n`;
+      memory.shortTerm.requestList.slice(-3).forEach((req: any) => {
+        formatted += `  • ${req.requesterName}: ${req.requestType} - ${req.content}\n`;
+      });
+    }
+
+    // 현재 채팅 세션
+    if (memory.shortTerm.currentChat) {
+      const chat = memory.shortTerm.currentChat;
+      formatted += `- **진행 중인 대화**: ${chat.targetAgentName}와 ${
+        chat.chatType
+      } (${chat.messages?.length || 0}개 메시지)\n`;
+    }
   }
 
   return formatted.trim();

@@ -181,14 +181,16 @@ export async function POST(
         },
         {
           id: targetAgentId,
-          name: "Target Agent", // 실제 에이전트 이름으로 교체됨
-          isUser: false,
+          name: targetAgentId === "나" ? "나" : "Target Agent", // 실제 에이전트 이름으로 교체됨
+          isUser: targetAgentId === "나",
           joinedAt: new Date().toISOString(),
         },
       ];
 
       // 에이전트 이름 가져오기
       const { getAgentById } = await import("@/lib/redis");
+      let targetAgentData = null;
+
       if (initiatorId !== "나") {
         const initiatorAgent = await getAgentById(initiatorId);
         if (initiatorAgent) {
@@ -196,9 +198,11 @@ export async function POST(
         }
       }
 
-      const targetAgent = await getAgentById(targetAgentId);
-      if (targetAgent) {
-        participants[1].name = targetAgent.name;
+      if (targetAgentId !== "나") {
+        targetAgentData = await getAgentById(targetAgentId);
+        if (targetAgentData) {
+          participants[1].name = targetAgentData.name;
+        }
       }
 
       const session: FeedbackSession = {
@@ -274,17 +278,23 @@ export async function POST(
 
           if (response.ok) {
             console.log(
-              `✅ ${targetAgent?.name} 상태가 feedback_session으로 변경됨`
+              `✅ ${
+                targetAgentData?.name || targetAgentId
+              } 상태가 feedback_session으로 변경됨`
             );
           } else {
             console.error(
-              `❌ ${targetAgent?.name} feedback_session 상태 변경 실패:`,
+              `❌ ${
+                targetAgentData?.name || targetAgentId
+              } feedback_session 상태 변경 실패:`,
               response.status
             );
           }
         } catch (error) {
           console.error(
-            `❌ ${targetAgent?.name} feedback_session 상태 변경 오류:`,
+            `❌ ${
+              targetAgentData?.name || targetAgentId
+            } feedback_session 상태 변경 오류:`,
             error
           );
         }
@@ -327,16 +337,24 @@ export async function POST(
             );
 
             if (aiResponse.ok) {
-              console.log(`✅ ${targetAgent?.name} AI 응답 트리거 완료`);
+              console.log(
+                `✅ ${
+                  targetAgentData?.name || targetAgentId
+                } AI 응답 트리거 완료`
+              );
             } else {
               console.error(
-                `❌ ${targetAgent?.name} AI 응답 트리거 실패:`,
+                `❌ ${
+                  targetAgentData?.name || targetAgentId
+                } AI 응답 트리거 실패:`,
                 aiResponse.status
               );
             }
           } catch (error) {
             console.error(
-              `❌ ${targetAgent?.name} AI 응답 트리거 오류:`,
+              `❌ ${
+                targetAgentData?.name || targetAgentId
+              } AI 응답 트리거 오류:`,
               error
             );
           }
@@ -711,11 +729,41 @@ export async function GET(
 ) {
   try {
     const { teamId } = await params;
-    const url = new URL(request.url);
-    const sessionId = url.searchParams.get("sessionId");
+    const { searchParams } = new URL(request.url);
+    const sessionId = searchParams.get("sessionId");
+    const action = searchParams.get("action");
 
+    // 사용자 관련 피드백 세션 확인
+    if (action === "check_user_sessions") {
+      const activeSessions = await redis.keys("feedback_session:*");
+      const userSessions = [];
+
+      for (const sessionKey of activeSessions) {
+        const sessionData = await redis.get(sessionKey);
+        if (sessionData) {
+          const session =
+            typeof sessionData === "string"
+              ? JSON.parse(sessionData)
+              : sessionData;
+
+          if (
+            session.teamId === teamId &&
+            session.status === "active" &&
+            session.participants.some((p: any) => p.id === "나")
+          ) {
+            userSessions.push(session);
+          }
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        userSessions,
+      });
+    }
+
+    // 특정 세션 조회
     if (sessionId) {
-      // 특정 세션 조회
       const sessionData = await redis.get(`feedback_session:${sessionId}`);
       if (!sessionData) {
         return NextResponse.json(
@@ -724,76 +772,17 @@ export async function GET(
         );
       }
 
-      const session: FeedbackSession =
+      const session =
         typeof sessionData === "string" ? JSON.parse(sessionData) : sessionData;
-      return NextResponse.json({ session });
-    } else {
-      // 팀의 활성 세션 목록 조회
-      const activeSessionIds = await redis.smembers(
-        `team:${teamId}:active_feedback_sessions`
-      );
-      const sessions: FeedbackSession[] = [];
-      const sessionsToCleanup: string[] = [];
 
-      for (const sessionId of activeSessionIds) {
-        const sessionData = await redis.get(`feedback_session:${sessionId}`);
-        if (sessionData) {
-          const session: FeedbackSession =
-            typeof sessionData === "string"
-              ? JSON.parse(sessionData)
-              : sessionData;
-
-          // 세션이 실제로 활성 상태인지 확인
-          if (session.status === "active") {
-            // 세션이 너무 오래된 경우 (24시간 이상) 자동 종료
-            const sessionAge =
-              Date.now() - new Date(session.createdAt).getTime();
-            const maxAge = 24 * 60 * 60 * 1000; // 24시간
-
-            if (sessionAge > maxAge) {
-              console.log(
-                `🧹 오래된 활성 세션 자동 정리: ${sessionId} (${Math.floor(
-                  sessionAge / (60 * 60 * 1000)
-                )}시간 경과)`
-              );
-              sessionsToCleanup.push(sessionId);
-            } else {
-              sessions.push(session);
-            }
-          } else {
-            // 이미 종료된 세션이지만 활성 목록에 남아있는 경우
-            console.log(
-              `🧹 종료된 세션을 활성 목록에서 제거: ${sessionId} (상태: ${session.status})`
-            );
-            sessionsToCleanup.push(sessionId);
-          }
-        } else {
-          // 세션 데이터가 없는 경우
-          console.log(
-            `🧹 데이터가 없는 세션을 활성 목록에서 제거: ${sessionId}`
-          );
-          sessionsToCleanup.push(sessionId);
-        }
-      }
-
-      // 정리가 필요한 세션들을 활성 목록에서 제거
-      const activeSessionsKey = `team:${teamId}:active_feedback_sessions`;
-      for (const sessionId of sessionsToCleanup) {
-        await redis.srem(activeSessionsKey, sessionId);
-      }
-
-      if (sessionsToCleanup.length > 0) {
-        console.log(
-          `✅ ${sessionsToCleanup.length}개의 비활성 세션을 정리했습니다.`
-        );
-      }
-
-      return NextResponse.json({ sessions });
+      return NextResponse.json({ success: true, session });
     }
+
+    return NextResponse.json({ error: "잘못된 요청입니다." }, { status: 400 });
   } catch (error) {
     console.error("피드백 세션 조회 실패:", error);
     return NextResponse.json(
-      { error: "피드백 세션 조회에 실패했습니다." },
+      { error: "서버 오류가 발생했습니다." },
       { status: 500 }
     );
   }

@@ -1,10 +1,92 @@
 import { AgentMemory, InteractionRecord } from "@/lib/types";
 
-export const generateIdeaPrompt = (context?: string, agentProfile?: any) => {
+export const generateIdeaPrompt = (
+  context?: string,
+  agentProfile?: any,
+  memory?: any
+) => {
   // 주제를 안전하게 처리하되 한글은 보존
   const safeContext = context || "Carbon Emission Reduction";
 
-  return `Generate ideas for the task below and return only one JSON object in the following structure:
+  // 에이전트 프로필 정보 추가
+  const profileContext = agentProfile
+    ? `
+**Your Identity:**
+- Name: ${agentProfile.name}
+- Age: ${agentProfile.age}세
+- Occupation: ${agentProfile.professional}
+- Skills: ${agentProfile.skills}
+- Personality: ${agentProfile.personality || "협력적"}
+- Values: ${agentProfile.value || "혁신과 협업을 중시"}
+
+Generate ideas that reflect your unique professional background, skills, and personality.
+`
+    : "";
+
+  // 메모리 컨텍스트 추가
+  const memoryContext = memory
+    ? `
+**Your Memory and Experience:**
+${(() => {
+  let formattedMemory = "";
+
+  // v2 메모리 구조 확인
+  if (
+    memory.longTerm?.knowledge ||
+    memory.longTerm?.actionPlan ||
+    memory.longTerm?.relation
+  ) {
+    // v2 메모리 처리
+    if (memory.longTerm.knowledge) {
+      formattedMemory += `- Knowledge: ${memory.longTerm.knowledge}\n`;
+    }
+    if (memory.longTerm.actionPlan?.idea_generation) {
+      formattedMemory += `- Idea Generation Strategy: ${memory.longTerm.actionPlan.idea_generation}\n`;
+    }
+    if (
+      memory.longTerm.relation &&
+      Object.keys(memory.longTerm.relation).length > 0
+    ) {
+      formattedMemory += `- Team Relationships: You have formed relationships with ${
+        Object.keys(memory.longTerm.relation).length
+      } team members\n`;
+    }
+  } else {
+    // 기존 메모리 구조 처리
+    if (memory.longTerm?.self) {
+      const selfReflection =
+        typeof memory.longTerm.self === "string"
+          ? memory.longTerm.self
+          : Array.isArray(memory.longTerm.self) &&
+            memory.longTerm.self.length > 0
+          ? memory.longTerm.self[memory.longTerm.self.length - 1]
+          : "";
+      if (selfReflection) {
+        formattedMemory += `- Self Reflection: ${selfReflection}\n`;
+      }
+    }
+    if (
+      memory.longTerm?.relations &&
+      Object.keys(memory.longTerm.relations).length > 0
+    ) {
+      formattedMemory += `- Team Relationships: You have relationships with ${
+        Object.keys(memory.longTerm.relations).length
+      } team members\n`;
+    }
+  }
+
+  if (memory.shortTerm?.lastAction) {
+    formattedMemory += `- Recent Action: ${memory.shortTerm.lastAction.type} (${memory.shortTerm.lastAction.timestamp})\n`;
+  }
+
+  return formattedMemory || "- This is your first action in the team";
+})()}
+
+Use your memory and experience to generate ideas that build upon your knowledge and reflect your growth in the team.
+`
+    : "";
+
+  return `${profileContext}${memoryContext}Generate ideas for the task below and return only one JSON object in the following structure:
 
 {
   "object": "",
@@ -542,6 +624,15 @@ export const preRequestPrompt = (
     roles: string[];
     isUser: boolean;
     agentId?: string;
+    userInfo?: {
+      // 인간 팀원인 경우 추가 정보
+      age?: number;
+      gender?: string;
+      professional?: string;
+      skills?: string;
+      personality?: string;
+      value?: string;
+    };
   }>,
   currentIdeas: Array<{
     ideaNumber: number;
@@ -552,12 +643,28 @@ export const preRequestPrompt = (
   memory?: AgentMemory
 ) => {
   const teamMembersInfo = teamMembers
-    .map(
-      (member) =>
-        `- ${member.name} (${
-          member.isUser ? "User" : "AI Agent"
-        }): Roles - ${member.roles.join(", ")}`
-    )
+    .map((member) => {
+      const memberType = member.isUser ? "Human User" : "AI Agent";
+      let memberDetails = `- ${
+        member.name
+      } (${memberType}): Roles - ${member.roles.join(", ")}`;
+
+      // 인간 팀원인 경우 추가 정보 포함
+      if (member.isUser && member.userInfo) {
+        const info = member.userInfo;
+        const details = [];
+        if (info.age) details.push(`${info.age}세`);
+        if (info.professional) details.push(`직업: ${info.professional}`);
+        if (info.skills) details.push(`스킬: ${info.skills}`);
+        if (info.personality) details.push(`성격: ${info.personality}`);
+
+        if (details.length > 0) {
+          memberDetails += `\n    → ${details.join(", ")}`;
+        }
+      }
+
+      return memberDetails;
+    })
     .join("\n");
 
   const currentIdeasInfo =
@@ -597,17 +704,20 @@ ${currentIdeasInfo}
 1. Choose who to request (only within the roles that team member can perform)
 2. Decide what to request (choose from "generate_idea", "evaluate_idea", "give_feedback")
 3. Develop request strategy (why request this work from this team member, what context to provide)
+4. Consider team member's background and expertise when making the request
 
 **Important Constraints:**
 - Can only request within the scope of roles that team member has
 - Request must be specific and actionable
 - Consider avoiding duplicate work
+- For human users, consider their professional background and skills when crafting requests
+- For AI agents, consider their programmed personality and capabilities
 
 Respond only in the following JSON format:
 {
   "targetMember": "Name of team member to request",
   "requestType": "generate_idea" | "evaluate_idea" | "give_feedback",
-  "requestStrategy": "Explanation of request strategy (why request this work from this team member, what perspective to approach from)",
+  "requestStrategy": "Explanation of request strategy (why request this work from this team member, what perspective to approach from, considering their background)",
   "contextToProvide": "Specific context or background information to provide with the request"
 }
 
@@ -623,7 +733,17 @@ export const executeRequestPrompt = (
   relationshipType?: string,
   memory?: AgentMemory,
   originalRequest?: string,
-  originalRequester?: string
+  originalRequester?: string,
+  targetMemberInfo?: {
+    // 인간 팀원인 경우 추가 정보
+    isUser: boolean;
+    age?: number;
+    gender?: string;
+    professional?: string;
+    skills?: string;
+    personality?: string;
+    value?: string;
+  }
 ) => {
   const relationshipDescription = relationshipType
     ? {
@@ -653,28 +773,57 @@ export const executeRequestPrompt = (
 `
       : "";
 
+  // 타겟 멤버 정보 추가
+  const targetMemberDetails = targetMemberInfo
+    ? `
+**Target Member Details:**
+- Type: ${targetMemberInfo.isUser ? "Human User" : "AI Agent"}
+- Roles: ${targetMemberRoles.join(", ")}${
+        targetMemberInfo.isUser && targetMemberInfo.professional
+          ? `\n- Professional Background: ${targetMemberInfo.professional}`
+          : ""
+      }${
+        targetMemberInfo.isUser && targetMemberInfo.skills
+          ? `\n- Skills: ${targetMemberInfo.skills}`
+          : ""
+      }${
+        targetMemberInfo.isUser && targetMemberInfo.personality
+          ? `\n- Personality: ${targetMemberInfo.personality}`
+          : ""
+      }
+`
+    : `
+**Target Member Details:**
+- Roles: ${targetMemberRoles.join(", ")}
+`;
+
   const isDelegation = originalRequest && originalRequester;
 
   if (isDelegation) {
     return `You are delegating a request received from ${originalRequester} to ${targetMember}.
 
-${memoryContext}
+${memoryContext}${targetMemberDetails}
 
 **Original Request:** ${originalRequest}
 **Original Requester:** ${originalRequester}
-**Delegation Target:** ${targetMember} (Roles: ${targetMemberRoles.join(", ")})
+**Delegation Target:** ${targetMember}
 **Request Strategy:** ${requestStrategy}
 **Context to Provide:** ${contextToProvide}
 **Relationship:** ${relationshipDescription}
 
 **Delegation Message Guidelines:**
 1. Accurately convey the context of the original request
-2. Provide clear reasons why delegating to this team member
+2. Provide clear reasons why delegating to this team member (considering their background and expertise)
 3. Specify the original requester for transparency
 4. Write naturally and conversationally
 5. Acknowledge the other person's expertise and role when making the request
 6. Show respectful attitude that acknowledges they can decline
 7. Use appropriate honorifics/casual speech based on relationship
+${
+  targetMemberInfo?.isUser
+    ? "8. For human users, acknowledge their professional background and explain how their expertise can contribute"
+    : ""
+}
 
 Respond in the following JSON format. Write all content in Korean:
 {
@@ -685,9 +834,9 @@ Write the delegation message now.`;
   } else {
     return `You are requesting ${requestType} work from ${targetMember} in the team ideation session.
 
-${memoryContext}
+${memoryContext}${targetMemberDetails}
 
-**Request Target:** ${targetMember} (Roles: ${targetMemberRoles.join(", ")})
+**Request Target:** ${targetMember}
 **Request Content:** ${requestType}
 **Request Strategy:** ${requestStrategy}
 **Context to Provide:** ${contextToProvide}
@@ -700,6 +849,11 @@ ${memoryContext}
 4. Show respectful attitude that acknowledges they can decline
 5. Use appropriate honorifics/casual speech based on relationship
 6. Emphasize cooperation for team goal achievement
+${
+  targetMemberInfo?.isUser
+    ? "7. For human users, acknowledge their professional background and explain how their expertise can contribute to the request"
+    : ""
+}
 
 **Request Type Specifics:**
 ${
@@ -708,7 +862,11 @@ ${
     : requestType === "evaluate_idea"
     ? "- Request evaluation of specific ideas or idea groups\n- Suggest perspectives to focus on during evaluation"
     : "- Request feedback on specific ideas or situations\n- Specify what aspects you want feedback on"
-}
+}${
+      targetMemberInfo?.isUser && targetMemberInfo.professional
+        ? `\n- Consider how ${targetMember}'s professional background in ${targetMemberInfo.professional} can provide unique insights`
+        : ""
+    }
 
 Respond in the following JSON format. Write all content in Korean:
 {

@@ -604,6 +604,79 @@ export default function IdeationPage() {
     }
   };
 
+  // 실시간 피드백 세션 감지 (AI가 인간에게 피드백 시작 시)
+  useEffect(() => {
+    if (!team?.id) return;
+
+    const pollNewFeedbackSessions = async () => {
+      try {
+        const response = await fetch(
+          `/api/teams/${team.id}/feedback-sessions?action=check_user_sessions`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          const userSessions = data.userSessions || [];
+
+          // 새로운 AI→User 세션이 있는지 확인
+          for (const session of userSessions) {
+            const isUserParticipant = session.participants.some(
+              (p: any) => p.id === "나"
+            );
+            const aiParticipant = session.participants.find(
+              (p: any) => p.id !== "나" && !p.isUser
+            );
+
+            if (
+              isUserParticipant &&
+              aiParticipant &&
+              session.status === "active"
+            ) {
+              // 이미 탭이 있는지 확인
+              const existingTab = feedbackTabs.find(
+                (tab) => tab.id === session.id
+              );
+
+              if (!existingTab) {
+                console.log(
+                  `🔔 AI가 시작한 새로운 피드백 세션 감지: ${session.id}`
+                );
+
+                // AI→User 피드백 탭 자동 생성
+                const newTab = {
+                  id: session.id,
+                  name: `${aiParticipant.name}와의 피드백`,
+                  participantId: aiParticipant.id,
+                  participantName: aiParticipant.name,
+                  type: "ai_to_user" as const,
+                  sessionData: {
+                    realSessionId: session.id,
+                    aiInitiated: true,
+                  },
+                  isActive: true,
+                };
+
+                setFeedbackTabs((prev) => [...prev, newTab]);
+                setActiveTab(session.id);
+
+                // 알림 표시
+                alert(`${aiParticipant.name}가 피드백 세션을 시작했습니다!`);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error("피드백 세션 감지 실패:", error);
+      }
+    };
+
+    // 초기 확인
+    pollNewFeedbackSessions();
+
+    // 3초마다 새로운 세션 확인
+    const interval = setInterval(pollNewFeedbackSessions, 3000);
+    return () => clearInterval(interval);
+  }, [team?.id, feedbackTabs]);
+
   // 데이터 로드
   useEffect(() => {
     async function loadData() {

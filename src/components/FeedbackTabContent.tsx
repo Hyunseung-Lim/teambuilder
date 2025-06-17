@@ -45,6 +45,12 @@ export default function FeedbackTabContent({
 
   // 초기 메시지 설정
   useEffect(() => {
+    // AI가 시작한 세션의 경우 첫 메시지가 이미 있을 수 있음
+    if (tab.type === "ai_to_user") {
+      // AI가 시작한 세션은 초기 메시지를 설정하지 않고 폴링으로 가져옴
+      return;
+    }
+
     if (tab.sessionData?.message) {
       const initialMessage = {
         id: "initial",

@@ -487,13 +487,73 @@ export async function addChatMessage(
 export async function getAgentMemory(
   agentId: string
 ): Promise<AgentMemory | null> {
+  console.log(`🧠 에이전트 ${agentId} 메모리 조회 시작 (v2 우선)`);
+
+  // 1. 먼저 v2 메모리 시스템 확인
+  try {
+    const { getNewAgentMemory } = await import("./memory-v2");
+    const newMemory = await getNewAgentMemory(agentId);
+
+    if (newMemory) {
+      console.log(`✅ v2 메모리 발견: ${agentId}`);
+
+      // v2 메모리를 기존 AgentMemory 형식으로 변환하여 반환 (하위 호환성)
+      const compatibilityMemory: AgentMemory = {
+        agentId,
+        shortTerm: {
+          lastAction: newMemory.shortTerm.actionHistory,
+          activeChat: null, // v2에서는 사용하지 않음
+          feedbackSessionChat: newMemory.shortTerm.currentChat
+            ? {
+                sessionId: newMemory.shortTerm.currentChat.sessionId,
+                targetAgentId: newMemory.shortTerm.currentChat.targetAgentId,
+                targetAgentName:
+                  newMemory.shortTerm.currentChat.targetAgentName,
+                messages: newMemory.shortTerm.currentChat.messages,
+              }
+            : null,
+        },
+        longTerm: {
+          self: newMemory.longTerm.knowledge, // knowledge를 self로 매핑
+          relations: Object.entries(newMemory.longTerm.relation).reduce(
+            (acc, [key, rel]) => {
+              acc[key] = {
+                agentInfo: rel.agentInfo,
+                relationship: rel.relationship,
+                interactionHistory: rel.interactionHistory.map((item) => ({
+                  action: item.actionItem,
+                  content: item.content,
+                  timestamp: item.timestamp,
+                })),
+                myOpinion: rel.myOpinion,
+              };
+              return acc;
+            },
+            {} as any
+          ),
+        },
+      };
+
+      return compatibilityMemory;
+    }
+  } catch (error) {
+    console.error(`❌ v2 메모리 조회 실패: ${agentId}`, error);
+  }
+
+  // 2. v2 메모리가 없으면 기존 메모리 확인
+  console.log(`🔄 기존 메모리 시스템으로 폴백: ${agentId}`);
   const memoryData = await redis.get(keys.agentMemory(agentId));
-  if (!memoryData) return null;
+  if (!memoryData) {
+    console.log(`❌ 기존 메모리도 없음: ${agentId}`);
+    return null;
+  }
 
   try {
     // Redis가 이미 파싱된 객체를 반환하는 경우 처리
     if (typeof memoryData === "object" && memoryData !== null) {
-      console.log(`🔧 에이전트 ${agentId} 메모리가 이미 객체 형태로 반환됨`);
+      console.log(
+        `🔧 에이전트 ${agentId} 기존 메모리가 이미 객체 형태로 반환됨`
+      );
       // 유효한 AgentMemory 구조인지 더 정확하게 확인
       const memory = memoryData as any;
 
@@ -508,10 +568,10 @@ export async function getAgentMemory(
         memory.longTerm.relations !== undefined;
 
       if (hasValidStructure) {
-        console.log(`✅ 유효한 메모리 구조 확인: ${agentId}`);
+        console.log(`✅ 유효한 기존 메모리 구조 확인: ${agentId}`);
         return memory as AgentMemory;
       } else {
-        console.warn(`❌ 유효하지 않은 메모리 구조 (${agentId}):`, {
+        console.warn(`❌ 유효하지 않은 기존 메모리 구조 (${agentId}):`, {
           hasAgentId: !!memory.agentId,
           hasShortTerm: !!memory.shortTerm,
           hasLongTerm: !!memory.longTerm,
@@ -529,18 +589,21 @@ export async function getAgentMemory(
     // 문자열인 경우 JSON 파싱
     if (typeof memoryData === "string") {
       const parsedMemory = JSON.parse(memoryData);
-      console.log(`📝 에이전트 ${agentId} 메모리 JSON 파싱 성공`);
+      console.log(`📝 에이전트 ${agentId} 기존 메모리 JSON 파싱 성공`);
       return parsedMemory;
     }
 
     console.warn(
-      `알 수 없는 메모리 데이터 타입 (${agentId}):`,
+      `알 수 없는 기존 메모리 데이터 타입 (${agentId}):`,
       typeof memoryData
     );
     return null;
   } catch (error) {
-    console.warn(`손상된 메모리 데이터 발견 (${agentId}) - 파싱 오류:`, error);
-    console.error("메모리 파싱 상세 오류:", error);
+    console.warn(
+      `손상된 기존 메모리 데이터 발견 (${agentId}) - 파싱 오류:`,
+      error
+    );
+    console.error("기존 메모리 파싱 상세 오류:", error);
     // JSON 파싱 실패한 경우만 삭제
     await redis.del(keys.agentMemory(agentId));
     return null;
@@ -551,7 +614,7 @@ export async function updateAgentMemory(
   agentId: string,
   memory: AgentMemory
 ): Promise<void> {
-  console.log(`=== Redis에 메모리 저장 시작: ${agentId} ===`);
+  console.log(`=== 에이전트 ${agentId} 메모리 저장 시작 (v2 우선) ===`);
   console.log(
     `메모리 크기: self="${memory.longTerm.self.substring(
       0,
@@ -559,26 +622,95 @@ export async function updateAgentMemory(
     )}...", relations=${Object.keys(memory.longTerm.relations).length}`
   );
 
+  // v2 메모리 시스템이 있으면 업데이트 시도
+  try {
+    const { getNewAgentMemory, saveNewAgentMemory } = await import(
+      "./memory-v2"
+    );
+    const existingV2Memory = await getNewAgentMemory(agentId);
+
+    if (existingV2Memory) {
+      console.log(`🔄 v2 메모리 존재, v2로 업데이트 진행: ${agentId}`);
+
+      // 기존 AgentMemory를 v2 형식으로 변환
+      const updatedV2Memory = {
+        ...existingV2Memory,
+        shortTerm: {
+          ...existingV2Memory.shortTerm,
+          actionHistory: memory.shortTerm.lastAction,
+          currentChat: memory.shortTerm.feedbackSessionChat
+            ? {
+                sessionId: memory.shortTerm.feedbackSessionChat.sessionId,
+                targetAgentId:
+                  memory.shortTerm.feedbackSessionChat.targetAgentId,
+                targetAgentName:
+                  memory.shortTerm.feedbackSessionChat.targetAgentName,
+                chatType: "feedback_session" as const,
+                messages: memory.shortTerm.feedbackSessionChat.messages || [],
+              }
+            : existingV2Memory.shortTerm.currentChat,
+        },
+        longTerm: {
+          ...existingV2Memory.longTerm,
+          knowledge:
+            typeof memory.longTerm.self === "string"
+              ? memory.longTerm.self
+              : existingV2Memory.longTerm.knowledge,
+          relation: Object.entries(memory.longTerm.relations).reduce(
+            (acc, [key, rel]) => {
+              const existingRel = existingV2Memory.longTerm.relation[key];
+              acc[key] = {
+                agentInfo: rel.agentInfo,
+                relationship: rel.relationship,
+                interactionHistory: rel.interactionHistory.map((item) => ({
+                  timestamp: item.timestamp,
+                  actionItem: item.action,
+                  content: item.content,
+                })),
+                myOpinion: rel.myOpinion,
+              };
+              return acc;
+            },
+            {} as any
+          ),
+        },
+        lastMemoryUpdate: new Date().toISOString(),
+      };
+
+      await saveNewAgentMemory(agentId, updatedV2Memory);
+      console.log(`✅ v2 메모리 업데이트 완료: ${agentId}`);
+      return;
+    }
+  } catch (error) {
+    console.error(
+      `❌ v2 메모리 업데이트 실패, 기존 방식으로 폴백: ${agentId}`,
+      error
+    );
+  }
+
+  // v2 메모리가 없거나 실패한 경우 기존 방식 사용
+  console.log(`🔄 기존 메모리 시스템으로 저장: ${agentId}`);
+
   try {
     const memoryJson = JSON.stringify(memory);
     console.log(`JSON 문자열 길이: ${memoryJson.length} bytes`);
 
     await redis.set(keys.agentMemory(agentId), memoryJson);
-    console.log(`✅ Redis 저장 완료: ${keys.agentMemory(agentId)}`);
+    console.log(`✅ 기존 Redis 저장 완료: ${keys.agentMemory(agentId)}`);
 
     // 저장 후 바로 확인하여 검증
     const savedMemory = await redis.get(keys.agentMemory(agentId));
     if (savedMemory) {
-      console.log(`✅ 저장 검증 성공: 데이터 존재 확인됨`);
+      console.log(`✅ 기존 저장 검증 성공: 데이터 존재 확인됨`);
     } else {
-      console.error(`❌ 저장 검증 실패: 데이터가 저장되지 않았음`);
+      console.error(`❌ 기존 저장 검증 실패: 데이터가 저장되지 않았음`);
     }
   } catch (error) {
-    console.error(`❌ 메모리 저장 중 오류:`, error);
+    console.error(`❌ 기존 메모리 저장 중 오류:`, error);
     throw error;
   }
 
-  console.log(`=== Redis 메모리 저장 완료: ${agentId} ===`);
+  console.log(`=== 에이전트 ${agentId} 메모리 저장 완료 ===`);
 }
 
 // 디버깅용 함수들 (개발 환경에서만 사용)
@@ -722,8 +854,53 @@ export async function initializeAgentMemory(
   agentId: string,
   team: Team
 ): Promise<AgentMemory> {
-  console.log(`=== 에이전트 ${agentId}의 메모리 초기화 시작 ===`);
+  console.log(
+    `=== 에이전트 ${agentId}의 메모리 초기화 시작 (v2 시스템 사용) ===`
+  );
   console.log("팀 정보:", JSON.stringify(team, null, 2));
+
+  // v2 메모리 시스템 사용
+  const { createNewAgentMemory, saveNewAgentMemory } = await import(
+    "./memory-v2"
+  );
+
+  try {
+    // 새로운 v2 메모리 구조로 생성
+    const newMemory = await createNewAgentMemory(agentId, team);
+    await saveNewAgentMemory(agentId, newMemory);
+
+    console.log(`✅ 에이전트 ${agentId}의 v2 메모리 초기화 완료`);
+
+    // 기존 형식과 호환성을 위해 기본 AgentMemory 형태로 반환
+    // (하지만 실제로는 v2 메모리가 Redis에 저장됨)
+    const compatibilityMemory: AgentMemory = {
+      agentId,
+      shortTerm: {
+        lastAction: null,
+        activeChat: null,
+        feedbackSessionChat: null,
+      },
+      longTerm: {
+        self: "팀에 새로 합류했습니다. v2 메모리 시스템을 사용하여 더 스마트하게 학습하고 협력하겠습니다.",
+        relations: {},
+      },
+    };
+
+    return compatibilityMemory;
+  } catch (error) {
+    console.error(`❌ v2 메모리 초기화 실패, 기존 방식으로 폴백:`, error);
+
+    // v2 실패 시 기존 방식 사용
+    return await initializeAgentMemoryLegacy(agentId, team);
+  }
+}
+
+// 기존 메모리 초기화 함수를 별도 함수로 분리 (폴백용)
+async function initializeAgentMemoryLegacy(
+  agentId: string,
+  team: Team
+): Promise<AgentMemory> {
+  console.log(`=== 에이전트 ${agentId}의 기존 메모리 초기화 (폴백) ===`);
 
   // 자신을 제외한 팀원 정보로 관계 메모리 초기화
   const relations: Record<string, RelationalMemory> = {};
@@ -816,7 +993,7 @@ export async function initializeAgentMemory(
 
   console.log("초기 메모리 구조:", JSON.stringify(initialMemory, null, 2));
   await updateAgentMemory(agentId, initialMemory);
-  console.log(`=== 에이전트 ${agentId}의 메모리 초기화 완료 ===`);
+  console.log(`=== 에이전트 ${agentId}의 기존 메모리 초기화 완료 ===`);
 
   return initialMemory;
 }

@@ -431,7 +431,10 @@ async function executeAgentAction(
             `✅ ${agentProfile.name} → ${targetAgent.name} 피드백 세션 생성 성공: ${sessionData.sessionId}`
           );
 
-          // 3초 후 첫 메시지 생성 트리거
+          // 인간에게 피드백하는 경우 즉시 첫 메시지 생성
+          const isTargetHuman = targetAgent.name === "나";
+          const delay = isTargetHuman ? 1000 : 3000; // 인간에게는 1초 후, AI에게는 3초 후
+
           setTimeout(async () => {
             try {
               const aiProcessResponse = await fetch(
@@ -451,7 +454,7 @@ async function executeAgentAction(
 
               if (aiProcessResponse.ok) {
                 console.log(
-                  `✅ ${agentProfile.name} 첫 피드백 메시지 생성 트리거 성공`
+                  `✅ ${agentProfile.name} 첫 피드백 메시지 생성 트리거 성공 (대상: ${targetAgent.name})`
                 );
               } else {
                 console.error(
@@ -465,7 +468,7 @@ async function executeAgentAction(
                 error
               );
             }
-          }, 3000);
+          }, delay);
         } else {
           const errorData = await sessionResponse.json();
           console.error(

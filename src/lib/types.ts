@@ -207,10 +207,100 @@ export interface ChatMessage {
     | string;
 }
 
-// --- 에이전트 메모리 시스템 ---
+// --- 에이전트 메모리 시스템 (새로운 구조) ---
 
-// Short-term Memory
+// Short-term Memory - 현재 진행중인 행동들에 대한 temporal 메모리
 export interface ShortTermMemory {
+  // 최신 액션 기록
+  actionHistory: {
+    type: string;
+    timestamp: string;
+    payload?: any;
+  } | null;
+
+  // 다른 사람들의 요청 큐
+  requestList: Array<{
+    id: string;
+    requesterId: string;
+    requesterName: string;
+    requestType: "generate_idea" | "evaluate_idea" | "give_feedback";
+    content: string;
+    timestamp: string;
+  }>;
+
+  // 현재 진행 중인 대화 (피드백 세션 등)
+  currentChat: {
+    sessionId: string;
+    targetAgentId: string;
+    targetAgentName: string;
+    chatType: "feedback_session" | "general_chat";
+    messages: Array<{
+      id: string;
+      sender: string;
+      senderName: string;
+      content: string;
+      timestamp: string;
+    }>;
+  } | null;
+}
+
+// Long-term Memory - 장기적으로 기억해야하는 정보
+export interface NewLongTermMemory {
+  // 아이디에이션에 도움이 되는 지식
+  knowledge: string;
+
+  // 각 액션별 수행 방향성
+  actionPlan: {
+    idea_generation: string;
+    idea_evaluation: string;
+    feedback: string;
+    request: string;
+    response: string;
+  };
+
+  // 팀원들과의 관계 및 상호작용 정보
+  relation: Record<
+    string,
+    {
+      // Static 정보 (바뀌지 않음)
+      agentInfo: {
+        id: string;
+        name: string;
+        professional: string;
+        personality: string;
+        skills: string;
+      };
+      relationship: RelationshipType; // 팀원들과의 관계
+
+      // Dynamic 정보 (계속 업데이트됨)
+      interactionHistory: Array<{
+        timestamp: string;
+        actionItem: string;
+        content: string;
+      }>;
+      myOpinion: string; // 해당 팀원에 대한 나의 의견 (100자 이하)
+    }
+  >;
+}
+
+// 새로운 에이전트 메모리 구조
+export interface NewAgentMemory {
+  agentId: string;
+  shortTerm: ShortTermMemory;
+  longTerm: NewLongTermMemory;
+  lastMemoryUpdate: string; // 마지막 메모리 업데이트 시점
+}
+
+// 메모리 업데이트를 위한 로그 항목
+export interface MemoryUpdateLog {
+  timestamp: string;
+  type: "feedback" | "request" | "idea_evaluation";
+  content: string;
+  relatedAgentId?: string;
+}
+
+// 기존 타입들 유지 (호환성을 위해)
+export interface ShortTermMemoryOld {
   lastAction: {
     type: string;
     timestamp: string;
@@ -232,45 +322,6 @@ export interface ShortTermMemory {
       timestamp: string;
     }[];
   } | null;
-}
-
-// Long-term Memory - Self
-export interface SelfReflection {
-  reflection: string;
-  triggeringEvent: string; // 예: "idea_evaluation", "received_feedback"
-  relatedIdeaId?: number;
-  timestamp: string;
-}
-
-// Long-term Memory - Interaction Record
-export interface InteractionRecord {
-  timestamp: string;
-  action: string; // 예: "gave_feedback", "received_request"
-  content: string;
-}
-
-// Long-term Memory - Relational
-export interface RelationalMemory {
-  agentInfo: Pick<
-    AIAgent,
-    "id" | "name" | "professional" | "personality" | "skills"
-  >; // Static
-  relationship: RelationshipType; // Static
-  interactionHistory: InteractionRecord[]; // Dynamic
-  myOpinion: string; // Dynamic
-}
-
-// Long-term Memory
-export interface LongTermMemory {
-  self: string; // 단일 문자열로 변경 - 반성적 회고 내용
-  relations: Record<string, RelationalMemory>; // key: agentId
-}
-
-// Main Agent Memory Structure
-export interface AgentMemory {
-  agentId: string;
-  shortTerm: ShortTermMemory;
-  longTerm: LongTermMemory;
 }
 
 // AI Agent State System Types
@@ -355,4 +406,43 @@ export interface FeedbackSessionSummary {
   participants: string[];
   duration: number; // 세션 지속 시간 (분)
   createdAt: string;
+}
+
+// Long-term Memory - Self
+export interface SelfReflection {
+  reflection: string;
+  triggeringEvent: string; // 예: "idea_evaluation", "received_feedback"
+  relatedIdeaId?: number;
+  timestamp: string;
+}
+
+// Long-term Memory - Interaction Record
+export interface InteractionRecord {
+  timestamp: string;
+  action: string; // 예: "gave_feedback", "received_request"
+  content: string;
+}
+
+// Long-term Memory - Relational
+export interface RelationalMemory {
+  agentInfo: Pick<
+    AIAgent,
+    "id" | "name" | "professional" | "personality" | "skills"
+  >; // Static
+  relationship: RelationshipType; // Static
+  interactionHistory: InteractionRecord[]; // Dynamic
+  myOpinion: string; // Dynamic
+}
+
+// Long-term Memory
+export interface LongTermMemory {
+  self: string; // 단일 문자열로 변경 - 반성적 회고 내용
+  relations: Record<string, RelationalMemory>; // key: agentId
+}
+
+// Main Agent Memory Structure (기존)
+export interface AgentMemory {
+  agentId: string;
+  shortTerm: ShortTermMemoryOld;
+  longTerm: LongTermMemory;
 }
