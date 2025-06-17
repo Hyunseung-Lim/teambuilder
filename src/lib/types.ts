@@ -308,7 +308,7 @@ export interface PlanDecision {
 // --- 피드백 세션 시스템 ---
 
 // 피드백 세션 상태
-export type FeedbackSessionStatus = "active" | "ended";
+export type FeedbackSessionStatus = "active" | "ended" | "completed";
 
 // 피드백 세션 참가자
 export interface FeedbackSessionParticipant {

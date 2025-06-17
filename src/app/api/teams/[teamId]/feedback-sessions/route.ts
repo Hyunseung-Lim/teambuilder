@@ -27,6 +27,12 @@ export async function POST(
     });
 
     if (action === "create") {
+      // 피드백 세션 생성 전 검증
+      console.log("🔍 피드백 세션 생성 전 참가자 상태 확인:", {
+        initiatorId,
+        targetAgentId,
+      });
+
       // 대상 에이전트가 이미 피드백 세션에 참여 중인지 확인
       const activeSessionsKey = `team:${teamId}:active_feedback_sessions`;
       const activeSessionIds = await redis.smembers(activeSessionsKey);
@@ -80,7 +86,26 @@ export async function POST(
         await redis.srem(activeSessionsKey, sessionId);
       }
 
-      // 실제로 활성 상태인 세션에서 대상 에이전트가 참여 중인지 확인
+      // 🚫 시작자(initiator)가 이미 다른 피드백 세션에 참여 중인지 확인
+      for (const session of actuallyActiveSessions) {
+        if (session.participants.some((p) => p.id === initiatorId)) {
+          console.log(
+            `❌ 시작자 ${initiatorId}는 이미 피드백 세션 ${session.id}에 참여 중`
+          );
+          return NextResponse.json(
+            {
+              error:
+                "현재 다른 피드백 세션에 참여 중입니다. 기존 세션을 종료한 후 다시 시도해주세요.",
+              busy: true,
+              currentSessionId: session.id,
+              reason: "initiator_busy",
+            },
+            { status: 409 }
+          );
+        }
+      }
+
+      // 🚫 대상 에이전트가 이미 피드백 세션에 참여 중인지 확인
       for (const session of actuallyActiveSessions) {
         if (session.participants.some((p) => p.id === targetAgentId)) {
           // 에이전트의 실제 상태도 확인
@@ -131,6 +156,7 @@ export async function POST(
               error: "해당 에이전트는 현재 다른 피드백 세션에 참여 중입니다.",
               busy: true,
               currentSessionId: session.id,
+              reason: "target_busy",
             },
             { status: 409 }
           );
@@ -151,11 +177,13 @@ export async function POST(
           id: initiatorId,
           name: initiatorId === "나" ? "나" : "AI Agent",
           isUser: initiatorId === "나",
+          joinedAt: new Date().toISOString(),
         },
         {
           id: targetAgentId,
           name: "Target Agent", // 실제 에이전트 이름으로 교체됨
           isUser: false,
+          joinedAt: new Date().toISOString(),
         },
       ];
 
@@ -182,6 +210,7 @@ export async function POST(
         createdAt: new Date().toISOString(),
         lastActivityAt: new Date().toISOString(),
         feedbackContext,
+        initiatedBy: initiatorId,
       };
 
       // Redis에 세션 저장
@@ -431,13 +460,9 @@ export async function POST(
                   payload: {
                     teamId,
                     sessionId,
-                    participantId: participant.id,
-                    otherParticipant: session.participants.find(
-                      (p) => p.id !== participant.id
-                    ),
+                    session: session,
                     summary: summaryResult.summary,
-                    keyInsights: summaryResult.keyInsights,
-                    messageCount: actualMessages.length,
+                    keyPoints: summaryResult.keyInsights,
                   },
                 });
 
@@ -470,10 +495,10 @@ export async function POST(
             console.log(`⚠️ 세션 ${sessionId}의 요약이 이미 생성되었습니다.`);
           } else {
             const summaryMessage = {
-              sender: "system",
-              type: "feedback_session_summary",
+              sender: "system" as const,
+              type: "feedback_session_summary" as const,
               payload: {
-                type: "feedback_session_summary",
+                type: "feedback_session_summary" as const,
                 sessionId: session.id,
                 participants: session.participants.map((p) => p.name),
                 targetIdea: session.targetIdea,

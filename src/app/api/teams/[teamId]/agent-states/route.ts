@@ -1064,6 +1064,49 @@ async function handleEvaluateIdeaRequestDirect(
   console.log(`📊 에이전트 ${agentId} 아이디어 평가 요청 직접 처리`);
 
   try {
+    // 🚫 요청자가 피드백 세션 중인지 확인
+    const activeSessions = await redis.keys("feedback_session:*");
+    const requesterId = requestData.requesterId;
+
+    if (requesterId) {
+      for (const sessionKey of activeSessions) {
+        const sessionData = await redis.get(sessionKey);
+        if (sessionData) {
+          const session =
+            typeof sessionData === "string"
+              ? JSON.parse(sessionData)
+              : sessionData;
+          if (
+            session.status === "active" &&
+            session.participants.some((p: any) => p.id === requesterId)
+          ) {
+            console.log(`⏳ 요청자가 피드백 세션 중 - 아이디어 평가 요청 무시`);
+            return;
+          }
+        }
+      }
+    }
+
+    // 🚫 대상 에이전트(agentId)가 피드백 세션 중인지 확인
+    for (const sessionKey of activeSessions) {
+      const sessionData = await redis.get(sessionKey);
+      if (sessionData) {
+        const session =
+          typeof sessionData === "string"
+            ? JSON.parse(sessionData)
+            : sessionData;
+        if (
+          session.status === "active" &&
+          session.participants.some((p: any) => p.id === agentId)
+        ) {
+          console.log(
+            `⏳ 대상 에이전트가 피드백 세션 중 - 아이디어 평가 요청 무시`
+          );
+          return;
+        }
+      }
+    }
+
     const ideas = await getIdeas(teamId);
 
     if (ideas.length === 0) {
@@ -1075,7 +1118,7 @@ async function handleEvaluateIdeaRequestDirect(
     const otherIdeas = ideas.filter((idea) => idea.author !== agentId);
 
     if (otherIdeas.length === 0) {
-      console.log(`⚠️ ${agentId} 평가할 다른 사람의 아이디어가 없음`);
+      console.log(`⚠️ 에이전트 ${agentId} 평가할 다른 사람의 아이디어가 없음`);
       return;
     }
 
@@ -1103,6 +1146,49 @@ async function handleGenerateIdeaRequestDirect(
   console.log(`📊 에이전트 ${agentId} 아이디어 생성 요청 직접 처리`);
 
   try {
+    // 🚫 요청자가 피드백 세션 중인지 확인
+    const activeSessions = await redis.keys("feedback_session:*");
+    const requesterId = requestData.requesterId;
+
+    if (requesterId) {
+      for (const sessionKey of activeSessions) {
+        const sessionData = await redis.get(sessionKey);
+        if (sessionData) {
+          const session =
+            typeof sessionData === "string"
+              ? JSON.parse(sessionData)
+              : sessionData;
+          if (
+            session.status === "active" &&
+            session.participants.some((p: any) => p.id === requesterId)
+          ) {
+            console.log(`⏳ 요청자가 피드백 세션 중 - 아이디어 생성 요청 무시`);
+            return;
+          }
+        }
+      }
+    }
+
+    // 🚫 대상 에이전트(agentId)가 피드백 세션 중인지 확인
+    for (const sessionKey of activeSessions) {
+      const sessionData = await redis.get(sessionKey);
+      if (sessionData) {
+        const session =
+          typeof sessionData === "string"
+            ? JSON.parse(sessionData)
+            : sessionData;
+        if (
+          session.status === "active" &&
+          session.participants.some((p: any) => p.id === agentId)
+        ) {
+          console.log(
+            `⏳ 대상 에이전트가 피드백 세션 중 - 아이디어 생성 요청 무시`
+          );
+          return;
+        }
+      }
+    }
+
     const team = await getTeamById(teamId);
     const agentProfile = await getAgentById(agentId);
 
@@ -1187,7 +1273,7 @@ async function handleGiveFeedbackRequestDirect(
     const requesterName = requestData.requesterName;
     const requesterId = requestData.requesterId;
 
-    // 요청자가 피드백 세션 중인지 확인
+    // 🚫 요청자가 피드백 세션 중인지 확인
     const activeSessions = await redis.keys("feedback_session:*");
     let requesterInFeedbackSession = false;
 
@@ -1209,12 +1295,37 @@ async function handleGiveFeedbackRequestDirect(
     }
 
     if (requesterInFeedbackSession) {
-      // 요청자가 피드백 세션 중이면 요청을 큐에 추가
+      // 요청자가 피드백 세션 중이면 요청을 무시
       console.log(
-        `⏳ 요청자 ${requesterName}가 피드백 세션 중 - 요청을 큐에 추가`
+        `⏳ 요청자 ${requesterName}가 피드백 세션 중 - 피드백 요청 무시`
       );
+      return;
+    }
 
-      // 요청 큐에 추가하는 로직 (나중에 구현)
+    // 🚫 대상 에이전트(agentId)가 피드백 세션 중인지 확인
+    let targetInFeedbackSession = false;
+    for (const sessionKey of activeSessions) {
+      const sessionData = await redis.get(sessionKey);
+      if (sessionData) {
+        const session =
+          typeof sessionData === "string"
+            ? JSON.parse(sessionData)
+            : sessionData;
+        if (
+          session.status === "active" &&
+          session.participants.some((p: any) => p.id === agentId)
+        ) {
+          targetInFeedbackSession = true;
+          break;
+        }
+      }
+    }
+
+    if (targetInFeedbackSession) {
+      // 대상 에이전트가 피드백 세션 중이면 요청을 무시
+      console.log(
+        `⏳ 대상 에이전트 ${agentProfile.name}가 피드백 세션 중 - 피드백 요청 무시`
+      );
       return;
     }
 
