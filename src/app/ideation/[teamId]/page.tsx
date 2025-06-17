@@ -2114,7 +2114,7 @@ export default function IdeationPage() {
                                             // AI끼리의 세션인 경우 참가자별로 다른 스타일 적용
                                             let messageStyle =
                                               "bg-gray-100 text-gray-900"; // 기본 스타일
-                                            let isRightAligned = false;
+                                            let isRightAligned = true;
 
                                             if (isFromUser) {
                                               messageStyle =
@@ -2139,7 +2139,7 @@ export default function IdeationPage() {
                                                 // 첫 번째 참가자: 보라색 + 왼쪽
                                                 messageStyle =
                                                   "bg-purple-50 text-purple-900";
-                                                isRightAligned = false;
+                                                isRightAligned = true;
                                               } else if (
                                                 senderDisplayName ===
                                                 participant2Name
@@ -2147,12 +2147,12 @@ export default function IdeationPage() {
                                                 // 두 번째 참가자: 파란색 + 오른쪽
                                                 messageStyle =
                                                   "bg-blue-50 text-blue-900";
-                                                isRightAligned = true;
+                                                isRightAligned = false;
                                               } else {
                                                 // 알 수 없는 발신자
                                                 messageStyle =
                                                   "bg-orange-100 text-orange-900";
-                                                isRightAligned = false;
+                                                isRightAligned = true;
                                               }
                                             } else if (!isFromUser) {
                                               // 단일 AI 참가자 또는 일반적인 경우
@@ -2181,8 +2181,8 @@ export default function IdeationPage() {
                                                       className={`text-xs mb-1 px-2 ${
                                                         isAIOnlySession
                                                           ? isRightAligned
-                                                            ? "text-right text-blue-600 font-medium"
-                                                            : "text-left text-purple-600 font-medium"
+                                                            ? "text-right text-purple-600 font-medium"
+                                                            : "text-left text-blue-600 font-medium"
                                                           : "text-gray-500"
                                                       }`}
                                                     >
