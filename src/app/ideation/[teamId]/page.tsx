@@ -845,6 +845,57 @@ export default function IdeationPage() {
     };
   }, [team?.id]);
 
+  // 아이디어 생성 완료 상태 확인 함수
+  const isInitialIdeaGenerationComplete = (): boolean => {
+    if (!team) return false;
+
+    // 아이디어 생성 역할을 가진 팀원들 (에이전트만)
+    const ideaGenerators = team.members.filter(
+      (member) => !member.isUser && member.roles.includes("아이디어 생성하기")
+    );
+
+    if (ideaGenerators.length === 0) return true; // 아이디어 생성자가 없으면 제한 없음
+
+    // 각 아이디어 생성자가 최소 1개의 아이디어를 생성했는지 확인
+    const hasAllGeneratorsCreatedIdeas = ideaGenerators.every((generator) => {
+      const hasIdea = ideas.some((idea) => idea.author === generator.agentId);
+      return hasIdea;
+    });
+
+    return hasAllGeneratorsCreatedIdeas;
+  };
+
+  // 채팅 비활성화 여부 확인 함수
+  const isChatDisabled = (): boolean => {
+    // 초기 아이디어 생성이 완료되지 않았으면 채팅 비활성화
+    return !isInitialIdeaGenerationComplete();
+  };
+
+  // 채팅 비활성화 메시지 생성 함수
+  const getChatDisabledMessage = (): string => {
+    if (!isInitialIdeaGenerationComplete()) {
+      const incompleteGenerators =
+        team?.members
+          .filter(
+            (member) =>
+              !member.isUser &&
+              member.roles.includes("아이디어 생성하기") &&
+              !ideas.some((idea) => idea.author === member.agentId)
+          )
+          .map((member) => {
+            const agent = agents.find((a) => a.id === member.agentId);
+            return agent?.name || member.agentId;
+          }) || [];
+
+      if (incompleteGenerators.length > 0) {
+        return `아이디어 생성 단계입니다. ${incompleteGenerators.join(
+          ", "
+        )}이(가) 아이디어를 생성할 때까지 채팅이 제한됩니다.`;
+      }
+    }
+    return "채팅을 입력하세요...";
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -923,6 +974,8 @@ export default function IdeationPage() {
             isAutoGenerating={isAutoGenerating}
             isGeneratingIdea={isGeneratingIdea}
             scrollToBottom={scrollToBottom}
+            isChatDisabled={isChatDisabled}
+            getChatDisabledMessage={getChatDisabledMessage}
           />
 
           {/* 오른쪽: 아이디어 목록 */}

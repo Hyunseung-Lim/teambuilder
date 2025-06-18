@@ -51,6 +51,8 @@ interface ChatAreaProps {
   isAutoGenerating: boolean;
   isGeneratingIdea: boolean;
   scrollToBottom: () => void;
+  isChatDisabled: () => boolean;
+  getChatDisabledMessage: () => string;
 }
 
 export default function ChatArea({
@@ -81,6 +83,8 @@ export default function ChatArea({
   isAutoGenerating,
   isGeneratingIdea,
   scrollToBottom,
+  isChatDisabled,
+  getChatDisabledMessage,
 }: ChatAreaProps) {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -716,181 +720,211 @@ export default function ChatArea({
       {/* 메시지 입력 */}
       {activeTab === "main" && (
         <div className="p-4 border-t border-gray-200">
-          <div className="relative">
-            {/* 멘션 및 요청 타입 UI */}
-            <div className="flex items-center gap-2 mb-2">
-              <div className="relative">
-                <button
-                  onClick={() => onShowMentionDropdown(!showMentionDropdown)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-200"
-                >
-                  <span className="text-gray-500">@</span>
-                  <span>
-                    {mentionedAgent ? mentionedAgent.name : "팀원 선택"}
-                  </span>
-                </button>
-                {showMentionDropdown && (
-                  <div className="absolute bottom-full left-0 mb-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-10">
-                    {teamAgents.map((agent) => {
-                      const isInFeedback = isAgentInFeedbackSession(agent.id);
-                      const isAvailable =
-                        chatMode === "give_feedback"
-                          ? !isInFeedback
-                          : requestType
-                          ? canAgentPerformRole(agent, requestType) &&
-                            !isInFeedback
-                          : !isInFeedback;
+          {/* 아이디어 생성 제한 알림 */}
+          {isChatDisabled() && (
+            <div className="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <div className="flex items-center gap-2">
+                <div className="w-4 h-4 bg-yellow-400 rounded-full"></div>
+                <p className="text-sm text-yellow-800 font-medium">
+                  {getChatDisabledMessage()}
+                </p>
+              </div>
+            </div>
+          )}
 
-                      return (
-                        <button
-                          key={agent.id}
-                          onClick={() => {
-                            if (isAvailable) {
-                              onMentionedAgentChange(agent);
-                              onShowMentionDropdown(false);
-
-                              // 선택된 에이전트가 현재 요청 타입을 수행할 수 없다면 요청 타입 초기화
-                              if (
-                                chatMode === "make_request" &&
-                                requestType &&
-                                !canAgentPerformRole(agent, requestType)
-                              ) {
-                                onRequestTypeChange(null);
-                              }
-                            }
-                          }}
-                          disabled={!isAvailable}
-                          className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between ${
-                            isAvailable
-                              ? "hover:bg-gray-50 cursor-pointer"
-                              : "cursor-not-allowed opacity-50 bg-gray-50"
-                          }`}
-                        >
-                          <span>{agent.name}</span>
-                          {isInFeedback && (
-                            <span className="text-xs text-orange-600 font-medium">
-                              피드백 중
-                            </span>
-                          )}
-                          {!isInFeedback &&
-                            chatMode === "make_request" &&
-                            requestType &&
-                            !canAgentPerformRole(agent, requestType) && (
-                              <span className="text-xs text-gray-500">
-                                역할 없음
-                              </span>
-                            )}
-                        </button>
-                      );
-                    })}
-                    {teamAgents.filter((agent) =>
+          {/* 멘션 및 요청 타입 UI */}
+          <div className="flex items-center gap-2 mb-2">
+            <div className="relative">
+              <button
+                onClick={() => onShowMentionDropdown(!showMentionDropdown)}
+                disabled={isChatDisabled()}
+                className={`flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-md text-sm font-medium text-gray-700 ${
+                  isChatDisabled()
+                    ? "opacity-50 cursor-not-allowed"
+                    : "hover:bg-gray-200"
+                }`}
+              >
+                <span className="text-gray-500">@</span>
+                <span>
+                  {mentionedAgent ? mentionedAgent.name : "팀원 선택"}
+                </span>
+              </button>
+              {showMentionDropdown && !isChatDisabled() && (
+                <div className="absolute bottom-full left-0 mb-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-10">
+                  {teamAgents.map((agent) => {
+                    const isInFeedback = isAgentInFeedbackSession(agent.id);
+                    const isAvailable =
                       chatMode === "give_feedback"
-                        ? !isAgentInFeedbackSession(agent.id)
+                        ? !isInFeedback
                         : requestType
                         ? canAgentPerformRole(agent, requestType) &&
-                          !isAgentInFeedbackSession(agent.id)
-                        : !isAgentInFeedbackSession(agent.id)
-                    ).length === 0 && (
-                      <div className="px-3 py-2 text-sm text-gray-500">
-                        {chatMode === "make_request" && requestType
-                          ? "해당 역할을 수행할 수 있는 에이전트가 없거나 모두 피드백 중입니다."
-                          : "모든 에이전트가 피드백 세션 중입니다."}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+                          !isInFeedback
+                        : !isInFeedback;
 
-              <span className="text-sm text-gray-500">에게</span>
+                    return (
+                      <button
+                        key={agent.id}
+                        onClick={() => {
+                          if (isAvailable) {
+                            onMentionedAgentChange(agent);
+                            onShowMentionDropdown(false);
 
-              <select
-                value={chatMode}
-                onChange={(e) => {
-                  onChatModeChange(
-                    e.target.value as "give_feedback" | "make_request"
-                  );
-                  // 채팅 모드 변경 시 요청 타입과 멘션된 에이전트 초기화
-                  if (e.target.value === "make_request") {
-                    onRequestTypeChange(null);
-                  }
-                }}
-                className="px-3 py-1.5 bg-gray-100 border-none rounded-md text-sm font-medium text-gray-700 focus:ring-0"
-              >
-                <option value="give_feedback">피드백</option>
-                <option value="make_request">요청</option>
-              </select>
-
-              {chatMode === "make_request" && (
-                <select
-                  value={requestType || ""}
-                  onChange={(e) => {
-                    const newRequestType = e.target.value as
-                      | "generate"
-                      | "evaluate"
-                      | "give_feedback";
-                    onRequestTypeChange(newRequestType);
-
-                    // 요청 타입 변경 시, 현재 선택된 에이전트가 해당 역할을 수행할 수 없다면 초기화
-                    if (
-                      mentionedAgent &&
-                      !canAgentPerformRole(mentionedAgent, newRequestType)
-                    ) {
-                      onMentionedAgentChange(null);
-                    }
-                  }}
-                  className="px-3 py-1.5 bg-gray-100 border-none rounded-md text-sm font-medium text-gray-700 focus:ring-0"
-                >
-                  <option value="" disabled>
-                    요청 선택
-                  </option>
-                  {getAvailableRequestTypes().map((type) => (
-                    <option key={type.value} value={type.value}>
-                      {type.label}
-                    </option>
-                  ))}
-                </select>
+                            // 선택된 에이전트가 현재 요청 타입을 수행할 수 없다면 요청 타입 초기화
+                            if (
+                              chatMode === "make_request" &&
+                              requestType &&
+                              !canAgentPerformRole(agent, requestType)
+                            ) {
+                              onRequestTypeChange(null);
+                            }
+                          }
+                        }}
+                        disabled={!isAvailable}
+                        className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between ${
+                          isAvailable
+                            ? "hover:bg-gray-50 cursor-pointer"
+                            : "cursor-not-allowed opacity-50 bg-gray-50"
+                        }`}
+                      >
+                        <span>{agent.name}</span>
+                        {isInFeedback && (
+                          <span className="text-xs text-orange-600 font-medium">
+                            피드백 중
+                          </span>
+                        )}
+                        {!isInFeedback &&
+                          chatMode === "make_request" &&
+                          requestType &&
+                          !canAgentPerformRole(agent, requestType) && (
+                            <span className="text-xs text-gray-500">
+                              역할 없음
+                            </span>
+                          )}
+                      </button>
+                    );
+                  })}
+                  {teamAgents.filter((agent) =>
+                    chatMode === "give_feedback"
+                      ? !isAgentInFeedbackSession(agent.id)
+                      : requestType
+                      ? canAgentPerformRole(agent, requestType) &&
+                        !isAgentInFeedbackSession(agent.id)
+                      : !isAgentInFeedbackSession(agent.id)
+                  ).length === 0 && (
+                    <div className="px-3 py-2 text-sm text-gray-500">
+                      {chatMode === "make_request" && requestType
+                        ? "해당 역할을 수행할 수 있는 에이전트가 없거나 모두 피드백 중입니다."
+                        : "모든 에이전트가 피드백 세션 중입니다."}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 
-            {/* 메시지 입력창 */}
-            <div className="flex gap-2">
-              <Input
-                value={newMessage}
-                onChange={(e) => onNewMessageChange(e.target.value)}
-                placeholder={
-                  feedbackTabs.length > 0 && activeTab !== "main"
-                    ? "피드백 세션이 진행 중입니다. 메인 탭에서 채팅하세요."
-                    : chatMode === "give_feedback"
-                    ? `${
-                        mentionedAgent ? mentionedAgent.name : "팀원"
-                      }에게 피드백을 보내세요...`
-                    : `${
-                        mentionedAgent ? mentionedAgent.name : "팀원"
-                      }에게 요청할 내용을 입력하세요...`
+            <span className="text-sm text-gray-500">에게</span>
+
+            <select
+              value={chatMode}
+              onChange={(e) => {
+                onChatModeChange(
+                  e.target.value as "give_feedback" | "make_request"
+                );
+                // 채팅 모드 변경 시 요청 타입과 멘션된 에이전트 초기화
+                if (e.target.value === "make_request") {
+                  onRequestTypeChange(null);
                 }
-                onKeyPress={(e) =>
-                  e.key === "Enter" && activeTab === "main" && onSendMessage()
-                }
-                className="flex-1"
-                disabled={
-                  isAutoGenerating || isGeneratingIdea || activeTab !== "main"
-                }
-              />
-              <Button
-                onClick={onSendMessage}
-                size="icon"
-                disabled={
-                  isAutoGenerating ||
-                  isGeneratingIdea ||
-                  activeTab !== "main" ||
-                  !mentionedAgent ||
-                  (chatMode === "make_request" && !requestType)
-                }
-                className="self-center"
+              }}
+              disabled={isChatDisabled()}
+              className={`px-3 py-1.5 bg-gray-100 border-none rounded-md text-sm font-medium text-gray-700 focus:ring-0 ${
+                isChatDisabled() ? "opacity-50 cursor-not-allowed" : ""
+              }`}
+            >
+              <option value="give_feedback">피드백</option>
+              <option value="make_request">요청</option>
+            </select>
+
+            {chatMode === "make_request" && (
+              <select
+                value={requestType || ""}
+                onChange={(e) => {
+                  const newRequestType = e.target.value as
+                    | "generate"
+                    | "evaluate"
+                    | "give_feedback";
+                  onRequestTypeChange(newRequestType);
+
+                  // 요청 타입 변경 시, 현재 선택된 에이전트가 해당 역할을 수행할 수 없다면 초기화
+                  if (
+                    mentionedAgent &&
+                    !canAgentPerformRole(mentionedAgent, newRequestType)
+                  ) {
+                    onMentionedAgentChange(null);
+                  }
+                }}
+                disabled={isChatDisabled()}
+                className={`px-3 py-1.5 bg-gray-100 border-none rounded-md text-sm font-medium text-gray-700 focus:ring-0 ${
+                  isChatDisabled() ? "opacity-50 cursor-not-allowed" : ""
+                }`}
               >
-                <Send className="w-4" />
-              </Button>
-            </div>
+                <option value="" disabled>
+                  요청 선택
+                </option>
+                {getAvailableRequestTypes().map((type) => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* 메시지 입력창 */}
+          <div className="flex gap-2">
+            <Input
+              value={newMessage}
+              onChange={(e) => onNewMessageChange(e.target.value)}
+              placeholder={
+                isChatDisabled()
+                  ? getChatDisabledMessage()
+                  : feedbackTabs.length > 0 && activeTab !== "main"
+                  ? "피드백 세션이 진행 중입니다. 메인 탭에서 채팅하세요."
+                  : chatMode === "give_feedback"
+                  ? `${
+                      mentionedAgent ? mentionedAgent.name : "팀원"
+                    }에게 피드백을 보내세요...`
+                  : `${
+                      mentionedAgent ? mentionedAgent.name : "팀원"
+                    }에게 요청할 내용을 입력하세요...`
+              }
+              onKeyPress={(e) =>
+                e.key === "Enter" &&
+                activeTab === "main" &&
+                !isChatDisabled() &&
+                onSendMessage()
+              }
+              className="flex-1"
+              disabled={
+                isChatDisabled() ||
+                isAutoGenerating ||
+                isGeneratingIdea ||
+                activeTab !== "main"
+              }
+            />
+            <Button
+              onClick={onSendMessage}
+              size="icon"
+              disabled={
+                isChatDisabled() ||
+                isAutoGenerating ||
+                isGeneratingIdea ||
+                activeTab !== "main" ||
+                !mentionedAgent ||
+                (chatMode === "make_request" && !requestType)
+              }
+              className="self-center"
+            >
+              <Send className="w-4" />
+            </Button>
           </div>
         </div>
       )}
