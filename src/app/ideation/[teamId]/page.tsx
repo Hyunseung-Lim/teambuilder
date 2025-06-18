@@ -879,6 +879,11 @@ export default function IdeationPage() {
             scrollToBottom={scrollToBottom}
             isChatDisabled={isChatDisabled}
             getChatDisabledMessage={getChatDisabledMessage}
+            onIdeaClick={(idea, index) => {
+              setIdeaDetailModalData(idea);
+              setCurrentIdeaIndex(index);
+              setShowIdeaDetailModal(true);
+            }}
           />
 
           {/* 오른쪽: 아이디어 목록 */}

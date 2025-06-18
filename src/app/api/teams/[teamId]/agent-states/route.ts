@@ -452,7 +452,7 @@ async function executeAgentAction(
             sender: agentId,
             type: "system",
             payload: {
-              content: `요청받은 아이디어를 평가했습니다.`,
+              content: `"${randomIdea.content.object}" 아이디어를 평가했습니다.`,
             },
           });
         } else {
@@ -1573,7 +1573,7 @@ async function handleEvaluateIdeaRequestDirect(
           sender: agentId,
           type: "system",
           payload: {
-            content: `요청받은 아이디어를 평가했습니다.`,
+            content: `"${randomIdea.content.object}" 아이디어를 평가했습니다.`,
           },
         });
       } else {

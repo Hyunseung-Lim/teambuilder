@@ -53,6 +53,7 @@ interface ChatAreaProps {
   scrollToBottom: () => void;
   isChatDisabled: () => boolean;
   getChatDisabledMessage: () => string;
+  onIdeaClick: (idea: Idea, index: number) => void;
 }
 
 export default function ChatArea({
@@ -85,6 +86,7 @@ export default function ChatArea({
   scrollToBottom,
   isChatDisabled,
   getChatDisabledMessage,
+  onIdeaClick,
 }: ChatAreaProps) {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -479,8 +481,13 @@ export default function ChatArea({
                                   }
                                 );
 
-                                // 여기서는 아이디어 모달을 직접 열지 않고, 상위 컴포넌트에게 알림
-                                // 실제 구현에서는 callback prop을 통해 처리
+                                // 아이디어 모달 열기
+                                const ideaIndex = ideas.findIndex(
+                                  (idea) => idea.id === closestIdea.id
+                                );
+                                if (ideaIndex !== -1) {
+                                  onIdeaClick(closestIdea, ideaIndex);
+                                }
                               } else {
                                 console.log(
                                   "❌ 해당 작성자의 아이디어를 찾을 수 없음"
@@ -509,6 +516,113 @@ export default function ChatArea({
 
                               return (
                                 authorIdeas[0]?.content.object || "아이디어"
+                              );
+                            })()}
+                            "
+                          </span>
+                        )}
+                        {isEvaluationCompletedMessage && (
+                          <span
+                            className="underline cursor-pointer text-orange-600 text-sm font-semibold hover:text-orange-800"
+                            onClick={() => {
+                              // 평가 완료 메시지 시간 기준으로 최근에 평가된 아이디어 찾기
+                              const messageTime = new Date(
+                                message.timestamp
+                              ).getTime();
+
+                              // 메시지 발송자가 평가한 아이디어들 중에서 시간이 가장 가까운 것 찾기
+                              const evaluatedIdeas = ideas
+                                .filter((idea) => {
+                                  return idea.evaluations.some(
+                                    (evaluation) =>
+                                      evaluation.evaluator === message.sender
+                                  );
+                                })
+                                .map((idea) => {
+                                  // 해당 평가자의 평가 시간 찾기
+                                  const evaluation = idea.evaluations.find(
+                                    (evaluation) =>
+                                      evaluation.evaluator === message.sender
+                                  );
+                                  return {
+                                    ...idea,
+                                    evaluationTime: evaluation?.timestamp,
+                                    timeDiff: evaluation?.timestamp
+                                      ? Math.abs(
+                                          new Date(
+                                            evaluation.timestamp
+                                          ).getTime() - messageTime
+                                        )
+                                      : Infinity,
+                                  };
+                                })
+                                .sort((a, b) => a.timeDiff - b.timeDiff);
+
+                              const closestEvaluatedIdea = evaluatedIdeas[0];
+
+                              if (closestEvaluatedIdea) {
+                                console.log(
+                                  "🎯 평가 메시지 시간 기준 가장 가까운 평가된 아이디어 찾음:",
+                                  {
+                                    messageTime: message.timestamp,
+                                    evaluationTime:
+                                      closestEvaluatedIdea.evaluationTime,
+                                    timeDiff:
+                                      closestEvaluatedIdea.timeDiff / 1000 +
+                                      "초 차이",
+                                    ideaTitle:
+                                      closestEvaluatedIdea.content.object,
+                                  }
+                                );
+
+                                // 아이디어 모달 열기
+                                const ideaIndex = ideas.findIndex(
+                                  (idea) => idea.id === closestEvaluatedIdea.id
+                                );
+                                if (ideaIndex !== -1) {
+                                  onIdeaClick(closestEvaluatedIdea, ideaIndex);
+                                }
+                              } else {
+                                console.log(
+                                  "❌ 해당 평가자가 평가한 아이디어를 찾을 수 없음"
+                                );
+                              }
+                            }}
+                          >
+                            "
+                            {(() => {
+                              // 평가 메시지 시간과 가장 가까운 평가된 아이디어의 제목 찾기
+                              const messageTime = new Date(
+                                message.timestamp
+                              ).getTime();
+
+                              const evaluatedIdeas = ideas
+                                .filter((idea) => {
+                                  return idea.evaluations.some(
+                                    (evaluation) =>
+                                      evaluation.evaluator === message.sender
+                                  );
+                                })
+                                .map((idea) => {
+                                  const evaluation = idea.evaluations.find(
+                                    (evaluation) =>
+                                      evaluation.evaluator === message.sender
+                                  );
+                                  return {
+                                    ...idea,
+                                    timeDiff: evaluation?.timestamp
+                                      ? Math.abs(
+                                          new Date(
+                                            evaluation.timestamp
+                                          ).getTime() - messageTime
+                                        )
+                                      : Infinity,
+                                  };
+                                })
+                                .sort((a, b) => a.timeDiff - b.timeDiff);
+
+                              return (
+                                evaluatedIdeas[0]?.content.object || "아이디어"
                               );
                             })()}
                             "
