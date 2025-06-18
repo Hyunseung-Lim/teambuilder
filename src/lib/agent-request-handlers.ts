@@ -142,11 +142,61 @@ export async function handleGenerateIdeaRequestDirect(
       `✅ ${agentProfile.name} 아이디어 생성 완료:`,
       generatedContent.object
     );
+
+    if (response.ok) {
+      const result = await response.json();
+      console.log(
+        `✅ ${agentProfile.name} 요청받은 아이디어 생성 완료:`,
+        result.idea
+      );
+
+      await addChatMessage(teamId, {
+        sender: agentId,
+        type: "system",
+        payload: {
+          content: `요청에 따라 새로운 아이디어를 생성했습니다: "${result.idea.content.object}"`,
+        },
+      });
+    } else {
+      console.error(
+        `❌ ${agentProfile.name} 아이디어 저장 실패:`,
+        response.status
+      );
+      await addChatMessage(teamId, {
+        sender: agentId,
+        type: "system",
+        payload: {
+          content: `아이디어 저장에 실패했습니다. (오류: ${response.status})`,
+        },
+      });
+    }
   } catch (error) {
-    console.error(
-      `❌ 에이전트 ${agentId} 아이디어 생성 요청 처리 실패:`,
-      error
-    );
+    console.error(`❌ ${agentProfile.name} 아이디어 생성 실패:`, error);
+
+    // LLM 응답 파싱 실패인지 확인
+    const isJsonParseError =
+      error instanceof Error &&
+      (error.message.includes("JSON.parse") ||
+        error.message.includes("not valid JSON") ||
+        error.message.includes("Unexpected token"));
+
+    if (isJsonParseError) {
+      await addChatMessage(teamId, {
+        sender: agentId,
+        type: "system",
+        payload: {
+          content: `아이디어 생성 중 AI 응답 오류가 발생했습니다. 다시 시도해주세요.`,
+        },
+      });
+    } else {
+      await addChatMessage(teamId, {
+        sender: agentId,
+        type: "system",
+        payload: {
+          content: `아이디어 생성 중 오류가 발생했습니다.`,
+        },
+      });
+    }
   }
 }
 
@@ -250,13 +300,31 @@ export async function handleGiveFeedbackRequestDirect(
     );
   } catch (error) {
     console.error(`❌ 에이전트 ${agentId} 피드백 요청 처리 실패:`, error);
-    await addChatMessage(teamId, {
-      sender: agentId,
-      type: "system",
-      payload: {
-        content: `피드백 요청 처리 중 오류가 발생했습니다.`,
-      },
-    });
+
+    // LLM 응답 파싱 실패인지 확인
+    const isJsonParseError =
+      error instanceof Error &&
+      (error.message.includes("JSON.parse") ||
+        error.message.includes("not valid JSON") ||
+        error.message.includes("Unexpected token"));
+
+    if (isJsonParseError) {
+      await addChatMessage(teamId, {
+        sender: agentId,
+        type: "system",
+        payload: {
+          content: `피드백 처리 중 AI 응답 오류가 발생했습니다. 다시 시도해주세요.`,
+        },
+      });
+    } else {
+      await addChatMessage(teamId, {
+        sender: agentId,
+        type: "system",
+        payload: {
+          content: `피드백 요청 처리 중 오류가 발생했습니다.`,
+        },
+      });
+    }
   }
 }
 
@@ -360,9 +428,9 @@ async function performIdeaEvaluation(
         body: JSON.stringify({
           evaluator: agentId,
           scores: {
-            insightful: evaluation.insightful,
-            actionable: evaluation.actionable,
-            relevance: evaluation.relevance,
+            insightful: evaluation.scores.insightful,
+            actionable: evaluation.scores.actionable,
+            relevance: evaluation.scores.relevance,
           },
           comment: evaluation.comment,
         }),
@@ -380,9 +448,41 @@ async function performIdeaEvaluation(
       });
     } else {
       console.error(`❌ ${agentProfile.name} 평가 저장 실패:`, response.status);
+      await addChatMessage(teamId, {
+        sender: agentId,
+        type: "system",
+        payload: {
+          content: `평가 저장에 실패했습니다. (오류: ${response.status})`,
+        },
+      });
     }
   } catch (evaluationError) {
     console.error(`❌ ${agentProfile.name} 평가 수행 실패:`, evaluationError);
+
+    // LLM 응답 파싱 실패인지 확인
+    const isJsonParseError =
+      evaluationError instanceof Error &&
+      (evaluationError.message.includes("JSON.parse") ||
+        evaluationError.message.includes("not valid JSON") ||
+        evaluationError.message.includes("Unexpected token"));
+
+    if (isJsonParseError) {
+      await addChatMessage(teamId, {
+        sender: agentId,
+        type: "system",
+        payload: {
+          content: `아이디어 평가 중 AI 응답 오류가 발생했습니다. 다시 시도해주세요.`,
+        },
+      });
+    } else {
+      await addChatMessage(teamId, {
+        sender: agentId,
+        type: "system",
+        payload: {
+          content: `아이디어 평가 중 오류가 발생했습니다.`,
+        },
+      });
+    }
   }
 
   console.log(`✅ 에이전트 ${agentId} 아이디어 평가 요청 처리 완료`);

@@ -28,7 +28,10 @@ export async function POST(
     const teamId = resolvedParams.teamId;
     const ideaId = parseInt(resolvedParams.ideaId);
 
+    console.log(`📊 평가 API 요청 - 팀ID: ${teamId}, 아이디어ID: ${ideaId}`);
+
     if (isNaN(ideaId)) {
+      console.error(`❌ 유효하지 않은 아이디어 ID: ${resolvedParams.ideaId}`);
       return NextResponse.json(
         { error: "유효하지 않은 아이디어 ID입니다." },
         { status: 400 }
@@ -38,8 +41,20 @@ export async function POST(
     const body = await request.json();
     const { evaluator, scores, comment } = body;
 
+    console.log(`📋 평가 요청 데이터:`, {
+      evaluator,
+      scores,
+      comment,
+      isSystemCall,
+    });
+
     // 입력 검증
     if (!evaluator || !scores) {
+      console.error(
+        `❌ 필수 데이터 누락 - evaluator: ${evaluator}, scores: ${JSON.stringify(
+          scores
+        )}`
+      );
       return NextResponse.json(
         { error: "평가자와 점수는 필수 입력 사항입니다." },
         { status: 400 }
@@ -57,6 +72,11 @@ export async function POST(
       scores.relevance < 1 ||
       scores.relevance > 5
     ) {
+      console.error(`❌ 점수 범위 오류:`, {
+        insightful: scores.insightful,
+        actionable: scores.actionable,
+        relevance: scores.relevance,
+      });
       return NextResponse.json(
         { error: "모든 점수는 1-5 사이의 값이어야 합니다." },
         { status: 400 }
@@ -67,7 +87,14 @@ export async function POST(
     const ideas = await getIdeas(teamId);
     const targetIdea = ideas.find((idea) => idea.id === ideaId);
 
+    console.log(
+      `🔍 아이디어 조회 결과 - 전체: ${ideas.length}개, 대상: ${
+        targetIdea ? "Found" : "Not Found"
+      }`
+    );
+
     if (!targetIdea) {
+      console.error(`❌ 아이디어 ${ideaId} 찾을 수 없음`);
       return NextResponse.json(
         { error: "아이디어를 찾을 수 없습니다." },
         { status: 404 }
@@ -79,7 +106,12 @@ export async function POST(
       (evaluation) => evaluation.evaluator === evaluator
     );
 
+    console.log(
+      `🔄 중복 평가 확인 - 기존 평가: ${existingEvaluation ? "Found" : "None"}`
+    );
+
     if (existingEvaluation) {
+      console.error(`❌ ${evaluator}가 이미 아이디어 ${ideaId} 평가함`);
       return NextResponse.json(
         { error: "이미 이 아이디어를 평가하셨습니다." },
         { status: 400 }
