@@ -248,14 +248,6 @@ export default function ViewFeedbackSessionModal({
                 const participant1 = session.participants[0];
                 const participant2 = session.participants[1];
 
-                // 디버깅용 로그 (개발 시에만)
-                console.log("Message debug:", {
-                  sender: message.sender,
-                  participant1: participant1?.id,
-                  participant2: participant2?.id,
-                  isAIOnlySession,
-                });
-
                 if (message.sender === participant1.id) {
                   // 첫 번째 참가자: 회색 + 왼쪽 (에이전트 스타일)
                   messageStyle = "bg-gray-100 text-gray-900";

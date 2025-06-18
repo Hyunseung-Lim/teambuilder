@@ -16,15 +16,6 @@ export default function AgentStateIndicator({
   if (!state) return null;
 
   const getStateInfo = () => {
-    // 디버깅을 위한 로깅 강화
-    console.log(`🔍 ${agentName} 상태 분석:`, {
-      currentState: state.currentState,
-      isProcessing: state.isProcessing,
-      currentTask: state.currentTask,
-      idleTimer: state.idleTimer,
-      lastStateChange: state.lastStateChange,
-    });
-
     switch (state.currentState) {
       case "idle":
         return {

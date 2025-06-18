@@ -245,17 +245,14 @@ export default function IdeationPage() {
   // 데이터 로드 함수들
   const loadIdeas = useCallback(async (teamId: string) => {
     try {
-      console.log("💡 아이디어 로드 시작:", teamId);
       const response = await fetch(
         `/api/teams/${teamId}/ideas?t=${new Date().getTime()}`
       );
       if (response.ok) {
         const data = await response.json();
-        console.log("💡 아이디어 로드 완료:", data.ideas?.length || 0, "개");
         setIdeas(data.ideas || []);
         return (data.ideas || []).length;
       }
-      console.log("💡 아이디어 로드 실패: response not ok");
       return 0;
     } catch (error) {
       console.error("💡 아이디어 로드 실패:", error);
@@ -265,20 +262,12 @@ export default function IdeationPage() {
 
   const loadMessages = useCallback(async (teamId: string) => {
     try {
-      console.log("💬 채팅 메시지 로드 시작:", teamId);
       const response = await fetch(
         `/api/teams/${teamId}/chat?t=${new Date().getTime()}`
       );
       if (response.ok) {
         const data = await response.json();
-        console.log(
-          "💬 채팅 메시지 로드 완료:",
-          data.messages?.length || 0,
-          "개"
-        );
         setMessages(data.messages || []);
-      } else {
-        console.log("💬 채팅 메시지 로드 실패: response not ok");
       }
     } catch (error) {
       console.error("💬 채팅 메시지 로드 실패:", error);
@@ -475,7 +464,7 @@ export default function IdeationPage() {
         }),
       });
       if (response.ok) {
-        console.log("✅ 아이디어 생성 요청 완료");
+        // 성공적으로 요청됨
       }
     } catch (error) {
       console.error("아이디어 생성 실패:", error);
@@ -621,76 +610,6 @@ export default function IdeationPage() {
     feedbackTabsRef.current = feedbackTabs;
   }, [feedbackTabs]);
 
-  // 실시간 피드백 세션 감지 (AI가 인간에게 피드백 시작 시)
-  useEffect(() => {
-    if (!team?.id) return;
-
-    const pollNewFeedbackSessions = async () => {
-      try {
-        const response = await fetch(
-          `/api/teams/${team.id}/feedback-sessions?action=check_user_sessions`
-        );
-        if (response.ok) {
-          const data = await response.json();
-          const userSessions = data.userSessions || [];
-
-          // 새로운 AI→User 세션이 있는지 확인
-          for (const session of userSessions) {
-            const isUserParticipant = session.participants.some(
-              (p: any) => p.id === "나"
-            );
-            const aiParticipant = session.participants.find(
-              (p: any) => p.id !== "나" && !p.isUser
-            );
-
-            if (
-              isUserParticipant &&
-              aiParticipant &&
-              session.status === "active"
-            ) {
-              // 이미 탭이 있는지 확인 (ref 사용)
-              const existingTab = feedbackTabsRef.current.find(
-                (tab) => tab.id === session.id
-              );
-
-              if (!existingTab) {
-                console.log(
-                  `🔔 AI가 시작한 새로운 피드백 세션 감지: ${session.id}`
-                );
-
-                // AI→User 피드백 탭 자동 생성
-                const newTab = {
-                  id: session.id,
-                  name: `${aiParticipant.name}와의 피드백`,
-                  participantId: aiParticipant.id,
-                  participantName: aiParticipant.name,
-                  type: "ai_to_user" as const,
-                  sessionData: {
-                    realSessionId: session.id,
-                    aiInitiated: true,
-                  },
-                  isActive: true,
-                };
-
-                setFeedbackTabs((prev) => [...prev, newTab]);
-                setActiveTab(session.id);
-              }
-            }
-          }
-        }
-      } catch (error) {
-        console.error("피드백 세션 감지 실패:", error);
-      }
-    };
-
-    // 초기 확인
-    pollNewFeedbackSessions();
-
-    // 3초마다 새로운 세션 확인
-    const interval = setInterval(pollNewFeedbackSessions, 3000);
-    return () => clearInterval(interval);
-  }, [team?.id]); // feedbackTabs 의존성 제거
-
   // 데이터 로드
   useEffect(() => {
     async function loadData() {
@@ -728,23 +647,12 @@ export default function IdeationPage() {
     if (!team || !agents.length || loading || ideas.length > 0) return;
 
     const triggerInitialIdeaGeneration = async () => {
-      console.log("🚀 아이디에이션 시작 - 초기 아이디어 생성 트리거");
-
       // '아이디어 생성하기' 역할을 가진 AI 에이전트들 찾기
       const ideaGenerators = team.members.filter(
         (member) => !member.isUser && member.roles.includes("아이디어 생성하기")
       );
 
-      console.log(
-        `💡 아이디어 생성 에이전트 ${ideaGenerators.length}명 발견:`,
-        ideaGenerators.map((m) => {
-          const agent = agents.find((a) => a.id === m.agentId);
-          return agent?.name || m.agentId;
-        })
-      );
-
       if (ideaGenerators.length === 0) {
-        console.log("⚠️ 아이디어 생성하기 역할을 가진 에이전트가 없습니다.");
         return;
       }
 
@@ -756,8 +664,6 @@ export default function IdeationPage() {
         if (!agent) continue;
 
         try {
-          console.log(`🎯 ${agent.name}에게 초기 아이디어 생성 요청 중...`);
-
           const response = await fetch(
             `/api/teams/${team.id}/agents/${agent.id}/generate-idea`,
             {
@@ -777,9 +683,7 @@ export default function IdeationPage() {
             }
           );
 
-          if (response.ok) {
-            console.log(`✅ ${agent.name}의 초기 아이디어 생성 요청 성공`);
-          } else {
+          if (!response.ok) {
             console.warn(
               `❌ ${agent.name}의 초기 아이디어 생성 요청 실패:`,
               response.status
@@ -803,18 +707,15 @@ export default function IdeationPage() {
   // SSE 연결
   useEffect(() => {
     if (!team?.id) return;
-    console.log("🔥 SSE 연결 시작:", team.id);
     const eventSource = new EventSource(`/api/teams/${team.id}/events`);
 
     eventSource.onopen = () => {
-      console.log("✅ SSE 연결 성공");
       setSseConnected(true);
     };
 
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log("📨 SSE 데이터 수신:", data.type, data.timestamp);
         switch (data.type) {
           case "initial":
             if (data.messages) setMessages(data.messages);
@@ -825,7 +726,6 @@ export default function IdeationPage() {
             if (data.ideas) setIdeas(data.ideas);
             break;
           case "heartbeat":
-            console.log("💓 하트비트");
             break;
         }
       } catch (error) {
@@ -839,7 +739,6 @@ export default function IdeationPage() {
     };
 
     return () => {
-      console.log("🔌 SSE 연결 해제");
       eventSource.close();
       setSseConnected(false);
     };

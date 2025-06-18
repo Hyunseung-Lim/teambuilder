@@ -969,12 +969,6 @@ export async function generateFeedbackSessionResponse(
       (msg) => msg.type === "message"
     ).length;
 
-    console.log(`🔍 피드백 세션 메시지 수 확인:`, {
-      totalMessages: messageHistory.length,
-      actualMessages: actualMessageCount,
-      agent: agent.name,
-    });
-
     // 최소 대화 횟수 미만이면 강제로 계속 진행
     const minMessages = 4; // 최소 4개 메시지 (사용자 1회 + AI 1회 + 사용자 1회 + AI 1회)
     const shouldForceContinue = actualMessageCount < minMessages;
@@ -1062,15 +1056,6 @@ export async function generateFeedbackSessionResponse(
     const finalShouldEnd = shouldForceContinue
       ? false
       : parsed.shouldEnd || false;
-
-    console.log(`🎯 피드백 세션 응답 결과:`, {
-      agent: agent.name,
-      messageCount: actualMessageCount,
-      shouldForceContinue,
-      originalShouldEnd: parsed.shouldEnd,
-      finalShouldEnd,
-      reasoning: parsed.reasoning,
-    });
 
     return {
       response: parsed.response || "피드백을 공유하고 싶습니다.",

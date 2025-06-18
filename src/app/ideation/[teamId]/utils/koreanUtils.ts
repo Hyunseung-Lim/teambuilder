@@ -5,7 +5,6 @@ export function getKoreanParticle(
   noConsonant: string
 ): string {
   if (!name) {
-    console.log("이름이 없어서 hasConsonant 반환:", hasConsonant);
     return hasConsonant;
   }
 
@@ -15,12 +14,10 @@ export function getKoreanParticle(
   if (lastCharCode >= 0xac00 && lastCharCode <= 0xd7a3) {
     // 받침 있는지 확인 (유니코드 계산)
     const hasJongseong = (lastCharCode - 0xac00) % 28 !== 0;
-    const result = hasJongseong ? hasConsonant : noConsonant;
-    return result;
+    return hasJongseong ? hasConsonant : noConsonant;
   }
 
   // 한글이 아닌 경우 기본값
-  console.log("한글이 아님, hasConsonant 반환:", hasConsonant);
   return hasConsonant;
 }
 
