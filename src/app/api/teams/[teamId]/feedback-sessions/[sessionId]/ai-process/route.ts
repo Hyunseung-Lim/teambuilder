@@ -173,11 +173,54 @@ export async function POST(
 
       // 세션 종료 처리
       if (responseResult.shouldEnd) {
-        console.log(`🏁 피드백 세션 종료: ${sessionId}`);
+        console.log(
+          `🏁 AI가 피드백 세션 종료 결정: ${sessionId} (에이전트: ${agent.name})`
+        );
 
         session.status = "completed";
         session.endedAt = new Date().toISOString();
         session.endedBy = "ai"; // AI가 종료했음을 명시
+
+        // 피드백 세션 종료 API 호출로 통합 처리
+        try {
+          const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+          const endResponse = await fetch(
+            `${baseUrl}/api/teams/${teamId}/feedback-sessions`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "User-Agent": "TeamBuilder-Internal",
+              },
+              body: JSON.stringify({
+                action: "end",
+                sessionId: sessionId,
+                endedBy: "ai", // AI가 종료했음을 명시
+              }),
+            }
+          );
+
+          if (endResponse.ok) {
+            console.log(`✅ AI 피드백 세션 종료 완료: ${sessionId}`);
+
+            return NextResponse.json({
+              success: true,
+              message: responseMessage,
+              sessionEnded: true,
+              session,
+            });
+          } else {
+            console.error(
+              `❌ AI 피드백 세션 종료 API 호출 실패:`,
+              endResponse.status
+            );
+          }
+        } catch (endError) {
+          console.error(`❌ AI 피드백 세션 종료 API 호출 오류:`, endError);
+        }
+
+        // 기존 로직으로 폴백 (API 호출 실패 시)
+        console.log(`🔄 기존 로직으로 피드백 세션 종료 처리: ${sessionId}`);
 
         // 피드백 세션 요약 생성
         console.log(`📋 피드백 세션 요약 생성 중: ${sessionId}`);
@@ -341,6 +384,53 @@ export async function POST(
           JSON.stringify(session),
           { ex: 3600 * 24 }
         );
+
+        // 🔄 세션이 계속 진행되는 경우 - AI 에이전트 상태를 feedback_session으로 확실히 유지
+        console.log(
+          `🔄 ${agent.name} 피드백 세션 계속 진행 - feedback_session 상태 유지 확인`
+        );
+
+        try {
+          const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+          const stateResponse = await fetch(
+            `${baseUrl}/api/teams/${teamId}/agent-states`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "User-Agent": "TeamBuilder-Internal",
+              },
+              body: JSON.stringify({
+                agentId: triggerAgentId,
+                currentState: "feedback_session",
+                taskType: "feedback_session",
+                taskDescription: `${otherParticipant.name}와 피드백 세션 진행 중`,
+                estimatedDuration: 300, // 5분 예상
+                trigger: "autonomous",
+                sessionInfo: {
+                  sessionId,
+                  participants: session.participants.map((p) => p.name),
+                },
+              }),
+            }
+          );
+
+          if (stateResponse.ok) {
+            console.log(
+              `✅ ${agent.name} 피드백 세션 상태 유지 확인 완료`
+            );
+          } else {
+            console.warn(
+              `⚠️ ${agent.name} 피드백 세션 상태 유지 실패:`,
+              stateResponse.status
+            );
+          }
+        } catch (stateError) {
+          console.warn(
+            `⚠️ ${agent.name} 피드백 세션 상태 유지 오류:`,
+            stateError
+          );
+        }
 
         // 메모리 업데이트 - 메시지 추가
         try {

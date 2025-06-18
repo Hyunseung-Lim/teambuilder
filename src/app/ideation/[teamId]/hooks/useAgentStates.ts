@@ -58,6 +58,7 @@ export function useAgentStates(teamId: string) {
   const [agentStates, setAgentStates] = useState<Map<string, AgentStateInfo>>(
     new Map()
   );
+  const [userState, setUserState] = useState<AgentStateInfo | null>(null);
   const [timers, setTimers] = useState<Map<string, number>>(new Map());
 
   useEffect(() => {
@@ -87,6 +88,14 @@ export function useAgentStates(teamId: string) {
 
           console.log(`✅ 상태 맵 설정 완료:`, statesMap.size, "개 에이전트");
           setAgentStates(statesMap);
+
+          // 🔄 인간 사용자 상태 설정
+          if (data.userState) {
+            console.log(`👤 인간 사용자 상태:`, data.userState);
+            setUserState(data.userState);
+          } else {
+            setUserState(null);
+          }
         } else {
           console.error("에이전트 상태 API 응답 실패:", response.status);
         }
@@ -127,6 +136,19 @@ export function useAgentStates(teamId: string) {
         }
       });
 
+      // 인간 사용자 타이머도 추가
+      if (userState && userState.currentTask) {
+        const elapsed = Math.floor(
+          (Date.now() - new Date(userState.currentTask.startTime).getTime()) /
+            1000
+        );
+        const remaining = Math.max(
+          0,
+          userState.currentTask.estimatedDuration - elapsed
+        );
+        newTimers.set("나", remaining);
+      }
+
       setTimers(newTimers);
     };
 
@@ -134,10 +156,11 @@ export function useAgentStates(teamId: string) {
     const interval = setInterval(updateTimers, 1000);
 
     return () => clearInterval(interval);
-  }, [agentStates]);
+  }, [agentStates, userState]);
 
   return {
     agentStates,
+    userState,
     timers,
   };
 }

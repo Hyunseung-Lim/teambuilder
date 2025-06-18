@@ -123,7 +123,7 @@ export default function IdeationPage() {
   const ideaListRef = useRef<HTMLDivElement | null>(null);
 
   const teamId = params.teamId as string;
-  const { agentStates, timers } = useAgentStates(teamId);
+  const { agentStates, userState, timers } = useAgentStates(teamId);
 
   // 현재 팀에 속한 AI 에이전트만 필터링
   const teamAgents = agents.filter((agent) =>
@@ -169,10 +169,16 @@ export default function IdeationPage() {
     return teamMember ? teamMember.roles.includes(requiredRole) : false;
   };
 
-  // 에이전트가 피드백 세션 중인지 확인하는 함수
+  // 에이전트가 피드백 세션 중인지 확인하는 함수 (인간 포함)
   const isAgentInFeedbackSession = (agentId: string): boolean => {
-    const agentState = agentStates.get(agentId);
-    return agentState?.currentState === "feedback_session";
+    if (agentId === "나") {
+      // 인간 사용자의 경우
+      return userState?.currentState === "feedback_session";
+    } else {
+      // AI 에이전트의 경우
+      const agentState = agentStates.get(agentId);
+      return agentState?.currentState === "feedback_session";
+    }
   };
 
   // 아이디어 필터링
@@ -353,6 +359,7 @@ export default function IdeationPage() {
         body: JSON.stringify({
           action: "end",
           sessionId: tabId,
+          endedBy: "user",
         }),
       });
       if (response.ok) {
@@ -373,7 +380,8 @@ export default function IdeationPage() {
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !team || !mentionedAgent) return;
 
-    if (feedbackTabs.length > 0) {
+    // 🔒 사용자가 피드백 세션 중인지 확인
+    if (isAgentInFeedbackSession("나")) {
       alert(
         "현재 피드백 세션에 참여 중입니다. 피드백 세션을 종료한 후 다시 시도해주세요."
       );
@@ -605,6 +613,14 @@ export default function IdeationPage() {
     }
   };
 
+  // 실시간 피드백 세션 감지를 위한 ref
+  const feedbackTabsRef = useRef<FeedbackTab[]>([]);
+
+  // feedbackTabs 상태가 변경될 때마다 ref 업데이트
+  useEffect(() => {
+    feedbackTabsRef.current = feedbackTabs;
+  }, [feedbackTabs]);
+
   // 실시간 피드백 세션 감지 (AI가 인간에게 피드백 시작 시)
   useEffect(() => {
     if (!team?.id) return;
@@ -632,8 +648,8 @@ export default function IdeationPage() {
               aiParticipant &&
               session.status === "active"
             ) {
-              // 이미 탭이 있는지 확인
-              const existingTab = feedbackTabs.find(
+              // 이미 탭이 있는지 확인 (ref 사용)
+              const existingTab = feedbackTabsRef.current.find(
                 (tab) => tab.id === session.id
               );
 
@@ -658,9 +674,6 @@ export default function IdeationPage() {
 
                 setFeedbackTabs((prev) => [...prev, newTab]);
                 setActiveTab(session.id);
-
-                // 알림 표시
-                alert(`${aiParticipant.name}가 피드백 세션을 시작했습니다!`);
               }
             }
           }
@@ -676,7 +689,7 @@ export default function IdeationPage() {
     // 3초마다 새로운 세션 확인
     const interval = setInterval(pollNewFeedbackSessions, 3000);
     return () => clearInterval(interval);
-  }, [team?.id, feedbackTabs]);
+  }, [team?.id]); // feedbackTabs 의존성 제거
 
   // 데이터 로드
   useEffect(() => {
@@ -709,6 +722,83 @@ export default function IdeationPage() {
       loadData();
     }
   }, [params.teamId, session, loadIdeas, loadMessages]);
+
+  // 아이디에이션 시작 시 아이디어 생성하기 역할 에이전트들의 자동 아이디어 생성
+  useEffect(() => {
+    if (!team || !agents.length || loading || ideas.length > 0) return;
+
+    const triggerInitialIdeaGeneration = async () => {
+      console.log("🚀 아이디에이션 시작 - 초기 아이디어 생성 트리거");
+
+      // '아이디어 생성하기' 역할을 가진 AI 에이전트들 찾기
+      const ideaGenerators = team.members.filter(
+        (member) => !member.isUser && member.roles.includes("아이디어 생성하기")
+      );
+
+      console.log(
+        `💡 아이디어 생성 에이전트 ${ideaGenerators.length}명 발견:`,
+        ideaGenerators.map((m) => {
+          const agent = agents.find((a) => a.id === m.agentId);
+          return agent?.name || m.agentId;
+        })
+      );
+
+      if (ideaGenerators.length === 0) {
+        console.log("⚠️ 아이디어 생성하기 역할을 가진 에이전트가 없습니다.");
+        return;
+      }
+
+      // 각 아이디어 생성 에이전트에게 아이디어 생성 요청
+      for (const member of ideaGenerators) {
+        if (!member.agentId) continue;
+
+        const agent = agents.find((a) => a.id === member.agentId);
+        if (!agent) continue;
+
+        try {
+          console.log(`🎯 ${agent.name}에게 초기 아이디어 생성 요청 중...`);
+
+          const response = await fetch(
+            `/api/teams/${team.id}/agents/${agent.id}/generate-idea`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                trigger: "initial_startup",
+                topic: team.topic,
+                teamContext: {
+                  teamName: team.teamName,
+                  memberCount: team.members.length,
+                  agentRole: member.roles,
+                },
+              }),
+            }
+          );
+
+          if (response.ok) {
+            console.log(`✅ ${agent.name}의 초기 아이디어 생성 요청 성공`);
+          } else {
+            console.warn(
+              `❌ ${agent.name}의 초기 아이디어 생성 요청 실패:`,
+              response.status
+            );
+          }
+        } catch (error) {
+          console.error(
+            `❌ ${agent.name}의 초기 아이디어 생성 중 오류:`,
+            error
+          );
+        }
+      }
+    };
+
+    // 약간의 지연 후 실행 (다른 초기화가 완료될 시간 확보)
+    const timer = setTimeout(triggerInitialIdeaGeneration, 1000);
+
+    return () => clearTimeout(timer);
+  }, [team, agents, loading, ideas.length]);
 
   // SSE 연결
   useEffect(() => {

@@ -80,8 +80,14 @@ export default function FeedbackSessionModal({
         },
         body: JSON.stringify({
           action: "create",
+          initiatorId: "나",
           targetAgentId: sessionData.mentionedAgent.id,
-          initialMessage: sessionData.message,
+          message: sessionData.message,
+          feedbackContext: {
+            type: "general_feedback",
+            initiatedBy: "user",
+            description: "사용자가 시작한 피드백 세션",
+          },
         }),
       });
 
@@ -232,6 +238,7 @@ export default function FeedbackSessionModal({
         body: JSON.stringify({
           action: "end",
           sessionId: session.id,
+          endedBy: "user",
         }),
       });
 

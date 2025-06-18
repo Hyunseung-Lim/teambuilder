@@ -105,6 +105,117 @@ async function getJsonResponse(prompt: string, agentProfile?: any) {
 
 // --- Action Functions ---
 
+export async function generateIdea({
+  agentId,
+  topic,
+  teamContext,
+  trigger = "manual",
+  memory,
+}: {
+  agentId: string;
+  topic: string;
+  teamContext: any;
+  trigger?: string;
+  memory?: AgentMemory | null;
+}): Promise<{
+  success: boolean;
+  idea?: any;
+  error?: string;
+  updatedMemory?: AgentMemory;
+}> {
+  try {
+    console.log(`🎯 에이전트 ${agentId} 아이디어 생성 시작`, {
+      topic,
+      trigger,
+    });
+
+    // 에이전트 프로필 정보 가져오기 (Redis에서)
+    let agentProfile = null;
+    try {
+      const { getAgentById } = await import("@/lib/redis");
+      agentProfile = await getAgentById(agentId);
+      console.log(
+        `📋 에이전트 프로필:`,
+        agentProfile?.name,
+        agentProfile?.professional
+      );
+    } catch (error) {
+      console.warn(`⚠️ 에이전트 프로필 로딩 실패:`, error);
+    }
+
+    // 트리거에 따른 컨텍스트 조정
+    let enhancedTopic = topic;
+    if (trigger === "initial_startup") {
+      enhancedTopic = `${topic}\n\n[아이디에이션 시작] 팀 '${teamContext.teamName}'에서 위 주제로 아이디에이션을 시작합니다. 당신의 전문성을 활용해 창의적이고 실현 가능한 첫 번째 아이디어를 제안해주세요.`;
+    }
+
+    // 아이디어 생성 실행
+    const ideaResult = await generateIdeaAction(
+      enhancedTopic,
+      agentProfile,
+      [], // 초기에는 기존 아이디어 없음
+      memory || undefined
+    );
+
+    console.log(`✅ 에이전트 ${agentId} 아이디어 생성 결과:`, ideaResult);
+
+    // 메모리 업데이트 (아이디어 생성 기록)
+    let updatedMemory: AgentMemory | undefined = memory || undefined;
+    if (memory) {
+      try {
+        // 짧은 기간 메모리 업데이트
+        const newShortTermMemory = {
+          ...memory.shortTerm,
+          lastAction: {
+            type: "generate_idea",
+            timestamp: new Date().toISOString(),
+            payload: {
+              topic: topic,
+              trigger: trigger,
+              ideaGenerated: true,
+            },
+          },
+        };
+
+        // 긴 기간 메모리 업데이트 (자기 성찰 추가)
+        const newSelfReflection =
+          typeof memory.longTerm.self === "string" ? memory.longTerm.self : "";
+
+        const updatedSelf = `${newSelfReflection}\n\n[${new Date().toISOString()}] 주제 '${topic}'에 대한 아이디어를 생성했습니다. ${
+          trigger === "initial_startup"
+            ? "팀 아이디에이션의 첫 번째 아이디어로 제안했습니다."
+            : ""
+        }`;
+
+        updatedMemory = {
+          ...memory,
+          shortTerm: newShortTermMemory,
+          longTerm: {
+            ...memory.longTerm,
+            self: updatedSelf.trim(),
+          },
+        };
+
+        console.log(`🧠 에이전트 ${agentId} 메모리 업데이트 완료`);
+      } catch (memoryError) {
+        console.warn(`⚠️ 메모리 업데이트 실패:`, memoryError);
+      }
+    }
+
+    return {
+      success: true,
+      idea: ideaResult,
+      updatedMemory,
+    };
+  } catch (error) {
+    console.error(`❌ 에이전트 ${agentId} 아이디어 생성 실패:`, error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
 export async function generateIdeaAction(
   context?: string,
   userProfile?: any,

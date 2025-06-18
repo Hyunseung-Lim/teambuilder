@@ -704,9 +704,47 @@ export async function GET(
       }
     }
 
+    // 🔄 인간 사용자의 피드백 세션 상태도 확인
+    let userState = null;
+    try {
+      const userStateKey = `team:${teamId}:user_state`;
+      const userStateData = await redis.get(userStateKey);
+      if (userStateData) {
+        const userStateInfo =
+          typeof userStateData === "string"
+            ? JSON.parse(userStateData)
+            : userStateData;
+
+        userState = {
+          agentId: "나",
+          currentState: userStateInfo.currentState || "idle",
+          lastStateChange: userStateInfo.startTime || new Date().toISOString(),
+          isProcessing: userStateInfo.currentState === "feedback_session",
+          currentTask:
+            userStateInfo.currentState === "feedback_session"
+              ? {
+                  type: "feedback_session",
+                  description:
+                    userStateInfo.taskDescription || "피드백 세션 진행 중",
+                  startTime:
+                    userStateInfo.startTime || new Date().toISOString(),
+                  estimatedDuration: userStateInfo.estimatedDuration || 600,
+                  trigger: userStateInfo.trigger || "user_request",
+                  sessionInfo: userStateInfo.sessionInfo,
+                }
+              : undefined,
+        };
+
+        console.log(`✅ 인간 사용자 피드백 세션 상태 확인:`, userState);
+      }
+    } catch (error) {
+      console.error(`❌ 인간 사용자 상태 확인 오류:`, error);
+    }
+
     return NextResponse.json({
       teamId,
       agentStates: teamAgentStates,
+      userState, // 인간 사용자 상태 추가
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

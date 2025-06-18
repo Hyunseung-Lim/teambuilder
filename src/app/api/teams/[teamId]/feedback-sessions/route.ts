@@ -7,6 +7,7 @@ import {
   FeedbackSessionStatus,
 } from "@/lib/types";
 import { getTeamById, getAgentById } from "@/lib/redis";
+import { getAgentState } from "@/lib/agent-state-utils";
 
 // 피드백 세션 생성
 export async function POST(
@@ -27,145 +28,112 @@ export async function POST(
     });
 
     if (action === "create") {
-      // 피드백 세션 생성 전 검증
-      console.log("🔍 피드백 세션 생성 전 참가자 상태 확인:", {
+      // 피드백 세션 생성
+      const { initiatorId, targetAgentId, message, feedbackContext } = body;
+
+      // 필수 필드 검증
+      if (!initiatorId || !targetAgentId || !feedbackContext) {
+        console.error("❌ 필수 필드 누락:", {
+          initiatorId,
+          targetAgentId,
+          feedbackContext,
+        });
+        return NextResponse.json(
+          { error: "initiatorId, targetAgentId, feedbackContext is required" },
+          { status: 400 }
+        );
+      }
+
+      console.log("🚀 피드백 세션 생성 요청:", {
         initiatorId,
         targetAgentId,
+        feedbackContext,
       });
 
-      // 대상 에이전트가 이미 피드백 세션에 참여 중인지 확인
-      const activeSessionsKey = `team:${teamId}:active_feedback_sessions`;
-      const activeSessionIds = await redis.smembers(activeSessionsKey);
+      // 🔒 피드백 세션 중복 방지를 위한 상태 확인
+      console.log("🔍 참가자들의 피드백 세션 상태 확인 중...");
 
-      const actuallyActiveSessions = [];
-      const sessionsToCleanup = [];
-
-      for (const sessionId of activeSessionIds) {
-        const sessionData = await redis.get(`feedback_session:${sessionId}`);
-        if (sessionData) {
-          const session: FeedbackSession =
-            typeof sessionData === "string"
-              ? JSON.parse(sessionData)
-              : sessionData;
-
-          // 세션이 실제로 활성 상태인지 확인
-          if (session.status === "active") {
-            // 세션이 너무 오래된 경우 (24시간 이상) 자동 종료
-            const sessionAge =
-              Date.now() - new Date(session.createdAt).getTime();
-            const maxAge = 24 * 60 * 60 * 1000; // 24시간
-
-            if (sessionAge > maxAge) {
-              console.log(
-                `🧹 오래된 세션 자동 종료: ${sessionId} (${Math.floor(
-                  sessionAge / (60 * 60 * 1000)
-                )}시간 경과)`
-              );
-              sessionsToCleanup.push(sessionId);
-            } else {
-              actuallyActiveSessions.push(session);
-            }
-          } else {
-            // 이미 종료된 세션이지만 활성 목록에 남아있는 경우
-            console.log(
-              `🧹 종료된 세션을 활성 목록에서 제거: ${sessionId} (상태: ${session.status})`
-            );
-            sessionsToCleanup.push(sessionId);
+      // 1. 시작자(initiator) 상태 확인
+      let initiatorInSession = false;
+      if (initiatorId === "나") {
+        // 인간 사용자 상태 확인
+        const userStateKey = `team:${teamId}:user_state`;
+        const userStateData = await redis.get(userStateKey);
+        if (userStateData) {
+          const userState =
+            typeof userStateData === "string"
+              ? JSON.parse(userStateData)
+              : userStateData;
+          if (userState.currentState === "feedback_session") {
+            initiatorInSession = true;
+            console.log("❌ 시작자(인간)가 이미 피드백 세션 중");
           }
-        } else {
-          // 세션 데이터가 없는 경우
-          console.log(
-            `🧹 데이터가 없는 세션을 활성 목록에서 제거: ${sessionId}`
-          );
-          sessionsToCleanup.push(sessionId);
+        }
+      } else {
+        // AI 에이전트 상태 확인
+        const initiatorState = await getAgentState(teamId, initiatorId);
+        if (initiatorState?.currentState === "feedback_session") {
+          initiatorInSession = true;
+          console.log(`❌ 시작자(${initiatorId})가 이미 피드백 세션 중`);
         }
       }
 
-      // 정리가 필요한 세션들을 활성 목록에서 제거
-      for (const sessionId of sessionsToCleanup) {
-        await redis.srem(activeSessionsKey, sessionId);
-      }
-
-      // 🚫 시작자(initiator)가 이미 다른 피드백 세션에 참여 중인지 확인
-      for (const session of actuallyActiveSessions) {
-        if (session.participants.some((p) => p.id === initiatorId)) {
-          console.log(
-            `❌ 시작자 ${initiatorId}는 이미 피드백 세션 ${session.id}에 참여 중`
-          );
-          return NextResponse.json(
-            {
-              error:
-                "현재 다른 피드백 세션에 참여 중입니다. 기존 세션을 종료한 후 다시 시도해주세요.",
-              busy: true,
-              currentSessionId: session.id,
-              reason: "initiator_busy",
-            },
-            { status: 409 }
-          );
-        }
-      }
-
-      // 🚫 대상 에이전트가 이미 피드백 세션에 참여 중인지 확인
-      for (const session of actuallyActiveSessions) {
-        if (session.participants.some((p) => p.id === targetAgentId)) {
-          // 에이전트의 실제 상태도 확인
-          try {
-            const agentStateResponse = await fetch(
-              `${
-                process.env.NEXTAUTH_URL || "http://localhost:3000"
-              }/api/teams/${teamId}/agent-states`,
-              {
-                method: "GET",
-                headers: {
-                  "User-Agent": "TeamBuilder-Internal",
-                },
-              }
-            );
-
-            if (agentStateResponse.ok) {
-              const agentStatesData = await agentStateResponse.json();
-              const targetAgentState = agentStatesData.agentStates?.find(
-                (state: any) => state.agentId === targetAgentId
-              );
-
-              // 에이전트가 실제로 feedback_session 상태가 아니라면 세션 생성 허용
-              if (
-                targetAgentState &&
-                targetAgentState.currentState !== "feedback_session"
-              ) {
-                console.log(
-                  `🔄 에이전트 ${targetAgentId}의 실제 상태는 ${targetAgentState.currentState}이므로 세션 생성 허용`
-                );
-
-                // 해당 세션을 정리
-                await redis.srem(activeSessionsKey, session.id);
-                console.log(`🧹 불일치 세션 정리: ${session.id}`);
-                continue; // 다음 세션 확인
-              }
-            }
-          } catch (stateCheckError) {
-            console.error(`❌ 에이전트 상태 확인 실패:`, stateCheckError);
-            // 상태 확인 실패 시에는 안전하게 세션 생성 차단
+      // 2. 대상자(target) 상태 확인
+      let targetInSession = false;
+      if (targetAgentId === "나") {
+        // 인간 사용자 상태 확인
+        const userStateKey = `team:${teamId}:user_state`;
+        const userStateData = await redis.get(userStateKey);
+        if (userStateData) {
+          const userState =
+            typeof userStateData === "string"
+              ? JSON.parse(userStateData)
+              : userStateData;
+          if (userState.currentState === "feedback_session") {
+            targetInSession = true;
+            console.log("❌ 대상자(인간)가 이미 피드백 세션 중");
           }
-
-          console.log(
-            `❌ 에이전트 ${targetAgentId}는 이미 피드백 세션 ${session.id}에 참여 중`
-          );
-          return NextResponse.json(
-            {
-              error: "해당 에이전트는 현재 다른 피드백 세션에 참여 중입니다.",
-              busy: true,
-              currentSessionId: session.id,
-              reason: "target_busy",
-            },
-            { status: 409 }
-          );
+        }
+      } else {
+        // AI 에이전트 상태 확인
+        const targetAgentState = await getAgentState(teamId, targetAgentId);
+        if (targetAgentState?.currentState === "feedback_session") {
+          targetInSession = true;
+          console.log(`❌ 대상자(${targetAgentId})가 이미 피드백 세션 중`);
         }
       }
 
-      console.log(
-        `✅ 에이전트 ${targetAgentId} 피드백 세션 생성 가능 (활성 세션: ${actuallyActiveSessions.length}개, 정리된 세션: ${sessionsToCleanup.length}개)`
-      );
+      // 3. 피드백 세션 중인 참가자가 있으면 생성 거부
+      if (initiatorInSession) {
+        return NextResponse.json(
+          {
+            error: "현재 다른 피드백 세션에 참여 중입니다.",
+            busy: true,
+            reason: "initiator_busy",
+          },
+          { status: 409 }
+        );
+      }
+
+      if (targetInSession) {
+        const targetAgentData =
+          targetAgentId !== "나" ? await getAgentById(targetAgentId) : null;
+        const targetName =
+          targetAgentId === "나"
+            ? "사용자"
+            : targetAgentData?.name || targetAgentId;
+
+        return NextResponse.json(
+          {
+            error: `${targetName}는 현재 다른 피드백 세션에 참여 중입니다.`,
+            busy: true,
+            reason: "target_busy",
+          },
+          { status: 409 }
+        );
+      }
+
+      console.log("✅ 모든 참가자가 피드백 세션 참여 가능한 상태");
 
       // 피드백 세션 생성
       const sessionId = `feedback_${Date.now()}_${Math.random()
@@ -188,7 +156,6 @@ export async function POST(
       ];
 
       // 에이전트 이름 가져오기
-      const { getAgentById } = await import("@/lib/redis");
       let targetAgentData = null;
 
       if (initiatorId !== "나") {
@@ -227,6 +194,7 @@ export async function POST(
       );
 
       // 활성 세션 목록에 추가
+      const activeSessionsKey = `team:${teamId}:active_feedback_sessions`;
       await redis.sadd(activeSessionsKey, sessionId);
 
       // 첫 번째 메시지를 시스템 메시지로 추가
@@ -249,11 +217,86 @@ export async function POST(
 
       console.log(`✅ 피드백 세션 생성 완료: ${sessionId}`);
 
-      // 대상 에이전트를 즉시 'feedback_session' 상태로 변경
-      if (targetAgentId !== "나") {
+      // 🔄 모든 참가자의 상태를 'feedback_session'으로 즉시 변경
+      const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+
+      // 1. 시작자(initiator) 상태 변경 (AI든 인간이든 상관없이)
+      if (initiatorId !== "나") {
+        // AI 시작자인 경우 상태 변경
         try {
-          const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
-          const response = await fetch(
+          const initiatorResponse = await fetch(
+            `${baseUrl}/api/teams/${teamId}/agent-states`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "User-Agent": "TeamBuilder-Internal",
+              },
+              body: JSON.stringify({
+                agentId: initiatorId,
+                currentState: "feedback_session",
+                taskType: "feedback_session",
+                taskDescription: `${participants[1].name}와 피드백 세션 진행 중`,
+                estimatedDuration: 600, // 10분 예상
+                trigger: "user_request",
+                sessionInfo: {
+                  sessionId,
+                  participants: participants.map((p) => p.name),
+                },
+              }),
+            }
+          );
+
+          if (initiatorResponse.ok) {
+            console.log(
+              `✅ 시작자 ${participants[0].name} 상태가 feedback_session으로 변경됨`
+            );
+          } else {
+            console.error(
+              `❌ 시작자 ${participants[0].name} feedback_session 상태 변경 실패:`,
+              initiatorResponse.status
+            );
+          }
+        } catch (error) {
+          console.error(
+            `❌ 시작자 ${participants[0].name} feedback_session 상태 변경 오류:`,
+            error
+          );
+        }
+      } else {
+        // 인간 시작자인 경우 - 상태를 직접 Redis에 저장
+        try {
+          const userStateKey = `team:${teamId}:user_state`;
+          const userState = {
+            currentState: "feedback_session",
+            taskType: "feedback_session",
+            taskDescription: `${participants[1].name}와 피드백 세션 진행 중`,
+            estimatedDuration: 600,
+            trigger: "user_request",
+            sessionInfo: {
+              sessionId,
+              participants: participants.map((p) => p.name),
+            },
+            startTime: new Date().toISOString(),
+          };
+
+          await redis.set(userStateKey, JSON.stringify(userState), {
+            ex: 3600 * 24,
+          });
+          console.log(`✅ 인간 시작자 상태가 feedback_session으로 변경됨`);
+        } catch (error) {
+          console.error(
+            `❌ 인간 시작자 feedback_session 상태 변경 오류:`,
+            error
+          );
+        }
+      }
+
+      // 2. 대상자(target) 상태 변경
+      if (targetAgentId !== "나") {
+        // AI 대상자인 경우 상태 변경
+        try {
+          const targetResponse = await fetch(
             `${baseUrl}/api/teams/${teamId}/agent-states`,
             {
               method: "POST",
@@ -276,25 +319,52 @@ export async function POST(
             }
           );
 
-          if (response.ok) {
+          if (targetResponse.ok) {
             console.log(
-              `✅ ${
+              `✅ 대상자 ${
                 targetAgentData?.name || targetAgentId
               } 상태가 feedback_session으로 변경됨`
             );
           } else {
             console.error(
-              `❌ ${
+              `❌ 대상자 ${
                 targetAgentData?.name || targetAgentId
               } feedback_session 상태 변경 실패:`,
-              response.status
+              targetResponse.status
             );
           }
         } catch (error) {
           console.error(
-            `❌ ${
+            `❌ 대상자 ${
               targetAgentData?.name || targetAgentId
             } feedback_session 상태 변경 오류:`,
+            error
+          );
+        }
+      } else {
+        // 인간 대상자인 경우 - 상태를 직접 Redis에 저장
+        try {
+          const userStateKey = `team:${teamId}:user_state`;
+          const userState = {
+            currentState: "feedback_session",
+            taskType: "feedback_session",
+            taskDescription: `${participants[0].name}와 피드백 세션 진행 중`,
+            estimatedDuration: 600,
+            trigger: "ai_initiated",
+            sessionInfo: {
+              sessionId,
+              participants: participants.map((p) => p.name),
+            },
+            startTime: new Date().toISOString(),
+          };
+
+          await redis.set(userStateKey, JSON.stringify(userState), {
+            ex: 3600 * 24,
+          });
+          console.log(`✅ 인간 대상자 상태가 feedback_session으로 변경됨`);
+        } catch (error) {
+          console.error(
+            `❌ 인간 대상자 feedback_session 상태 변경 오류:`,
             error
           );
         }
@@ -409,6 +479,15 @@ export async function POST(
     if (action === "end") {
       // 피드백 세션 종료
       const { sessionId, endedBy } = body; // endedBy 파라미터 추가
+
+      // 필수 필드 검증
+      if (!sessionId) {
+        console.error("❌ sessionId 필수 필드 누락:", { sessionId });
+        return NextResponse.json(
+          { error: "sessionId is required" },
+          { status: 400 }
+        );
+      }
 
       console.log("🏁 피드백 세션 종료 요청:", { sessionId, endedBy });
 
@@ -553,11 +632,13 @@ export async function POST(
         );
       }
 
-      // 참가자들의 에이전트 상태를 idle로 되돌리기
+      // 🔄 모든 참가자들의 상태를 idle로 되돌리기
+      const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+
       for (const participant of session.participants) {
         if (!participant.isUser && participant.id !== "나") {
+          // AI 에이전트 상태 초기화
           try {
-            const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
             const response = await fetch(
               `${baseUrl}/api/teams/${teamId}/agent-states`,
               {
@@ -574,18 +655,29 @@ export async function POST(
             );
 
             if (response.ok) {
-              console.log(`✅ 에이전트 ${participant.id} 상태가 idle로 변경됨`);
+              console.log(
+                `✅ 에이전트 ${participant.name} 상태가 idle로 변경됨`
+              );
             } else {
               console.error(
-                `❌ 에이전트 ${participant.id} idle 상태 변경 실패:`,
+                `❌ 에이전트 ${participant.name} idle 상태 변경 실패:`,
                 response.status
               );
             }
           } catch (error) {
             console.error(
-              `❌ 에이전트 ${participant.id} idle 상태 변경 오류:`,
+              `❌ 에이전트 ${participant.name} idle 상태 변경 오류:`,
               error
             );
+          }
+        } else if (participant.id === "나") {
+          // 인간 사용자 상태 초기화
+          try {
+            const userStateKey = `team:${teamId}:user_state`;
+            await redis.del(userStateKey); // 인간의 피드백 세션 상태 제거
+            console.log(`✅ 인간 사용자 피드백 세션 상태가 제거됨`);
+          } catch (error) {
+            console.error(`❌ 인간 사용자 상태 초기화 오류:`, error);
           }
         }
       }
@@ -642,6 +734,61 @@ export async function POST(
       );
 
       console.log(`✅ 메시지 저장 완료: ${sessionId}`);
+
+      // 🔄 메시지 전송 후 발신자(사용자)의 피드백 세션 상태 유지 확인
+      if (senderId === "나") {
+        try {
+          const userStateKey = `team:${teamId}:user_state`;
+          const existingUserState = await redis.get(userStateKey);
+
+          // 사용자 상태가 피드백 세션이 아니거나 없다면 다시 설정
+          if (!existingUserState) {
+            console.log(`🔄 사용자 피드백 세션 상태 재설정`);
+
+            const userState = {
+              currentState: "feedback_session",
+              taskType: "feedback_session",
+              taskDescription: `피드백 세션 진행 중`,
+              estimatedDuration: 600,
+              trigger: "user_request",
+              sessionInfo: {
+                sessionId,
+                participants: session.participants.map((p) => p.name),
+              },
+              startTime: new Date().toISOString(),
+            };
+
+            await redis.set(userStateKey, JSON.stringify(userState), {
+              ex: 3600 * 24,
+            });
+            console.log(`✅ 사용자 피드백 세션 상태 재설정 완료`);
+          } else {
+            const userStateInfo =
+              typeof existingUserState === "string"
+                ? JSON.parse(existingUserState)
+                : existingUserState;
+
+            if (userStateInfo.currentState !== "feedback_session") {
+              console.log(`🔄 사용자 상태를 feedback_session으로 복원`);
+
+              userStateInfo.currentState = "feedback_session";
+              userStateInfo.taskType = "feedback_session";
+              userStateInfo.taskDescription = `피드백 세션 진행 중`;
+              userStateInfo.sessionInfo = {
+                sessionId,
+                participants: session.participants.map((p) => p.name),
+              };
+
+              await redis.set(userStateKey, JSON.stringify(userStateInfo), {
+                ex: 3600 * 24,
+              });
+              console.log(`✅ 사용자 피드백 세션 상태 복원 완료`);
+            }
+          }
+        } catch (stateError) {
+          console.warn(`⚠️ 사용자 피드백 세션 상태 유지 오류:`, stateError);
+        }
+      }
 
       // AI 응답 트리거 (사용자가 메시지를 보낸 경우)
       if (senderId === "나") {
