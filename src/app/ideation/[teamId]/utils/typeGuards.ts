@@ -24,7 +24,8 @@ export const isChatMessagePayload = (
     typeof payload === "object" &&
     "type" in payload &&
     "content" in payload &&
-    typeof payload.content === "string"
+    (typeof payload.content === "string" ||
+      (typeof payload.content === "object" && payload.content !== null))
   );
 };
 

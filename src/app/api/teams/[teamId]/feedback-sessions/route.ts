@@ -135,6 +135,50 @@ export async function POST(
 
       console.log("✅ 모든 참가자가 피드백 세션 참여 가능한 상태");
 
+      // targetAgentId가 실제 agentId가 아니라 이름일 수 있으므로 확인
+      let resolvedTargetAgentId = targetAgentId;
+      let targetAgentData = null;
+
+      if (targetAgentId !== "나") {
+        // 먼저 ID로 시도
+        targetAgentData = await getAgentById(targetAgentId);
+
+        if (!targetAgentData) {
+          // ID로 찾지 못한 경우, 팀 정보를 가져와서 이름으로 검색
+          console.log(
+            `🔍 에이전트 ${targetAgentId}를 ID로 찾을 수 없음. 이름으로 검색 중...`
+          );
+
+          const team = await getTeamById(teamId);
+          if (team) {
+            // 팀 멤버 중에서 해당 이름을 가진 에이전트 찾기
+            for (const member of team.members) {
+              if (!member.isUser && member.agentId) {
+                const agent = await getAgentById(member.agentId);
+                if (agent && agent.name === targetAgentId) {
+                  resolvedTargetAgentId = member.agentId;
+                  targetAgentData = agent;
+                  console.log(
+                    `✅ 이름 "${targetAgentId}"로 에이전트 "${member.agentId}" 찾음`
+                  );
+                  break;
+                }
+              }
+            }
+          }
+
+          if (!targetAgentData) {
+            console.error(
+              `❌ 에이전트 "${targetAgentId}"를 찾을 수 없음 (ID나 이름으로도 없음)`
+            );
+            return NextResponse.json(
+              { error: `에이전트 "${targetAgentId}"를 찾을 수 없습니다.` },
+              { status: 404 }
+            );
+          }
+        }
+      }
+
       // 피드백 세션 생성
       const sessionId = `feedback_${Date.now()}_${Math.random()
         .toString(36)
@@ -148,27 +192,21 @@ export async function POST(
           joinedAt: new Date().toISOString(),
         },
         {
-          id: targetAgentId,
-          name: targetAgentId === "나" ? "나" : "Target Agent", // 실제 에이전트 이름으로 교체됨
-          isUser: targetAgentId === "나",
+          id: resolvedTargetAgentId,
+          name:
+            resolvedTargetAgentId === "나"
+              ? "나"
+              : targetAgentData?.name || "Target Agent",
+          isUser: resolvedTargetAgentId === "나",
           joinedAt: new Date().toISOString(),
         },
       ];
 
-      // 에이전트 이름 가져오기
-      let targetAgentData = null;
-
+      // 에이전트 이름 가져오기 (initiator용)
       if (initiatorId !== "나") {
         const initiatorAgent = await getAgentById(initiatorId);
         if (initiatorAgent) {
           participants[0].name = initiatorAgent.name;
-        }
-      }
-
-      if (targetAgentId !== "나") {
-        targetAgentData = await getAgentById(targetAgentId);
-        if (targetAgentData) {
-          participants[1].name = targetAgentData.name;
         }
       }
 
@@ -293,7 +331,7 @@ export async function POST(
       }
 
       // 2. 대상자(target) 상태 변경
-      if (targetAgentId !== "나") {
+      if (resolvedTargetAgentId !== "나") {
         // AI 대상자인 경우 상태 변경
         try {
           const targetResponse = await fetch(
@@ -305,7 +343,7 @@ export async function POST(
                 "User-Agent": "TeamBuilder-Internal",
               },
               body: JSON.stringify({
-                agentId: targetAgentId,
+                agentId: resolvedTargetAgentId,
                 currentState: "feedback_session",
                 taskType: "feedback_session",
                 taskDescription: `${participants[0].name}와 피드백 세션 진행 중`,
@@ -322,13 +360,13 @@ export async function POST(
           if (targetResponse.ok) {
             console.log(
               `✅ 대상자 ${
-                targetAgentData?.name || targetAgentId
+                targetAgentData?.name || resolvedTargetAgentId
               } 상태가 feedback_session으로 변경됨`
             );
           } else {
             console.error(
               `❌ 대상자 ${
-                targetAgentData?.name || targetAgentId
+                targetAgentData?.name || resolvedTargetAgentId
               } feedback_session 상태 변경 실패:`,
               targetResponse.status
             );
@@ -336,7 +374,7 @@ export async function POST(
         } catch (error) {
           console.error(
             `❌ 대상자 ${
-              targetAgentData?.name || targetAgentId
+              targetAgentData?.name || resolvedTargetAgentId
             } feedback_session 상태 변경 오류:`,
             error
           );
@@ -400,7 +438,7 @@ export async function POST(
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  triggerAgentId: targetAgentId,
+                  triggerAgentId: resolvedTargetAgentId,
                   action: "respond",
                 }),
               }
@@ -409,13 +447,13 @@ export async function POST(
             if (aiResponse.ok) {
               console.log(
                 `✅ ${
-                  targetAgentData?.name || targetAgentId
+                  targetAgentData?.name || resolvedTargetAgentId
                 } AI 응답 트리거 완료`
               );
             } else {
               console.error(
                 `❌ ${
-                  targetAgentData?.name || targetAgentId
+                  targetAgentData?.name || resolvedTargetAgentId
                 } AI 응답 트리거 실패:`,
                 aiResponse.status
               );
@@ -423,7 +461,7 @@ export async function POST(
           } catch (error) {
             console.error(
               `❌ ${
-                targetAgentData?.name || targetAgentId
+                targetAgentData?.name || resolvedTargetAgentId
               } AI 응답 트리거 오류:`,
               error
             );

@@ -169,6 +169,12 @@ export async function POST(
       console.log(
         `📨 아이디어 평가 요청 - 에이전트 ${messagePayload.mention}에게 전달`
       );
+      console.log(`🔍 평가 요청 상세 정보:`, {
+        messageType,
+        requestType: messagePayload.requestType,
+        mention: messagePayload.mention,
+        content: messagePayload.content,
+      });
 
       // 새로운 에이전트 상태 시스템을 통해 요청 처리
       const requestData = {
@@ -183,9 +189,15 @@ export async function POST(
         teamId: teamId,
       };
 
+      console.log(`🚀 평가 요청 데이터 생성:`, requestData);
+
       // 에이전트 상태 API를 통해 요청 처리 (await 추가)
       try {
         const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
+        console.log(
+          `🌐 API 호출 시작: ${baseUrl}/api/teams/${teamId}/agent-states`
+        );
+
         const response = await fetch(
           `${baseUrl}/api/teams/${teamId}/agent-states`,
           {
@@ -202,8 +214,11 @@ export async function POST(
           }
         );
 
+        console.log(`📡 API 응답 상태:`, response.status);
+
         if (response.ok) {
           const result = await response.json();
+          console.log(`✅ API 응답 성공:`, result);
           if (result.queued) {
             console.log(
               `⏳ 에이전트 ${messagePayload.mention} 바쁨 - 큐에 추가됨`
@@ -225,6 +240,14 @@ export async function POST(
           error
         );
       }
+    } else {
+      console.log(`🔍 평가 요청 조건 미충족:`, {
+        messageType,
+        requestType: messagePayload.requestType,
+        isEvaluateRequest:
+          messageType === "make_request" &&
+          messagePayload.requestType === "evaluate",
+      });
     }
 
     // Check if it's a feedback request and trigger the action

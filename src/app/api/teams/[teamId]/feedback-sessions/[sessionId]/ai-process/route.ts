@@ -25,19 +25,24 @@ export async function POST(
       );
 
       // 세션 정보 가져오기
+      console.log(`🔍 세션 정보 조회 시작: ${sessionId}`);
       const sessionData = await redis.get(`feedback_session:${sessionId}`);
       if (!sessionData) {
+        console.error(`❌ 세션을 찾을 수 없음: ${sessionId}`);
         return NextResponse.json(
           { error: "세션을 찾을 수 없습니다." },
           { status: 404 }
         );
       }
+      console.log(`✅ 세션 정보 조회 성공: ${sessionId}`);
 
       const session: FeedbackSession =
         typeof sessionData === "string" ? JSON.parse(sessionData) : sessionData;
 
       // 세션이 활성 상태인지 확인
+      console.log(`🔍 세션 상태 확인: ${session.status}`);
       if (session.status !== "active") {
+        console.error(`❌ 비활성 세션: ${sessionId}, 상태: ${session.status}`);
         return NextResponse.json(
           { error: "비활성 세션입니다." },
           { status: 400 }
@@ -45,24 +50,37 @@ export async function POST(
       }
 
       // 에이전트가 세션 참가자인지 확인
+      console.log(`🔍 참가자 확인: ${triggerAgentId}`, {
+        participants: session.participants.map((p) => ({
+          id: p.id,
+          name: p.name,
+        })),
+      });
       const isParticipant = session.participants.some(
         (p) => p.id === triggerAgentId
       );
       if (!isParticipant) {
+        console.error(`❌ 세션 참가자가 아님: ${triggerAgentId}`);
         return NextResponse.json(
           { error: "세션 참가자가 아닙니다." },
           { status: 403 }
         );
       }
+      console.log(`✅ 참가자 확인 완료: ${triggerAgentId}`);
 
       // 에이전트 정보 가져오기
+      console.log(`🔍 에이전트 정보 조회 시작: ${triggerAgentId}`);
       const agent = await getAgentById(triggerAgentId);
       if (!agent) {
+        console.error(`❌ 에이전트를 찾을 수 없음: ${triggerAgentId}`);
         return NextResponse.json(
           { error: "에이전트를 찾을 수 없습니다." },
           { status: 404 }
         );
       }
+      console.log(
+        `✅ 에이전트 정보 조회 성공: ${agent.name} (${triggerAgentId})`
+      );
 
       // 상대방 찾기
       const otherParticipant = session.participants.find(

@@ -69,11 +69,7 @@ export async function getAgentState(
         currentState: "idle",
         lastStateChange: new Date().toISOString(),
         isProcessing: false,
-        idleTimer: {
-          startTime: new Date().toISOString(),
-          plannedDuration: Math.floor(Math.random() * 30) + 60, // 60-90초
-          remainingTime: Math.floor(Math.random() * 30) + 60,
-        },
+        idleTimer: createNewIdleTimer(),
       };
 
       try {
@@ -96,11 +92,7 @@ export async function getAgentState(
       currentState: "idle",
       lastStateChange: new Date().toISOString(),
       isProcessing: false,
-      idleTimer: {
-        startTime: new Date().toISOString(),
-        plannedDuration: 75,
-        remainingTime: 75,
-      },
+      idleTimer: createNewIdleTimer(),
     };
   }
 }
@@ -145,7 +137,9 @@ export function createNewIdleTimer(): {
   plannedDuration: number;
   remainingTime: number;
 } {
-  const duration = Math.floor(Math.random() * 30) + 60; // 60-90초
+  // 더 넓은 범위의 랜덤 타이머로 에이전트들이 서로 다른 시간에 활동하도록 함
+  // 45초 ~ 120초 범위로 확장하여 더 다양한 타이밍 제공
+  const duration = Math.floor(Math.random() * 75) + 45; // 45-120초
   return {
     startTime: new Date().toISOString(),
     plannedDuration: duration,

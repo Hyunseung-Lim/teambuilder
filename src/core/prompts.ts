@@ -561,6 +561,72 @@ export function createPlanningPrompt(
           .join("\n")
       : "No ideas have been generated yet.";
 
+  // 최근 메시지에서 각 액션 타입별 빈도 분석
+  const recentActions = teamContext.recentMessages
+    .filter(
+      (msg) =>
+        msg.type === "system" &&
+        typeof msg.payload === "object" &&
+        msg.payload.content
+    )
+    .map((msg) => {
+      const content = msg.payload.content;
+      if (content.includes("생성했습니다"))
+        return { action: "generate_idea", author: msg.sender };
+      if (content.includes("평가했습니다"))
+        return { action: "evaluate_idea", author: msg.sender };
+      if (content.includes("피드백 세션"))
+        return { action: "give_feedback", author: msg.sender };
+      if (content.includes("요청"))
+        return { action: "make_request", author: msg.sender };
+      return null;
+    })
+    .filter(
+      (item): item is { action: string; author: string } => item !== null
+    );
+
+  // 액션별 빈도 계산
+  const actionFrequency = {
+    generate_idea: recentActions.filter((a) => a.action === "generate_idea")
+      .length,
+    evaluate_idea: recentActions.filter((a) => a.action === "evaluate_idea")
+      .length,
+    give_feedback: recentActions.filter((a) => a.action === "give_feedback")
+      .length,
+    make_request: recentActions.filter((a) => a.action === "make_request")
+      .length,
+  };
+
+  // 가장 적게 수행된 액션들 찾기
+  const minFrequency = Math.min(...Object.values(actionFrequency));
+  const underperformedActions = Object.entries(actionFrequency)
+    .filter(([action, freq]) => freq === minFrequency)
+    .map(([action]) => action);
+
+  // 본인의 최근 액션 패턴 분석
+  const myRecentActions = recentActions
+    .filter((a) => a.author === agentProfile.name)
+    .slice(-3)
+    .map((a) => a.action);
+
+  const actionFrequencyText = Object.entries(actionFrequency)
+    .map(([action, freq]) => `${action}: ${freq}회`)
+    .join(", ");
+
+  const balanceAnalysis =
+    underperformedActions.length > 0
+      ? `팀에서 최근 가장 적게 수행된 액션들: ${underperformedActions.join(
+          ", "
+        )} (우선 고려 대상)`
+      : "모든 액션이 비교적 균등하게 수행되고 있습니다.";
+
+  const myActionPattern =
+    myRecentActions.length > 0
+      ? `당신의 최근 액션 패턴: ${myRecentActions.join(
+          " → "
+        )} (다른 액션 선택 권장)`
+      : "당신은 아직 액션을 수행하지 않았습니다.";
+
   return `You are AI agent ${agentProfile.name} in the "${
     teamContext.teamName
   }" team.
@@ -580,7 +646,7 @@ Current Team Situation:
 Existing Ideas:
 ${existingIdeasText}
 
-Recent Team Activity (Last 5 messages):
+Recent Team Activity (Last ${teamContext.recentMessages.length} messages):
 ${teamContext.recentMessages
   .map(
     (msg) =>
@@ -590,27 +656,78 @@ ${teamContext.recentMessages
   )
   .join("\n")}
 
-You are currently in the planning phase. Based on your role, personality, and current team situation, decide what to do next.
+Team Action Balance Analysis:
+- Recent action frequency: ${actionFrequencyText}
+- ${balanceAnalysis}
+- ${myActionPattern}
 
-Available Actions:
-1. "generate_idea" - Generate new ideas for the topic
-2. "evaluate_idea" - Evaluate existing ideas (only when there are ideas to evaluate)
-3. "give_feedback" - Provide feedback to team members
-4. "make_request" - Request work from other team members (only if your role includes '요청하기')
-5. "wait" - Return to waiting state
+🎯 STRATEGIC GUIDANCE: 
+${
+  underperformedActions.length > 0 &&
+  underperformedActions.some(
+    (action) =>
+      (action === "generate_idea" &&
+        agentProfile.roles?.includes("아이디어 생성하기")) ||
+      (action === "evaluate_idea" &&
+        agentProfile.roles?.includes("아이디어 평가하기")) ||
+      (action === "give_feedback" &&
+        agentProfile.roles?.includes("피드백하기")) ||
+      (action === "make_request" && agentProfile.roles?.includes("요청하기"))
+  )
+    ? `현재 팀에서 ${underperformedActions
+        .filter(
+          (action) =>
+            (action === "generate_idea" &&
+              agentProfile.roles?.includes("아이디어 생성하기")) ||
+            (action === "evaluate_idea" &&
+              agentProfile.roles?.includes("아이디어 평가하기")) ||
+            (action === "give_feedback" &&
+              agentProfile.roles?.includes("피드백하기")) ||
+            (action === "make_request" &&
+              agentProfile.roles?.includes("요청하기"))
+        )
+        .join(
+          ", "
+        )}이(가) 부족합니다. 당신이 이 역할을 수행할 수 있다면 우선적으로 고려해주세요.`
+    : "팀 밸런스가 양호하니 상황에 맞는 액션을 선택하세요."
+}
 
-Considerations:
-- Your assigned roles and responsibilities
-- Current team dynamics and recent conversation content
-- Whether the team needs more ideas or more evaluations
-- Your personality and working style
-- Don't repeat the same action too frequently
-- Present new perspectives that don't duplicate existing ideas
+You are currently in the planning phase. Based on your role, personality, current team situation, and team action balance, decide what to do next.
+
+Available Actions (ONLY within your assigned roles):
+1. "generate_idea" - Generate new ideas for the topic ${
+    agentProfile.roles?.includes("아이디어 생성하기") ? "✅" : "❌"
+  }
+2. "evaluate_idea" - Evaluate existing ideas (only when there are ideas to evaluate) ${
+    agentProfile.roles?.includes("아이디어 평가하기") ? "✅" : "❌"
+  }
+3. "give_feedback" - Provide feedback to team members ${
+    agentProfile.roles?.includes("피드백하기") ? "✅" : "❌"
+  }
+4. "make_request" - Request work from other team members ${
+    agentProfile.roles?.includes("요청하기") ? "✅" : "❌"
+  }
+5. "wait" - Return to waiting state (always available)
+
+Decision Considerations:
+🔹 ROLE CONSTRAINT: You can ONLY perform actions within your assigned roles (marked with ✅)
+🔹 TEAM BALANCE: Prioritize actions that have been performed less frequently by the team
+🔹 AVOID REPETITION: Don't repeat the same action pattern too frequently
+🔹 QUALITY OVER QUANTITY: Consider whether the team needs more ideas or more evaluations
+🔹 MEANINGFUL CONTRIBUTION: Present new perspectives that don't duplicate existing work
+
+Action Selection Priority:
+1️⃣ HIGH PRIORITY: Actions you can perform that are currently underperformed by the team
+2️⃣ MEDIUM PRIORITY: Actions you can perform that serve the team's current needs
+3️⃣ LOW PRIORITY: Actions you recently performed (avoid immediate repetition)
+4️⃣ LAST RESORT: "wait" if no meaningful action is possible
+
+IMPORTANT: Do not select actions outside your role permissions. This will result in automatic conversion to "wait".
 
 Respond only in the following JSON format. Write all text in Korean:
 {
   "action": "generate_idea" | "evaluate_idea" | "give_feedback" | "make_request" | "wait",
-  "reasoning": "Brief explanation of why you chose this action (in Korean)",
+  "reasoning": "Detailed explanation of why you chose this action, considering team balance, your role constraints, and strategic priorities (in Korean)",
   "target": "Team member name if giving feedback or making a request (optional)"
 }`;
 }

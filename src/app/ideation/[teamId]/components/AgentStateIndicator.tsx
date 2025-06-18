@@ -15,6 +15,11 @@ export default function AgentStateIndicator({
 }: AgentStateIndicatorProps) {
   if (!state) return null;
 
+  // 회고중 상태는 UI에서 숨김
+  if (state.currentState === "reflecting") {
+    return null;
+  }
+
   const getStateInfo = () => {
     switch (state.currentState) {
       case "idle":
@@ -35,14 +40,6 @@ export default function AgentStateIndicator({
           color: "bg-yellow-100 text-yellow-700",
           tooltip:
             state.currentTask?.description || "다음 행동을 계획하고 있습니다",
-        };
-      case "reflecting":
-        return {
-          icon: <Brain className="h-3 w-3" />,
-          text: "회고중",
-          color: "bg-purple-100 text-purple-700",
-          tooltip:
-            state.currentTask?.description || "경험을 바탕으로 자기 성찰 중",
         };
       case "feedback_session":
         return {

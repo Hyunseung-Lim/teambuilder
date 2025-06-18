@@ -161,7 +161,7 @@ export interface Idea {
 // 채팅 메시지 페이로드
 export interface ChatMessagePayload {
   type: "give_feedback" | "make_request";
-  content: string;
+  content: string | { message: string; [key: string]: any };
   mention: string; // agentId
   requestType?: "generate" | "evaluate" | "give_feedback" | null;
   target?: string; // 요청 대상 (make_request용)

@@ -437,18 +437,29 @@ export async function planNextAction(
   };
 
   try {
-    const prompt = createPlanningPrompt(userProfile, teamContext);
+    // 더 많은 메시지 컨텍스트를 위해 최근 15개 메시지 전달
+    const extendedTeamContext = {
+      ...teamContext,
+      recentMessages: teamContext.recentMessages.slice(-15), // 더 많은 히스토리 제공
+    };
+
+    const prompt = createPlanningPrompt(userProfile, extendedTeamContext);
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
+        {
+          role: "system",
+          content:
+            "You are an AI agent deciding your next action in a team ideation session. Consider the team's action balance and choose actions that help maintain equilibrium while staying within your assigned roles. Respond only with valid JSON.",
+        },
         {
           role: "user",
           content: prompt,
         },
       ],
       temperature: 0.8, // 약간의 창의성 허용
-      max_tokens: 200,
+      max_tokens: 300, // 더 상세한 추론을 위해 토큰 증가
     });
 
     const response = completion.choices[0]?.message?.content?.trim();
@@ -525,7 +536,7 @@ export async function planNextAction(
     }
 
     console.log(
-      `🧠 ${userProfile.name} 계획 결과 (역할 확인 완료):`,
+      `🧠 ${userProfile.name} 계획 결과 (팀 밸런스 고려, 역할 확인 완료):`,
       planResult
     );
 
@@ -537,32 +548,33 @@ export async function planNextAction(
   } catch (error) {
     console.error("Planning 실패:", error);
 
-    // 실패 시 기본 행동 (역할에 따라)
+    // 실패 시 기본 행동 (역할에 따라 랜덤하게 선택하여 다양성 확보)
+    const availableActions = [];
     if (hasRole("아이디어 생성하기")) {
+      availableActions.push("generate_idea");
+    }
+    if (hasRole("아이디어 평가하기") && teamContext.currentIdeasCount > 0) {
+      availableActions.push("evaluate_idea");
+    }
+    if (hasRole("피드백하기")) {
+      availableActions.push("give_feedback");
+    }
+    if (hasRole("요청하기")) {
+      availableActions.push("make_request");
+    }
+
+    if (availableActions.length > 0) {
+      // 랜덤하게 선택하여 다양성 확보
+      const randomAction =
+        availableActions[Math.floor(Math.random() * availableActions.length)];
       return {
-        action: "generate_idea",
-        reasoning:
-          "Default action due to planning error - generating idea based on role",
-      };
-    } else if (
-      hasRole("아이디어 평가하기") &&
-      teamContext.currentIdeasCount > 0
-    ) {
-      return {
-        action: "evaluate_idea",
-        reasoning:
-          "Default action due to planning error - evaluating ideas based on role",
-      };
-    } else if (hasRole("요청하기")) {
-      return {
-        action: "make_request",
-        reasoning:
-          "Default action due to planning error - making request based on role",
+        action: randomAction as any,
+        reasoning: `Default random action due to planning error - ${randomAction} based on available roles`,
       };
     } else {
       return {
         action: "wait",
-        reasoning: "Default action due to planning error - waiting",
+        reasoning: "Default action due to planning error - no available roles",
       };
     }
   }

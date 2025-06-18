@@ -170,7 +170,13 @@ async function updateMemoryAfterEvaluation(
     relatedIdeaId: ideaId,
     timestamp: new Date().toISOString(),
   };
-  memory.longTerm.self.push(reflection);
+
+  // longTerm.self가 배열인지 확인하고 초기화
+  if (!Array.isArray(memory.longTerm.self)) {
+    (memory.longTerm as any).self = [];
+  }
+
+  (memory.longTerm.self as unknown as any[]).push(reflection);
   console.log("자기 성찰 추가:", reflection);
 
   // 2. 상호작용 기록 추가

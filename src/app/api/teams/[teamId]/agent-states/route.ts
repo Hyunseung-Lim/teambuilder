@@ -435,9 +435,9 @@ async function executeAgentAction(
             body: JSON.stringify({
               evaluator: agentId,
               scores: {
-                insightful: evaluation.scores.insightful,
-                actionable: evaluation.scores.actionable,
-                relevance: evaluation.scores.relevance,
+                insightful: evaluation.insightful,
+                actionable: evaluation.actionable,
+                relevance: evaluation.relevance,
               },
               comment: evaluation.comment,
             }),
@@ -452,7 +452,7 @@ async function executeAgentAction(
             sender: agentId,
             type: "system",
             payload: {
-              content: `"${randomIdea.content.object}" 아이디어를 평가했습니다.`,
+              content: `요청받은 아이디어를 평가했습니다.`,
             },
           });
         } else {
@@ -541,6 +541,44 @@ async function executeAgentAction(
         console.log(
           `⚠️ ${agentProfile.name} → ${targetAgent.name} 피드백 세션 락 획득 실패 (이미 진행 중)`
         );
+        
+        // 락 획득 실패 시 1초 후 자동으로 idle 상태로 복귀
+        setTimeout(async () => {
+          try {
+            console.log(
+              `😴 ${agentProfile.name} → 락 획득 실패 후 Idle 상태 전환 시도 중...`
+            );
+            const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
+            const response = await fetch(
+              `${baseUrl}/api/teams/${teamId}/agent-states`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "User-Agent": "TeamBuilder-Internal",
+                },
+                body: JSON.stringify({
+                  agentId,
+                  currentState: "idle",
+                }),
+              }
+            );
+
+            if (response.ok) {
+              console.log(`😴 ${agentProfile.name} → 락 획득 실패 후 Idle 상태 전환 완료`);
+            } else {
+              const errorText = await response.text();
+              console.error(
+                `❌ ${agentProfile.name} 락 획득 실패 후 Idle 전환 실패:`,
+                response.status,
+                errorText
+              );
+            }
+          } catch (e) {
+            console.error(`❌ ${agentProfile.name} 락 획득 실패 후 Idle 전환 실패:`, e);
+          }
+        }, 1000);
+        
         return;
       }
 
@@ -706,65 +744,54 @@ async function executeAgentAction(
             `❌ ${agentProfile.name} → ${targetAgent.name} 피드백 세션 생성 실패:`,
             errorData
           );
+
+          // 피드백 세션 생성 실패 시 1초 후 자동으로 idle 상태로 복귀
+          setTimeout(async () => {
+            try {
+              console.log(
+                `😴 ${agentProfile.name} → 피드백 세션 생성 실패 후 Idle 상태 전환 시도 중...`
+              );
+              const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
+              const response = await fetch(
+                `${baseUrl}/api/teams/${teamId}/agent-states`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "User-Agent": "TeamBuilder-Internal",
+                  },
+                  body: JSON.stringify({
+                    agentId,
+                    currentState: "idle",
+                  }),
+                }
+              );
+
+              if (response.ok) {
+                console.log(
+                  `😴 ${agentProfile.name} → 피드백 세션 실패 후 Idle 상태 전환 완료`
+                );
+              } else {
+                const errorText = await response.text();
+                console.error(
+                  `❌ ${agentProfile.name} 피드백 세션 실패 후 Idle 전환 실패:`,
+                  response.status,
+                  errorText
+                );
+              }
+            } catch (e) {
+              console.error(
+                `❌ ${agentProfile.name} 피드백 세션 실패 후 Idle 전환 실패:`,
+                e
+              );
+            }
+          }, 1000);
         }
       } finally {
         // 락 해제
         await redis.del(lockKey);
         console.log(`🔓 ${agentProfile.name} → ${targetAgent.name} 락 해제`);
       }
-    }
-
-    if (plannedAction.action === "wait") {
-      // 대기 액션 - 바로 idle 상태로 전환
-      console.log(`😴 ${agentProfile.name} 대기 액션 선택 - idle 상태로 전환`);
-
-      // 2초 후 idle 상태로 전환
-      setTimeout(async () => {
-        try {
-          // 🔍 피드백 세션 중인지 확인
-          const currentState = await getAgentState(teamId, agentId);
-          if (currentState && isFeedbackSessionActive(currentState)) {
-            console.log(
-              `🔒 에이전트 ${agentId}는 피드백 세션 중이므로 wait 후 idle 전환 스킵`
-            );
-            return;
-          }
-
-          console.log(
-            `😴 에이전트 ${agentId} → Wait 후 Idle 상태 전환 시도 중...`
-          );
-          const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
-          const response = await fetch(
-            `${baseUrl}/api/teams/${teamId}/agent-states`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "User-Agent": "TeamBuilder-Internal",
-              },
-              body: JSON.stringify({
-                agentId,
-                currentState: "idle",
-              }),
-            }
-          );
-
-          if (response.ok) {
-            console.log(`😴 에이전트 ${agentId} → Wait 후 Idle 상태 전환 완료`);
-          } else {
-            const errorText = await response.text();
-            console.error(
-              `❌ 에이전트 ${agentId} Wait 후 Idle 전환 실패:`,
-              response.status,
-              errorText
-            );
-          }
-        } catch (e) {
-          console.error(`❌ 에이전트 ${agentId} Wait 후 Idle 전환 실패:`, e);
-        }
-      }, 2000);
-
-      return; // wait 액션은 여기서 종료
     }
   } catch (error) {
     console.error(`❌ ${agentId} 작업 실행 실패:`, error);
@@ -987,73 +1014,6 @@ export async function POST(
         message: "에이전트 상태가 강제로 idle로 초기화되었습니다",
         state: forcedState,
       });
-    }
-
-    // 특별한 액션들은 agentId 없이도 처리 가능
-    if (action === "reset_all_agents") {
-      console.log(`🔄 모든 에이전트 상태 초기화 시작`);
-
-      try {
-        const team = await getTeamById(teamId);
-        if (!team) {
-          return NextResponse.json(
-            { error: "팀을 찾을 수 없습니다." },
-            { status: 404 }
-          );
-        }
-
-        const results = [];
-
-        // 모든 AI 에이전트 상태 초기화
-        for (const member of team.members) {
-          if (!member.isUser && member.agentId) {
-            try {
-              const resetState: AgentStateInfo = {
-                agentId: member.agentId,
-                currentState: "idle",
-                lastStateChange: new Date().toISOString(),
-                isProcessing: false,
-                idleTimer: createNewIdleTimer(),
-              };
-
-              await setAgentState(teamId, member.agentId, resetState);
-              results.push({
-                agentId: member.agentId,
-                status: "success",
-                message: "상태가 초기화되었습니다.",
-              });
-
-              console.log(`✅ 에이전트 ${member.agentId} 상태 초기화 완료`);
-            } catch (error) {
-              console.error(
-                `❌ 에이전트 ${member.agentId} 상태 초기화 실패:`,
-                error
-              );
-              results.push({
-                agentId: member.agentId,
-                status: "error",
-                message: `초기화 실패: ${
-                  error instanceof Error ? error.message : "알 수 없는 오류"
-                }`,
-              });
-            }
-          }
-        }
-
-        console.log(`🔄 모든 에이전트 상태 초기화 완료`);
-
-        return NextResponse.json({
-          success: true,
-          message: "모든 에이전트 상태가 초기화되었습니다.",
-          results,
-        });
-      } catch (error) {
-        console.error("❌ 전체 에이전트 상태 초기화 실패:", error);
-        return NextResponse.json(
-          { error: "상태 초기화 중 오류가 발생했습니다." },
-          { status: 500 }
-        );
-      }
     }
 
     // 다른 액션들은 agentId가 필요함
@@ -1556,9 +1516,9 @@ async function handleEvaluateIdeaRequestDirect(
           body: JSON.stringify({
             evaluator: agentId,
             scores: {
-              insightful: evaluation.scores.insightful,
-              actionable: evaluation.scores.actionable,
-              relevance: evaluation.scores.relevance,
+              insightful: evaluation.insightful,
+              actionable: evaluation.actionable,
+              relevance: evaluation.relevance,
             },
             comment: evaluation.comment,
           }),
@@ -1573,7 +1533,7 @@ async function handleEvaluateIdeaRequestDirect(
           sender: agentId,
           type: "system",
           payload: {
-            content: `"${randomIdea.content.object}" 아이디어를 평가했습니다.`,
+            content: `요청받은 아이디어를 평가했습니다.`,
           },
         });
       } else {

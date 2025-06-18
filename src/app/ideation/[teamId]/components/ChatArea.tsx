@@ -149,11 +149,25 @@ export default function ChatArea({
                   isSystemMessagePayload(message.payload) ||
                   isChatMessagePayload(message.payload)
                 ) {
-                  const content = message.payload.content;
+                  // content를 안전하게 문자열로 변환
+                  const contentText = (() => {
+                    if (typeof message.payload.content === "string") {
+                      return message.payload.content;
+                    }
+                    if (
+                      typeof message.payload.content === "object" &&
+                      message.payload.content !== null &&
+                      "message" in message.payload.content
+                    ) {
+                      return (message.payload.content as any).message;
+                    }
+                    return "";
+                  })();
+
                   // "생성중입니다" 메시지만 필터링 (평가 관련 메시지는 모두 표시)
                   return (
-                    !content.includes("생성중입니다") &&
-                    !content.includes("생성하고 있습니다")
+                    !contentText.includes("생성중입니다") &&
+                    !contentText.includes("생성하고 있습니다")
                   );
                 }
                 return true;
@@ -387,35 +401,50 @@ export default function ChatArea({
 
                 if (message.type === "system") {
                   // 시스템 메시지 (아이디어 생성/평가 알림)
+
+                  // content를 안전하게 문자열로 추출하는 헬퍼 함수
+                  const getContentText = (payload: any): string => {
+                    if (typeof payload === "string") return payload;
+                    if (!payload || typeof payload !== "object") return "";
+
+                    if (typeof payload.content === "string") {
+                      return payload.content;
+                    }
+                    if (
+                      typeof payload.content === "object" &&
+                      payload.content !== null &&
+                      "message" in payload.content
+                    ) {
+                      return (payload.content as any).message;
+                    }
+                    return "";
+                  };
+
+                  const contentText = getContentText(message.payload);
+
                   const isGeneratingMessage =
                     typeof message.payload === "string"
                       ? false
                       : (isSystemMessagePayload(message.payload) ||
                           isChatMessagePayload(message.payload)) &&
-                        (message.payload.content.includes("생성중입니다") ||
-                          message.payload.content.includes(
-                            "생성하고 있습니다"
-                          ) ||
-                          message.payload.content.includes(
-                            "평가하고 있습니다"
-                          ));
+                        (contentText.includes("생성중입니다") ||
+                          contentText.includes("생성하고 있습니다") ||
+                          contentText.includes("평가하고 있습니다"));
 
                   const isIdeaCompletedMessage =
                     typeof message.payload === "string"
                       ? false
                       : (isSystemMessagePayload(message.payload) ||
                           isChatMessagePayload(message.payload)) &&
-                        message.payload.content.includes("생성했습니다");
+                        contentText.includes("생성했습니다");
 
                   const isEvaluationCompletedMessage =
                     typeof message.payload === "string"
                       ? false
                       : (isSystemMessagePayload(message.payload) ||
                           isChatMessagePayload(message.payload)) &&
-                        (message.payload.content.includes("평가했습니다") ||
-                          message.payload.content.includes(
-                            "평가를 완료했습니다"
-                          ));
+                        (contentText.includes("평가했습니다") ||
+                          contentText.includes("평가를 완료했습니다"));
 
                   const messageContent = (() => {
                     if (typeof message.payload === "string") {
@@ -425,7 +454,18 @@ export default function ChatArea({
                       isSystemMessagePayload(message.payload) ||
                       isChatMessagePayload(message.payload)
                     ) {
-                      return message.payload.content;
+                      // content를 안전하게 문자열로 변환
+                      if (typeof message.payload.content === "string") {
+                        return message.payload.content;
+                      }
+                      if (
+                        typeof message.payload.content === "object" &&
+                        message.payload.content !== null &&
+                        "message" in message.payload.content
+                      ) {
+                        return (message.payload.content as any).message;
+                      }
+                      return JSON.stringify(message.payload.content);
                     }
                     return "작업을 완료했습니다.";
                   })();
@@ -690,6 +730,28 @@ export default function ChatArea({
                           ) {
                             const { type, mention, requestType, content } =
                               message.payload;
+
+                            // content가 객체일 경우 message 속성 추출
+                            const extractedContent = (() => {
+                              if (typeof content === "string") {
+                                return content;
+                              }
+                              if (
+                                typeof content === "object" &&
+                                content !== null
+                              ) {
+                                // content.message가 있으면 사용, 없으면 전체를 JSON으로 변환
+                                if (
+                                  "message" in content &&
+                                  typeof (content as any).message === "string"
+                                ) {
+                                  return (content as any).message;
+                                }
+                                return JSON.stringify(content);
+                              }
+                              return "메시지 내용 없음";
+                            })();
+
                             const isRequest =
                               type === "make_request" && mention && requestType;
                             const isFeedback = type === "give_feedback";
@@ -698,13 +760,17 @@ export default function ChatArea({
                               const reqType = requestType as
                                 | "generate"
                                 | "evaluate"
-                                | "give_feedback";
+                                | "give_feedback"
+                                | "generate_idea"
+                                | "evaluate_idea";
                               const requestText =
                                 {
                                   generate: "아이디어 생성",
+                                  generate_idea: "아이디어 생성",
                                   evaluate: "아이디어 평가",
+                                  evaluate_idea: "아이디어 평가",
                                   give_feedback: "피드백",
-                                }[reqType] || "요청";
+                                }[reqType] || "작업";
 
                               return (
                                 <div>
@@ -727,7 +793,7 @@ export default function ChatArea({
                                         : "text-gray-800"
                                     }`}
                                   >
-                                    {content}
+                                    {extractedContent}
                                   </p>
                                 </div>
                               );
@@ -757,7 +823,7 @@ export default function ChatArea({
                                           : "text-gray-800"
                                       }`}
                                     >
-                                      {content || "메시지 내용 없음"}
+                                      {extractedContent || "메시지 내용 없음"}
                                     </p>
                                   </div>
                                 );
@@ -772,7 +838,7 @@ export default function ChatArea({
                                           : "text-gray-800"
                                       }`}
                                     >
-                                      {content || "메시지 내용 없음"}
+                                      {extractedContent || "메시지 내용 없음"}
                                     </p>
                                   </div>
                                 );
@@ -789,9 +855,20 @@ export default function ChatArea({
                               isSystemMessagePayload(message.payload) ||
                               isChatMessagePayload(message.payload)
                             ) {
-                              return message.payload.content;
+                              // content를 안전하게 문자열로 변환
+                              if (typeof message.payload.content === "string") {
+                                return message.payload.content;
+                              }
+                              if (
+                                typeof message.payload.content === "object" &&
+                                message.payload.content !== null &&
+                                "message" in message.payload.content
+                              ) {
+                                return (message.payload.content as any).message;
+                              }
+                              return JSON.stringify(message.payload.content);
                             }
-                            return "메시지 내용 없음";
+                            return "작업을 완료했습니다.";
                           })();
                           return (
                             <p
