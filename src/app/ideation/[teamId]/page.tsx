@@ -134,12 +134,9 @@ export default function IdeationPage() {
   );
 
   // 사용자 권한 확인
-  const userCanGenerateIdeas =
-    team?.members.find((m) => m.isUser)?.roles.includes("아이디어 생성하기") ||
-    false;
-  const userCanEvaluateIdeas =
-    team?.members.find((m) => m.isUser)?.roles.includes("아이디어 평가하기") ||
-    false;
+  const userMember = team?.members.find((member) => member.isUser);
+  const userRoles = userMember?.roles || [];
+  const userCanGenerateIdeas = userRoles.includes("아이디어 생성하기");
 
   // 작성자 이름 가져오기 함수
   const getAuthorName = (authorId: string) => {
@@ -918,16 +915,11 @@ export default function IdeationPage() {
             setShowIdeaDetailModal(false);
           }}
           idea={ideaDetailModalData}
-          ideas={filteredIdeas}
+          ideas={ideas}
           currentIndex={currentIdeaIndex}
-          onIndexChange={(newIndex) => {
-            setCurrentIdeaIndex(newIndex);
-            setIdeaDetailModalData(filteredIdeas[newIndex]);
-          }}
+          onIndexChange={setCurrentIdeaIndex}
           team={team}
           agents={agents}
-          userCanEvaluateIdeas={userCanEvaluateIdeas}
-          onEvaluate={() => {}}
           onSubmitEvaluation={handleSubmitEvaluationNew}
           isSubmittingEvaluation={isSubmittingEvaluation}
         />

@@ -13,8 +13,6 @@ interface IdeaDetailModalProps {
   onIndexChange: (index: number) => void;
   team: Team | null;
   agents: AIAgent[];
-  userCanEvaluateIdeas: boolean;
-  onEvaluate: (idea: Idea) => void;
   onSubmitEvaluation?: (evaluationData: {
     insightful: number;
     actionable: number;
@@ -33,8 +31,6 @@ export default function IdeaDetailModal({
   onIndexChange,
   team,
   agents,
-  userCanEvaluateIdeas,
-  onEvaluate,
   onSubmitEvaluation,
   isSubmittingEvaluation = false,
 }: IdeaDetailModalProps) {
@@ -252,516 +248,558 @@ export default function IdeaDetailModal({
 
   if (!isOpen || !idea) return null;
 
+  // 사용자 역할 확인
+  const userMember = team?.members.find((member) => member.isUser);
+  const userRoles = userMember?.roles || [];
+  const canUpdateIdeas = userRoles.includes("아이디어 생성하기");
+  const canEvaluateIdeas = userRoles.includes("아이디어 평가하기");
+
   return (
-    <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 overflow-hidden">
+      {/* 배경 오버레이 */}
       <div
-        className="bg-white rounded-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* 고정 헤더 */}
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 rounded-t-2xl z-10">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+        className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+        onClick={onClose}
+      />
+
+      {/* 모달 컨테이너 */}
+      <div className="fixed inset-0 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl h-[90vh] flex flex-col overflow-hidden relative">
+          {/* 상단 네비게이션 */}
+          <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-white z-10">
+            <div className="flex items-center gap-4">
               <button
                 onClick={handlePrevious}
-                className="px-2 py-1 w-10 hover:bg-gray-100 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={ideas.length <= 1 || isEditMode}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
               >
-                <span className="text-gray-400 w-6 h-6">
-                  <ArrowLeft />
-                </span>
+                <svg
+                  className="w-5 h-5 text-gray-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 19l-7-7 7-7"
+                  />
+                </svg>
               </button>
               <h2 className="text-xl font-bold text-gray-900">
-                Idea{" "}
-                {(() => {
-                  // 아이디어 섹션과 동일한 방식으로 인덱스 계산
-                  const creationIndex = ideasSortedByCreation.findIndex(
-                    (i) => i.id === idea.id
-                  );
-                  return creationIndex + 1;
-                })()}
+                아이디어 #
+                {ideasSortedByCreation.findIndex((i) => i.id === idea.id) + 1}
               </h2>
               <button
                 onClick={handleNext}
-                className="px-2 py-1 w-10 hover:bg-gray-100 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={ideas.length <= 1 || isEditMode}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
               >
-                <span className="text-gray-400 w-6 h-6">
-                  <ArrowRight />
-                </span>
-              </button>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-gray-500">아이디어 제작자</span>
-                <div
-                  className={`w-6 h-6 rounded-full flex items-center justify-center text-sm font-medium ${
-                    idea.author === "나"
-                      ? "bg-green-500 text-white"
-                      : "bg-blue-500 text-white"
-                  }`}
+                <svg
+                  className="w-5 h-5 text-gray-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
                 >
-                  {getAuthorName(idea.author) === "나"
-                    ? "나"
-                    : getAuthorName(idea.author)[0]}
-                </div>
-                <span className="font-medium text-gray-900">
-                  {getAuthorName(idea.author)}
-                </span>
-              </div>
-              <button
-                onClick={onClose}
-                className="p-2 w-10 hover:bg-gray-100 rounded-full text-gray-500 hover:text-gray-700"
-              >
-                <span className="text-xl">×</span>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 5l7 7-7 7"
+                  />
+                </svg>
               </button>
             </div>
-          </div>
-        </div>
 
-        {/* 메인 컨텐츠 - 2열 레이아웃 */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* 왼쪽: 아이디어 상세 정보 */}
-          <div className="flex-1 overflow-y-auto p-6">
-            <div className="space-y-6">
-              {/* Object */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 mb-2">
-                  Object:
-                </h3>
-                {isEditMode ? (
-                  <textarea
-                    value={editFormData.object}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        object: e.target.value,
-                      })
-                    }
-                    className="w-full p-3 border border-gray-300 rounded-lg text-gray-900 bg-gray-50 resize-none"
-                    rows={2}
-                    placeholder="Object를 입력하세요..."
-                  />
-                ) : (
-                  <h4 className="text-lg font-bold text-gray-900">
-                    {idea.content.object}
-                  </h4>
-                )}
-              </div>
-
-              {/* Function */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 mb-2">
-                  Function:
-                </h3>
-                {isEditMode ? (
-                  <textarea
-                    value={editFormData.function}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        function: e.target.value,
-                      })
-                    }
-                    className="w-full p-3 border border-gray-300 rounded-lg text-gray-700 bg-gray-50 resize-none"
-                    rows={4}
-                    placeholder="Function을 입력하세요..."
-                  />
-                ) : (
-                  <p className="text-gray-700 leading-relaxed">
-                    {idea.content.function}
-                  </p>
-                )}
-              </div>
-
-              {/* Behavior */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 mb-2">
-                  Behavior:
-                </h3>
-                {isEditMode ? (
-                  <div className="space-y-3">
-                    {behaviorPairs.map((pair, index) => (
-                      <div key={index} className="flex gap-2 items-center">
-                        <input
-                          type="text"
-                          value={pair.key}
-                          onChange={(e) => {
-                            const newPairs = [...behaviorPairs];
-                            newPairs[index].key = e.target.value;
-                            setBehaviorPairs(newPairs);
-                          }}
-                          placeholder="키"
-                          className="w-1/3 p-2 border border-gray-300 rounded text-sm text-gray-900"
-                        />
-                        <span className="text-gray-500">:</span>
-                        <input
-                          type="text"
-                          value={pair.value}
-                          onChange={(e) => {
-                            const newPairs = [...behaviorPairs];
-                            newPairs[index].value = e.target.value;
-                            setBehaviorPairs(newPairs);
-                          }}
-                          placeholder="값"
-                          className="flex-1 p-2 border border-gray-300 rounded text-sm text-gray-900"
-                        />
-                        <button
-                          onClick={() => {
-                            const newPairs = behaviorPairs.filter(
-                              (_, i) => i !== index
-                            );
-                            setBehaviorPairs(newPairs);
-                          }}
-                          className="text-red-500 hover:text-red-700 px-2 py-1 text-sm"
-                        >
-                          삭제
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      onClick={() => {
-                        setBehaviorPairs([
-                          ...behaviorPairs,
-                          { key: "", value: "" },
-                        ]);
-                      }}
-                      className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                    >
-                      + 항목 추가
-                    </button>
-                  </div>
-                ) : (
-                  <div className="text-gray-700 leading-relaxed">
-                    {renderSafeData(idea.content.behavior)}
-                  </div>
-                )}
-              </div>
-
-              {/* Structure */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 mb-2">
-                  Structure:
-                </h3>
-                {isEditMode ? (
-                  <div className="space-y-3">
-                    {structurePairs.map((pair, index) => (
-                      <div key={index} className="flex gap-2 items-center">
-                        <input
-                          type="text"
-                          value={pair.key}
-                          onChange={(e) => {
-                            const newPairs = [...structurePairs];
-                            newPairs[index].key = e.target.value;
-                            setStructurePairs(newPairs);
-                          }}
-                          placeholder="키"
-                          className="w-1/3 p-2 border border-gray-300 rounded text-sm text-gray-900"
-                        />
-                        <span className="text-gray-500">:</span>
-                        <input
-                          type="text"
-                          value={pair.value}
-                          onChange={(e) => {
-                            const newPairs = [...structurePairs];
-                            newPairs[index].value = e.target.value;
-                            setStructurePairs(newPairs);
-                          }}
-                          placeholder="값"
-                          className="flex-1 p-2 border border-gray-300 rounded text-sm text-gray-900"
-                        />
-                        <button
-                          onClick={() => {
-                            const newPairs = structurePairs.filter(
-                              (_, i) => i !== index
-                            );
-                            setStructurePairs(newPairs);
-                          }}
-                          className="text-red-500 hover:text-red-700 px-2 py-1 text-sm"
-                        >
-                          삭제
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      onClick={() => {
-                        setStructurePairs([
-                          ...structurePairs,
-                          { key: "", value: "" },
-                        ]);
-                      }}
-                      className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                    >
-                      + 항목 추가
-                    </button>
-                  </div>
-                ) : (
-                  <div className="text-gray-700 leading-relaxed">
-                    {renderSafeData(idea.content.structure)}
-                  </div>
-                )}
-              </div>
-
-              {/* 액션 버튼 */}
-              <div className="flex gap-3 pt-4">
-                {isEditMode ? (
-                  <>
-                    <button
-                      onClick={handleSave}
-                      className="flex-1 bg-black text-white py-3 px-4 rounded-lg font-medium"
-                    >
-                      저장하기
-                    </button>
-                    <button
-                      onClick={handleCancel}
-                      className="flex-1 bg-gray-500 text-white py-3 px-4 rounded-lg font-medium"
-                    >
-                      취소
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      onClick={handleEditModeToggle}
-                      className="flex-1 bg-black text-white py-3 px-4 rounded-lg font-medium"
-                    >
-                      아이디어 업데이트
-                    </button>
-                    {userCanEvaluateIdeas && (
-                      <button
-                        onClick={() => setShowEvaluationForm(true)}
-                        className="flex-1 bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors"
-                      >
-                        아이디어 평가하기
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+            >
+              <svg
+                className="w-6 h-6 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
           </div>
 
-          {/* 오른쪽: 평가 영역 */}
-          <div className="w-96 border-l border-gray-200 flex flex-col">
-            {/* 평가 헤더 */}
-            <div className="p-4 border-b border-gray-200">
-              <h3 className="text-lg font-bold text-gray-900">Evaluations</h3>
-            </div>
-
-            {/* 평가 목록 */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {idea.evaluations.map((evaluation: Evaluation, index: number) => (
-                <div key={index} className="bg-gray-50 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm text-gray-600">from</span>
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
-                          evaluation.evaluator === "나"
-                            ? "bg-green-500 text-white"
-                            : "bg-blue-500 text-white"
-                        }`}
-                      >
-                        {evaluation.evaluator === "나"
-                          ? "나"
-                          : evaluation.evaluator[0]}
-                      </div>
-                      <span className="text-sm font-medium text-gray-900">
-                        {getEvaluatorName(evaluation.evaluator)}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 mb-3">
-                    <div className="text-center">
-                      <div className="text-xs text-gray-500 mb-1">
-                        Relevance
-                      </div>
-                      <div className="text-lg font-bold text-gray-900">
-                        {evaluation.scores.relevance}
-                      </div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-xs text-gray-500 mb-1">
-                        actionable
-                      </div>
-                      <div className="text-lg font-bold text-gray-900">
-                        {evaluation.scores.actionable}
-                      </div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-xs text-gray-500 mb-1">
-                        Insightful
-                      </div>
-                      <div className="text-lg font-bold text-gray-900">
-                        {evaluation.scores.insightful}
-                      </div>
-                    </div>
+          {/* 메인 컨텐츠 영역 - 스크롤 가능 */}
+          <div className="flex flex-1 overflow-hidden">
+            {/* 왼쪽: 아이디어 내용 */}
+            <div className="flex-1 flex flex-col">
+              {/* 아이디어 정보 영역 - 스크롤 가능 */}
+              <div className="flex-1 overflow-y-auto p-6">
+                {/* 작성자 정보 */}
+                <div className="flex items-center gap-3 mb-6">
+                  <div
+                    className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-medium ${
+                      idea.author === "나"
+                        ? "bg-green-500 text-white"
+                        : "bg-blue-500 text-white"
+                    }`}
+                  >
+                    {idea.author === "나" ? "나" : idea.author[0]}
                   </div>
                   <div>
-                    <div className="text-xs text-gray-500 mb-1">comments</div>
-                    <p className="text-sm text-gray-700">
-                      {evaluation.comment}
+                    <p className="font-medium text-gray-900">
+                      {getAuthorName(idea.author)}
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      {new Date(idea.timestamp).toLocaleString()}
                     </p>
                   </div>
                 </div>
-              ))}
 
-              {idea.evaluations.length === 0 && !showEvaluationForm && (
-                <div className="text-center py-8 text-gray-500">
-                  <p className="text-sm">아직 평가가 없습니다</p>
-                  {userCanEvaluateIdeas && (
-                    <button
-                      onClick={() => setShowEvaluationForm(true)}
-                      className="mt-2 text-blue-600 hover:text-blue-800 text-sm font-medium"
-                    >
-                      첫 번째 평가를 남겨보세요
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* 평가 폼 */}
-              {showEvaluationForm && (
-                <div className="bg-white border border-gray-200 rounded-lg p-4">
-                  <h4 className="text-sm font-bold text-gray-900 mb-4">
-                    새 평가 작성
-                  </h4>
-
-                  {/* Insightful */}
-                  <div className="mb-4">
-                    <label className="text-sm font-medium text-gray-700 mb-2 block">
-                      Insightful
-                    </label>
-                    <div className="flex justify-between">
-                      {[1, 2, 3, 4, 5].map((value) => (
-                        <button
-                          key={value}
-                          onClick={() =>
-                            setEvaluationFormData({
-                              ...evaluationFormData,
-                              insightful: value,
-                            })
-                          }
-                          className={`w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all ${
-                            evaluationFormData.insightful === value
-                              ? "border-blue-500 bg-blue-500 text-white"
-                              : "border-gray-300 text-gray-600 hover:border-blue-300"
-                          }`}
-                        >
-                          {value}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* actionable */}
-                  <div className="mb-4">
-                    <label className="text-sm font-medium text-gray-700 mb-2 block">
-                      actionable
-                    </label>
-                    <div className="flex justify-between">
-                      {[1, 2, 3, 4, 5].map((value) => (
-                        <button
-                          key={value}
-                          onClick={() =>
-                            setEvaluationFormData({
-                              ...evaluationFormData,
-                              actionable: value,
-                            })
-                          }
-                          className={`w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all ${
-                            evaluationFormData.actionable === value
-                              ? "border-blue-500 bg-blue-500 text-white"
-                              : "border-gray-300 text-gray-600 hover:border-blue-300"
-                          }`}
-                        >
-                          {value}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Relevance */}
-                  <div className="mb-4">
-                    <label className="text-sm font-medium text-gray-700 mb-2 block">
-                      Relevance
-                    </label>
-                    <div className="flex justify-between">
-                      {[1, 2, 3, 4, 5].map((value) => (
-                        <button
-                          key={value}
-                          onClick={() =>
-                            setEvaluationFormData({
-                              ...evaluationFormData,
-                              relevance: value,
-                            })
-                          }
-                          className={`w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all ${
-                            evaluationFormData.relevance === value
-                              ? "border-blue-500 bg-blue-500 text-white"
-                              : "border-gray-300 text-gray-600 hover:border-blue-300"
-                          }`}
-                        >
-                          {value}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Comment */}
-                  <div className="mb-4">
-                    <label className="text-sm font-medium text-gray-700 mb-2 block">
-                      Comment
-                    </label>
-                    <textarea
-                      value={evaluationFormData.comment}
+                {/* 아이디어 제목 */}
+                <div className="mb-6">
+                  <label className="text-sm font-medium text-gray-500 mb-2 block">
+                    OBJECT
+                  </label>
+                  {isEditMode ? (
+                    <input
+                      type="text"
+                      value={editFormData.object}
                       onChange={(e) =>
-                        setEvaluationFormData({
-                          ...evaluationFormData,
-                          comment: e.target.value,
+                        setEditFormData({
+                          ...editFormData,
+                          object: e.target.value,
                         })
                       }
-                      className="w-full p-2 border border-gray-300 rounded text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      rows={3}
-                      placeholder="평가 의견을 작성해주세요..."
+                      className="w-full text-xl font-bold text-gray-900 border border-gray-300 rounded-lg px-3 py-2"
                     />
-                  </div>
-
-                  {/* 버튼 */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleEvaluationSubmit}
-                      disabled={
-                        isSubmittingEvaluation ||
-                        !evaluationFormData.insightful ||
-                        !evaluationFormData.actionable ||
-                        !evaluationFormData.relevance ||
-                        !evaluationFormData.comment.trim()
-                      }
-                      className="flex-1 bg-blue-600 text-white py-2 px-3 rounded text-sm font-medium disabled:bg-gray-400 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
-                    >
-                      {isSubmittingEvaluation ? "제출 중..." : "제출"}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowEvaluationForm(false);
-                        setEvaluationFormData({
-                          insightful: 0,
-                          actionable: 0,
-                          relevance: 0,
-                          comment: "",
-                        });
-                      }}
-                      className="px-3 py-2 text-gray-600 hover:text-gray-800 text-sm"
-                    >
-                      취소
-                    </button>
-                  </div>
+                  ) : (
+                    <h1 className="text-2xl font-bold text-gray-900">
+                      {idea.content.object}
+                    </h1>
+                  )}
                 </div>
-              )}
+
+                {/* 기능 설명 */}
+                <div className="mb-6">
+                  <label className="text-sm font-medium text-gray-500 mb-2 block">
+                    FUNCTION
+                  </label>
+                  {isEditMode ? (
+                    <textarea
+                      value={editFormData.function}
+                      onChange={(e) =>
+                        setEditFormData({
+                          ...editFormData,
+                          function: e.target.value,
+                        })
+                      }
+                      rows={3}
+                      className="w-full text-gray-700 border border-gray-300 rounded-lg px-3 py-2 resize-none"
+                    />
+                  ) : (
+                    <p className="text-gray-700 leading-relaxed">
+                      {idea.content.function}
+                    </p>
+                  )}
+                </div>
+
+                {/* 동작 방식 */}
+                <div className="mb-6">
+                  <label className="text-sm font-medium text-gray-500 mb-2 block">
+                    BEHAVIOR
+                  </label>
+                  {isEditMode ? (
+                    <div className="space-y-2">
+                      {behaviorPairs.map((pair, index) => (
+                        <div key={index} className="flex gap-2">
+                          <input
+                            type="text"
+                            value={pair.key}
+                            onChange={(e) => {
+                              const newPairs = [...behaviorPairs];
+                              newPairs[index].key = e.target.value;
+                              setBehaviorPairs(newPairs);
+                            }}
+                            placeholder="속성"
+                            className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
+                          />
+                          <input
+                            type="text"
+                            value={pair.value}
+                            onChange={(e) => {
+                              const newPairs = [...behaviorPairs];
+                              newPairs[index].value = e.target.value;
+                              setBehaviorPairs(newPairs);
+                            }}
+                            placeholder="값"
+                            className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
+                          />
+                          <button
+                            onClick={() => {
+                              setBehaviorPairs(
+                                behaviorPairs.filter((_, i) => i !== index)
+                              );
+                            }}
+                            className="text-red-500 hover:text-red-700 px-2"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() =>
+                          setBehaviorPairs([
+                            ...behaviorPairs,
+                            { key: "", value: "" },
+                          ])
+                        }
+                        className="text-blue-600 hover:text-blue-800 text-sm"
+                      >
+                        + 항목 추가
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="text-gray-700 leading-relaxed">
+                      {renderSafeData(idea.content.behavior)}
+                    </div>
+                  )}
+                </div>
+
+                {/* 구조 */}
+                <div className="mb-6">
+                  <label className="text-sm font-medium text-gray-500 mb-2 block">
+                    STRUCTURE
+                  </label>
+                  {isEditMode ? (
+                    <div className="space-y-2">
+                      {structurePairs.map((pair, index) => (
+                        <div key={index} className="flex gap-2">
+                          <input
+                            type="text"
+                            value={pair.key}
+                            onChange={(e) => {
+                              const newPairs = [...structurePairs];
+                              newPairs[index].key = e.target.value;
+                              setStructurePairs(newPairs);
+                            }}
+                            placeholder="요소"
+                            className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
+                          />
+                          <input
+                            type="text"
+                            value={pair.value}
+                            onChange={(e) => {
+                              const newPairs = [...structurePairs];
+                              newPairs[index].value = e.target.value;
+                              setStructurePairs(newPairs);
+                            }}
+                            placeholder="설명"
+                            className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
+                          />
+                          <button
+                            onClick={() => {
+                              setStructurePairs(
+                                structurePairs.filter((_, i) => i !== index)
+                              );
+                            }}
+                            className="text-red-500 hover:text-red-700 px-2"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() =>
+                          setStructurePairs([
+                            ...structurePairs,
+                            { key: "", value: "" },
+                          ])
+                        }
+                        className="text-blue-600 hover:text-blue-800 text-sm"
+                      >
+                        + 항목 추가
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="text-gray-700 leading-relaxed">
+                      {renderSafeData(idea.content.structure)}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 하단 고정 액션 버튼 영역 */}
+              <div className="border-t border-gray-200 p-6 bg-white">
+                <div className="flex gap-3">
+                  {isEditMode ? (
+                    <>
+                      <button
+                        onClick={handleSave}
+                        className="flex-1 bg-black text-white py-3 px-4 rounded-lg font-medium hover:bg-gray-800 transition-colors"
+                      >
+                        저장하기
+                      </button>
+                      <button
+                        onClick={handleCancel}
+                        className="flex-1 bg-gray-500 text-white py-3 px-4 rounded-lg font-medium hover:bg-gray-600 transition-colors"
+                      >
+                        취소
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {canUpdateIdeas && (
+                        <button
+                          onClick={handleEditModeToggle}
+                          className="flex-1 bg-black text-white py-3 px-4 rounded-lg font-medium hover:bg-gray-800 transition-colors"
+                        >
+                          아이디어 업데이트
+                        </button>
+                      )}
+                      {canEvaluateIdeas && (
+                        <button
+                          onClick={() => setShowEvaluationForm(true)}
+                          className="flex-1 bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                        >
+                          아이디어 평가하기
+                        </button>
+                      )}
+                      {!canUpdateIdeas && !canEvaluateIdeas && (
+                        <div className="flex-1 text-center py-3 px-4 text-gray-500 text-sm">
+                          권한이 없어 편집 및 평가할 수 없습니다
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 오른쪽: 평가 영역 */}
+            <div className="w-96 border-l border-gray-200 flex flex-col">
+              {/* 평가 헤더 */}
+              <div className="p-4 border-b border-gray-200">
+                <h3 className="text-lg font-bold text-gray-900">Evaluations</h3>
+              </div>
+
+              {/* 평가 목록 */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {idea.evaluations.map(
+                  (evaluation: Evaluation, index: number) => (
+                    <div key={index} className="bg-gray-50 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm text-gray-600">from</span>
+                        <div className="flex items-center gap-2">
+                          <div
+                            className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                              evaluation.evaluator === "나"
+                                ? "bg-green-500 text-white"
+                                : "bg-blue-500 text-white"
+                            }`}
+                          >
+                            {evaluation.evaluator === "나"
+                              ? "나"
+                              : evaluation.evaluator[0]}
+                          </div>
+                          <span className="text-sm font-medium text-gray-900">
+                            {getEvaluatorName(evaluation.evaluator)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 mb-3">
+                        <div className="text-center">
+                          <div className="text-xs text-gray-500 mb-1">
+                            Relevance
+                          </div>
+                          <div className="text-lg font-bold text-gray-900">
+                            {evaluation.scores.relevance}
+                          </div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-xs text-gray-500 mb-1">
+                            actionable
+                          </div>
+                          <div className="text-lg font-bold text-gray-900">
+                            {evaluation.scores.actionable}
+                          </div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-xs text-gray-500 mb-1">
+                            Insightful
+                          </div>
+                          <div className="text-lg font-bold text-gray-900">
+                            {evaluation.scores.insightful}
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-500 mb-1">
+                          comments
+                        </div>
+                        <p className="text-sm text-gray-700">
+                          {evaluation.comment}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                )}
+
+                {idea.evaluations.length === 0 && !showEvaluationForm && (
+                  <div className="text-center py-8 text-gray-500">
+                    <p className="text-sm">아직 평가가 없습니다</p>
+                    {canEvaluateIdeas && (
+                      <button
+                        onClick={() => setShowEvaluationForm(true)}
+                        className="mt-2 text-blue-600 hover:text-blue-800 text-sm font-medium"
+                      >
+                        첫 번째 평가를 남겨보세요
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* 평가 폼 */}
+                {showEvaluationForm && canEvaluateIdeas && (
+                  <div className="bg-white border border-gray-200 rounded-lg p-4">
+                    <h4 className="text-sm font-bold text-gray-900 mb-4">
+                      새 평가 작성
+                    </h4>
+
+                    {/* Insightful */}
+                    <div className="mb-4">
+                      <label className="text-sm font-medium text-gray-700 mb-2 block">
+                        Insightful
+                      </label>
+                      <div className="flex justify-between">
+                        {[1, 2, 3, 4, 5].map((value) => (
+                          <button
+                            key={value}
+                            onClick={() =>
+                              setEvaluationFormData({
+                                ...evaluationFormData,
+                                insightful: value,
+                              })
+                            }
+                            className={`w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all ${
+                              evaluationFormData.insightful === value
+                                ? "border-blue-500 bg-blue-500 text-white"
+                                : "border-gray-300 text-gray-600 hover:border-blue-300"
+                            }`}
+                          >
+                            {value}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* actionable */}
+                    <div className="mb-4">
+                      <label className="text-sm font-medium text-gray-700 mb-2 block">
+                        actionable
+                      </label>
+                      <div className="flex justify-between">
+                        {[1, 2, 3, 4, 5].map((value) => (
+                          <button
+                            key={value}
+                            onClick={() =>
+                              setEvaluationFormData({
+                                ...evaluationFormData,
+                                actionable: value,
+                              })
+                            }
+                            className={`w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all ${
+                              evaluationFormData.actionable === value
+                                ? "border-blue-500 bg-blue-500 text-white"
+                                : "border-gray-300 text-gray-600 hover:border-blue-300"
+                            }`}
+                          >
+                            {value}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Relevance */}
+                    <div className="mb-4">
+                      <label className="text-sm font-medium text-gray-700 mb-2 block">
+                        Relevance
+                      </label>
+                      <div className="flex justify-between">
+                        {[1, 2, 3, 4, 5].map((value) => (
+                          <button
+                            key={value}
+                            onClick={() =>
+                              setEvaluationFormData({
+                                ...evaluationFormData,
+                                relevance: value,
+                              })
+                            }
+                            className={`w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all ${
+                              evaluationFormData.relevance === value
+                                ? "border-blue-500 bg-blue-500 text-white"
+                                : "border-gray-300 text-gray-600 hover:border-blue-300"
+                            }`}
+                          >
+                            {value}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Comment */}
+                    <div className="mb-4">
+                      <label className="text-sm font-medium text-gray-700 mb-2 block">
+                        Comment
+                      </label>
+                      <textarea
+                        value={evaluationFormData.comment}
+                        onChange={(e) =>
+                          setEvaluationFormData({
+                            ...evaluationFormData,
+                            comment: e.target.value,
+                          })
+                        }
+                        className="w-full p-2 border border-gray-300 rounded text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        rows={3}
+                        placeholder="평가 의견을 작성해주세요..."
+                      />
+                    </div>
+
+                    {/* 버튼 */}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleEvaluationSubmit}
+                        disabled={
+                          isSubmittingEvaluation ||
+                          !evaluationFormData.insightful ||
+                          !evaluationFormData.actionable ||
+                          !evaluationFormData.relevance ||
+                          !evaluationFormData.comment.trim()
+                        }
+                        className="flex-1 bg-blue-600 text-white py-2 px-3 rounded text-sm font-medium disabled:bg-gray-400 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
+                      >
+                        {isSubmittingEvaluation ? "제출 중..." : "제출"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowEvaluationForm(false);
+                          setEvaluationFormData({
+                            insightful: 0,
+                            actionable: 0,
+                            relevance: 0,
+                            comment: "",
+                          });
+                        }}
+                        className="px-3 py-2 text-gray-600 hover:text-gray-800 text-sm"
+                      >
+                        취소
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
