@@ -33,6 +33,7 @@ export default function FeedbackTabContent({
   const [endReason, setEndReason] = useState<string | null>(null);
   const [isUserEnded, setIsUserEnded] = useState(false);
   const [isEndingSession, setIsEndingSession] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -48,6 +49,18 @@ export default function FeedbackTabContent({
     // AI가 시작한 세션의 경우 첫 메시지가 이미 있을 수 있음
     if (tab.type === "ai_to_user") {
       // AI가 시작한 세션은 초기 메시지를 설정하지 않고 폴링으로 가져옴
+      // 만약 메시지가 없다면 AI가 첫 메시지를 생성 중일 가능성이 있음
+      if (messages.length === 0) {
+        setAiGenerating(true);
+        console.log("🤖 AI 시작 세션 - 첫 메시지 생성 중으로 설정");
+
+        // 30초 후에도 메시지가 없으면 타임아웃
+        setTimeout(() => {
+          if (messages.length === 0) {
+            setAiGenerating(false);
+          }
+        }, 30000);
+      }
       return;
     }
 
@@ -61,7 +74,7 @@ export default function FeedbackTabContent({
       };
       setMessages([initialMessage]);
     }
-  }, [tab]);
+  }, [tab, messages.length]);
 
   // 실시간 메시지 업데이트를 위한 폴링
   useEffect(() => {
@@ -98,6 +111,29 @@ export default function FeedbackTabContent({
             // 새로운 메시지가 있을 때만 업데이트
             if (chatMessages.length !== messages.length) {
               setMessages(chatMessages);
+
+              // AI 메시지가 추가되었으면 생성 완료
+              const lastMessage = chatMessages[chatMessages.length - 1];
+              if (lastMessage && lastMessage.sender !== "나" && aiGenerating) {
+                console.log("🤖 AI 메시지 생성 완료 감지");
+                setAiGenerating(false);
+              }
+            }
+
+            // AI가 메시지를 생성 중인지 확인 (메시지 수가 홀수면 AI 차례)
+            const isAiTurn =
+              chatMessages.length > 0 &&
+              chatMessages[chatMessages.length - 1].sender === "나";
+
+            if (isAiTurn && !aiGenerating && !sessionEnded) {
+              // 사용자 메시지 후 AI 응답 대기 중
+              setAiGenerating(true);
+              console.log("🤖 AI 메시지 생성 시작 감지");
+
+              // 15초 후에도 AI 메시지가 없으면 타임아웃
+              setTimeout(() => {
+                setAiGenerating(false);
+              }, 15000);
             }
 
             // 세션이 종료되었다면 상태 업데이트 (사용자가 종료한 경우가 아닐 때만)
@@ -109,6 +145,7 @@ export default function FeedbackTabContent({
               console.log(`✅ 피드백 세션 ${tab.id} AI에 의해 종료됨`);
               setSessionEnded(true);
               setEndReason("AI가 대화를 종료했습니다.");
+              setAiGenerating(false); // AI 생성 상태도 종료
 
               // 3초 후 자동으로 탭 닫기
               setTimeout(() => {
@@ -141,6 +178,7 @@ export default function FeedbackTabContent({
     sessionEnded,
     isUserEnded,
     isEndingSession,
+    aiGenerating, // AI 생성 상태도 의존성에 추가
   ]);
 
   const handleSendMessage = async () => {
@@ -157,6 +195,7 @@ export default function FeedbackTabContent({
     setMessages((prev) => [...prev, userMessage]);
     setNewMessage("");
     setIsLoading(true);
+    setAiGenerating(true); // AI 응답 생성 시작
 
     try {
       // 피드백 세션 API 호출
@@ -178,11 +217,18 @@ export default function FeedbackTabContent({
         console.log("피드백 메시지 전송 완료");
         const result = await response.json();
         console.log("AI 응답 트리거됨:", result);
+
+        // 15초 후에도 AI 응답이 없으면 타임아웃
+        setTimeout(() => {
+          setAiGenerating(false);
+        }, 15000);
       } else {
         console.error("피드백 메시지 전송 실패:", response.status);
+        setAiGenerating(false); // 실패 시 AI 생성 상태 해제
       }
     } catch (error) {
       console.error("피드백 메시지 전송 실패:", error);
+      setAiGenerating(false); // 오류 시 AI 생성 상태 해제
     } finally {
       setIsLoading(false);
     }
@@ -330,6 +376,30 @@ export default function FeedbackTabContent({
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
                 <span className="text-sm text-gray-600">
                   {tab.participantName}가 응답 중...
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* AI가 메시지 생성 중일 때 스피너 말풍선 표시 */}
+        {aiGenerating && !isLoading && (
+          <div className="flex justify-start mb-4">
+            <div className="bg-gray-100 rounded-2xl px-4 py-3">
+              <div className="flex items-center gap-2">
+                <div className="flex space-x-1">
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                  <div
+                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                    style={{ animationDelay: "0.1s" }}
+                  ></div>
+                  <div
+                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                    style={{ animationDelay: "0.2s" }}
+                  ></div>
+                </div>
+                <span className="text-sm text-gray-600">
+                  {tab.participantName}가 메시지를 작성하고 있습니다...
                 </span>
               </div>
             </div>

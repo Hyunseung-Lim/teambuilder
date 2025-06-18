@@ -70,56 +70,55 @@ export async function getUserByEmail(email: string): Promise<User | null> {
 export async function createAgent(
   agentData: Omit<AIAgent, "id" | "createdAt"> & { ownerId: string }
 ): Promise<AIAgent> {
-  const agent: AIAgent & { roles?: string[] } = {
-    id: `agent_${nanoid()}`,
-    ...agentData,
-    createdAt: new Date().toISOString() as any, // Redis에서는 문자열로 저장
+  const agentId = `agent_${nanoid()}`;
+  const {
+    name,
+    age,
+    gender,
+    education,
+    professional,
+    skills,
+    autonomy,
+    personality,
+    value,
+    designStyle,
+    ownerId,
+  } = agentData;
+
+  const newAgent = {
+    id: agentId,
+    name,
+    age: age?.toString() || "",
+    gender: gender || "",
+    education: education || "",
+    professional,
+    skills,
+    autonomy: autonomy?.toString() || "",
+    personality: personality || "",
+    value: value || "",
+    designStyle: designStyle || "",
+    createdAt: new Date().toISOString(),
+    userId: ownerId,
   };
 
-  // 안전하게 저장할 객체 생성 - 모든 값을 문자열로 변환
-  const safeAgent: { [key: string]: string } = {};
+  await redis.hset(keys.agent(agentId), newAgent);
+  await redis.sadd(keys.userAgents(ownerId), agentId);
 
-  // 필수 필드들은 항상 포함 - 모두 문자열로 변환
-  safeAgent.id = String(agent.id);
-  safeAgent.name = String(agent.name || "");
-  safeAgent.age = String(agent.age || 0);
-  safeAgent.gender = String(agent.gender || "기타");
-  safeAgent.professional = String(agent.professional || "");
-  safeAgent.skills = String(agent.skills || "");
-  safeAgent.autonomy = String(agent.autonomy || 3);
-  safeAgent.createdAt = String(agent.createdAt);
-
-  // roles 배열을 JSON으로 안전하게 직렬화
-  try {
-    safeAgent.roles = JSON.stringify(
-      Array.isArray((agent as any).roles) ? (agent as any).roles : []
-    );
-  } catch (error) {
-    console.error("Roles 직렬화 오류:", error);
-    safeAgent.roles = JSON.stringify([]);
-  }
-
-  // 선택적 필드들은 값이 있을 때만 포함
-  if (agent.personality && String(agent.personality).trim() !== "") {
-    safeAgent.personality = String(agent.personality);
-  }
-  if (agent.value && String(agent.value).trim() !== "") {
-    safeAgent.value = String(agent.value);
-  }
-  if (agent.designStyle && String(agent.designStyle).trim() !== "") {
-    safeAgent.designStyle = String(agent.designStyle);
-  }
-
-  console.log("🔧 저장할 에이전트 데이터:", safeAgent);
-
-  await redis.hset(keys.agent(agent.id), safeAgent);
-
-  if (agentData.ownerId) {
-    await redis.sadd(keys.userAgents(agentData.ownerId), agent.id);
-  }
-
-  console.log("✅ 에이전트 저장 완료:", agent.id);
-  return agent as AIAgent;
+  return {
+    id: agentId,
+    name,
+    age,
+    gender,
+    education,
+    professional,
+    skills,
+    autonomy,
+    personality,
+    value,
+    designStyle,
+    createdAt: new Date(),
+    userId: ownerId,
+  } as AIAgent;
 }
 
 export async function getAgentById(id: string): Promise<AIAgent | null> {

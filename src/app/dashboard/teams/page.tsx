@@ -129,9 +129,20 @@ export default async function TeamsPage() {
                                 ? "나"
                                 : member.agent?.name || "알 수 없음"}
                             </span>
-                            <span className="text-xs text-gray-600">
-                              {member.isUser ? "" : `${member.agent?.age}세`}
-                            </span>
+                            <div className="text-xs text-gray-600 text-right">
+                              {member.isUser ? (
+                                ""
+                              ) : (
+                                <>
+                                  {member.agent?.age && `${member.agent.age}세`}
+                                  {member.agent?.age &&
+                                    member.agent?.education &&
+                                    ", "}
+                                  {member.agent?.education &&
+                                    member.agent.education}
+                                </>
+                              )}
+                            </div>
                           </div>
                           <div className="flex flex-wrap gap-1">
                             {member.roles.slice(0, 2).map((role, roleIndex) => (

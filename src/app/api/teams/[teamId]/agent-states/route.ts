@@ -431,6 +431,95 @@ async function executeAgentAction(
             `✅ ${agentProfile.name} → ${targetAgent.name} 피드백 세션 생성 성공: ${sessionData.sessionId}`
           );
 
+          // 🔄 피드백 세션 생성 즉시 양쪽 에이전트 상태 변경
+          const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
+
+          // 1. 피드백 제공자(현재 에이전트) 상태 변경
+          try {
+            const initiatorResponse = await fetch(
+              `${baseUrl}/api/teams/${teamId}/agent-states`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "User-Agent": "TeamBuilder-Internal",
+                },
+                body: JSON.stringify({
+                  agentId: agentId,
+                  currentState: "feedback_session",
+                  taskType: "feedback_session",
+                  taskDescription: `${targetAgent.name}와 피드백 세션 진행 중`,
+                  estimatedDuration: 300,
+                  trigger: "autonomous",
+                  sessionInfo: {
+                    sessionId: sessionData.sessionId,
+                    participants: [agentProfile.name, targetAgent.name],
+                  },
+                }),
+              }
+            );
+
+            if (initiatorResponse.ok) {
+              console.log(
+                `✅ ${agentProfile.name} 상태가 feedback_session으로 변경됨`
+              );
+            } else {
+              console.error(
+                `❌ ${agentProfile.name} feedback_session 상태 변경 실패:`,
+                initiatorResponse.status
+              );
+            }
+          } catch (error) {
+            console.error(
+              `❌ ${agentProfile.name} feedback_session 상태 변경 오류:`,
+              error
+            );
+          }
+
+          // 2. 피드백 대상자(타겟 에이전트) 상태 변경 (인간이 아닌 경우만)
+          if (targetAgent.name !== "나") {
+            try {
+              const targetResponse = await fetch(
+                `${baseUrl}/api/teams/${teamId}/agent-states`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "User-Agent": "TeamBuilder-Internal",
+                  },
+                  body: JSON.stringify({
+                    agentId: targetAgent.id,
+                    currentState: "feedback_session",
+                    taskType: "feedback_session",
+                    taskDescription: `${agentProfile.name}와 피드백 세션 진행 중`,
+                    estimatedDuration: 300,
+                    trigger: "autonomous",
+                    sessionInfo: {
+                      sessionId: sessionData.sessionId,
+                      participants: [agentProfile.name, targetAgent.name],
+                    },
+                  }),
+                }
+              );
+
+              if (targetResponse.ok) {
+                console.log(
+                  `✅ ${targetAgent.name} 상태가 feedback_session으로 변경됨`
+                );
+              } else {
+                console.error(
+                  `❌ ${targetAgent.name} feedback_session 상태 변경 실패:`,
+                  targetResponse.status
+                );
+              }
+            } catch (error) {
+              console.error(
+                `❌ ${targetAgent.name} feedback_session 상태 변경 오류:`,
+                error
+              );
+            }
+          }
+
           // 인간에게 피드백하는 경우 즉시 첫 메시지 생성
           const isTargetHuman = targetAgent.name === "나";
           const delay = isTargetHuman ? 1000 : 3000; // 인간에게는 1초 후, AI에게는 3초 후

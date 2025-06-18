@@ -1066,6 +1066,7 @@ function UserInfoForm({
     name: initialData?.name || "",
     age: initialData?.age?.toString() || "",
     gender: initialData?.gender || "",
+    education: initialData?.education || "",
     professional: initialData?.professional || "",
     skills: initialData?.skills || "",
     personality: initialData?.personality || "",
@@ -1082,6 +1083,7 @@ function UserInfoForm({
         name: initialData.name || "",
         age: initialData.age?.toString() || "",
         gender: initialData.gender || "",
+        education: initialData.education || "",
         professional: initialData.professional || "",
         skills: initialData.skills || "",
         personality: initialData.personality || "",
@@ -1113,6 +1115,13 @@ function UserInfoForm({
       name: formData.name,
       age: formData.age ? parseInt(formData.age) : undefined,
       gender: genderValue,
+      education: formData.education as
+        | "고졸"
+        | "대졸"
+        | "석사"
+        | "박사"
+        | "기타"
+        | undefined,
       professional: formData.professional,
       skills: formData.skills,
       autonomy: 3, // 사용자는 기본 자율성 3으로 설정
@@ -1196,17 +1205,35 @@ function UserInfoForm({
           </Select>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="user-professional">직업/전문성 *</Label>
-          <Input
-            id="user-professional"
-            value={formData.professional}
+          <Label htmlFor="user-education">교육 수준</Label>
+          <Select
+            id="user-education"
+            value={formData.education}
             onChange={(e) =>
-              setFormData((prev) => ({ ...prev, professional: e.target.value }))
+              setFormData((prev) => ({ ...prev, education: e.target.value }))
             }
-            placeholder="예: 프로덕트 매니저"
-            required
-          />
+          >
+            <option value="">선택해주세요</option>
+            <option value="고졸">고등학교 졸업</option>
+            <option value="대졸">대학교 졸업</option>
+            <option value="석사">석사 학위</option>
+            <option value="박사">박사 학위</option>
+            <option value="기타">기타</option>
+          </Select>
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="user-professional">직업/전문성 *</Label>
+        <Input
+          id="user-professional"
+          value={formData.professional}
+          onChange={(e) =>
+            setFormData((prev) => ({ ...prev, professional: e.target.value }))
+          }
+          placeholder="예: 프로덕트 매니저"
+          required
+        />
       </div>
 
       <div className="space-y-2">
@@ -1283,6 +1310,7 @@ function AgentCreateForm({
     name: "",
     age: "",
     gender: "",
+    education: "",
     professional: "",
     skills: "",
     autonomy: "",
@@ -1300,6 +1328,7 @@ function AgentCreateForm({
         name: initialData.name || "",
         age: initialData.age?.toString() || "",
         gender: initialData.gender || "",
+        education: initialData.education || "",
         professional: initialData.professional || "",
         skills: initialData.skills || "",
         autonomy: initialData.autonomy?.toString() || "",
@@ -1314,6 +1343,7 @@ function AgentCreateForm({
         name: "",
         age: "",
         gender: "",
+        education: "",
         professional: "",
         skills: "",
         autonomy: "",
@@ -1351,6 +1381,13 @@ function AgentCreateForm({
       name: formData.name,
       age: formData.age ? parseInt(formData.age) : undefined,
       gender: genderValue,
+      education: formData.education as
+        | "고졸"
+        | "대졸"
+        | "석사"
+        | "박사"
+        | "기타"
+        | undefined,
       professional: formData.professional,
       skills: formData.skills,
       autonomy: parseInt(formData.autonomy),
@@ -1434,17 +1471,35 @@ function AgentCreateForm({
           </Select>
         </div>
         <div className="space-y-2">
-          <Label htmlFor={`professional-${memberKey}`}>직업/전문성 *</Label>
-          <Input
-            id={`professional-${memberKey}`}
-            value={formData.professional}
+          <Label htmlFor={`education-${memberKey}`}>교육 수준</Label>
+          <Select
+            id={`education-${memberKey}`}
+            value={formData.education}
             onChange={(e) =>
-              setFormData((prev) => ({ ...prev, professional: e.target.value }))
+              setFormData((prev) => ({ ...prev, education: e.target.value }))
             }
-            placeholder="예: 크리에이티브 디렉터"
-            required
-          />
+          >
+            <option value="">선택해주세요</option>
+            <option value="고졸">고등학교 졸업</option>
+            <option value="대졸">대학교 졸업</option>
+            <option value="석사">석사 학위</option>
+            <option value="박사">박사 학위</option>
+            <option value="기타">기타</option>
+          </Select>
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`professional-${memberKey}`}>직업/전문성 *</Label>
+        <Input
+          id={`professional-${memberKey}`}
+          value={formData.professional}
+          onChange={(e) =>
+            setFormData((prev) => ({ ...prev, professional: e.target.value }))
+          }
+          placeholder="예: 프로덕트 매니저"
+          required
+        />
       </div>
 
       <div className="space-y-2">

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { getTeamAction } from "@/actions/team.actions";
 import { getUserAgentsAction } from "@/actions/agent.actions";
 import {

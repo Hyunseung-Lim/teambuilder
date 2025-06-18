@@ -24,6 +24,7 @@ export async function createAgentAction(formData: FormData) {
     name: formData.get("name") as string,
     age: parseInt(formData.get("age") as string),
     gender: formData.get("gender") as any,
+    education: formData.get("education") as any,
     professional: formData.get("professional") as string,
     skills: formData.get("skills") as string,
     autonomy: parseInt(formData.get("autonomy") as string),

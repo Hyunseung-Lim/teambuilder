@@ -662,7 +662,10 @@ export default function HomePage() {
                                               </p>
                                               {agent && (
                                                 <span className="text-sm text-gray-500">
-                                                  ({agent.age}세)
+                                                  ({agent.age}세, {agent.gender}
+                                                  {agent.education &&
+                                                    `, ${agent.education}`}
+                                                  )
                                                 </span>
                                               )}
                                             </div>
@@ -1053,7 +1056,8 @@ export default function HomePage() {
                                 </h5>
                                 {!member.isUser && agent && (
                                   <span className="text-sm text-gray-500">
-                                    ({agent.age}세, {agent.gender})
+                                    ({agent.age}세, {agent.gender}
+                                    {agent.education && `, ${agent.education}`})
                                   </span>
                                 )}
                               </div>

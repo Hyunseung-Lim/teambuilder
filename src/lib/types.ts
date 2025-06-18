@@ -11,8 +11,9 @@ export interface User {
 export interface AIAgent {
   id: string;
   name: string;
-  age: number;
-  gender: "여자" | "남자" | "정의하지 않음" | "알 수 없음";
+  age?: number;
+  gender?: "여자" | "남자" | "정의하지 않음" | "알 수 없음";
+  education?: "고졸" | "대졸" | "석사" | "박사" | "기타";
   professional: string;
   skills: string;
   autonomy: number;
@@ -90,6 +91,7 @@ export interface TeamMemberSlot {
     name: string;
     age?: number;
     gender?: "여자" | "남자" | "정의하지 않음" | "알 수 없음";
+    education?: "고졸" | "대졸" | "석사" | "박사" | "기타";
     professional: string;
     skills: string;
     autonomy: number;
@@ -114,13 +116,15 @@ export interface Conversation {
 export interface CreateAgentData {
   name: string;
   age: number;
-  gender: AIAgent["gender"];
+  gender: "여자" | "남자" | "정의하지 않음" | "알 수 없음";
+  education?: "고졸" | "대졸" | "석사" | "박사" | "기타";
   professional: string;
   skills: string;
   autonomy: number;
   personality?: string;
   value?: string;
   designStyle?: string;
+  ownerId: string;
 }
 
 export interface CreateTeamData {
