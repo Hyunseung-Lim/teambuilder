@@ -64,13 +64,19 @@ export function useAgentStates(teamId: string) {
   useEffect(() => {
     if (!teamId) return;
 
+    let isActive = true;
+    let timeoutId: NodeJS.Timeout | null = null;
+    let isRequestInProgress = false;
+
     const fetchAgentStates = async () => {
+      if (!isActive || isRequestInProgress) return;
+
+      isRequestInProgress = true;
+
       try {
-        console.log(`🔄 팀 ${teamId} 에이전트 상태 요청 중...`);
         const response = await fetch(`/api/teams/${teamId}/agent-states`);
         if (response.ok) {
           const data = await response.json();
-          console.log(`📨 에이전트 상태 API 응답:`, data);
 
           const statesMap = new Map<string, AgentStateInfo>();
 
@@ -78,49 +84,50 @@ export function useAgentStates(teamId: string) {
             // API 응답 구조: { agentId, name, state: AgentStateInfo, isFeedbackSession }
             const state = agentData.state;
             if (state) {
-              console.log(`📝 에이전트 ${state.agentId} 상태 처리:`, {
-                currentState: state.currentState,
-                isProcessing: state.isProcessing,
-                hasCurrentTask: !!state.currentTask,
-                taskType: state.currentTask?.type,
-                hasIdleTimer: !!state.idleTimer,
-              });
-
               statesMap.set(state.agentId, state);
-            } else {
-              console.warn(
-                `⚠️ 에이전트 ${agentData.agentId}의 state가 없음:`,
-                agentData
-              );
             }
           });
 
-          console.log(`✅ 상태 맵 설정 완료:`, statesMap.size, "개 에이전트");
           setAgentStates(statesMap);
 
           // 🔄 인간 사용자 상태 설정
           if (data.userState) {
-            console.log(`👤 인간 사용자 상태:`, data.userState);
             setUserState(data.userState);
           } else {
             setUserState(null);
           }
         } else {
-          console.error("에이전트 상태 API 응답 실패:", response.status);
+          console.error(
+            `에이전트 상태 API 응답 실패: ${response.status} ${response.statusText}`
+          );
         }
       } catch (error) {
         console.error("에이전트 상태 조회 실패:", error);
+        console.error("에러 상세 정보:", {
+          name: error instanceof Error ? error.name : "Unknown",
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+      } finally {
+        isRequestInProgress = false;
+
+        // 요청 완료 후 1초 대기하고 다음 요청 스케줄링
+        if (isActive) {
+          timeoutId = setTimeout(fetchAgentStates, 1000);
+        }
       }
     };
 
     // 초기 로드
     fetchAgentStates();
 
-    // 1초마다 상태 업데이트
-    const interval = setInterval(fetchAgentStates, 1000);
-
-    return () => clearInterval(interval);
-  }, [teamId]); // agentStates 제거
+    return () => {
+      isActive = false;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [teamId]);
 
   // 타이머 계산 (실시간 업데이트)
   useEffect(() => {

@@ -5,6 +5,7 @@ import {
   initializeAgentMemory,
   updateAgentMemory,
 } from "@/lib/redis";
+import { getNewAgentMemory } from "@/lib/memory-v2";
 import { AIAgent } from "@/lib/types";
 
 export async function GET(
@@ -23,8 +24,9 @@ export async function GET(
     }
 
     let memory = await getAgentMemory(agentId);
+    let memoryV2 = await getNewAgentMemory(agentId);
 
-    // 메모리가 없으면 즉시 생성
+    // v1 메모리가 없으면 즉시 생성
     if (!memory) {
       console.log(`💡 Memory not found for agent ${agentId}. Initializing...`);
       const team = await getTeamById(teamId);
@@ -49,7 +51,10 @@ export async function GET(
       memory = newMemory;
     }
 
-    return NextResponse.json(memory);
+    return NextResponse.json({
+      memoryV1: memory,
+      memoryV2: memoryV2,
+    });
   } catch (error) {
     console.error(`Error fetching agent memory:`, error);
     return NextResponse.json(

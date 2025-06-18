@@ -437,17 +437,6 @@ export async function planNextAction(
   };
 
   try {
-    console.log(
-      `🔍 ${userProfile.name} 프로필 전체 디버깅:`,
-      JSON.stringify(userProfile, null, 2)
-    );
-    console.log(
-      `🔍 ${userProfile.name}의 역할 배열 타입:`,
-      typeof agentRoles,
-      Array.isArray(agentRoles)
-    );
-    console.log(`🔍 ${userProfile.name}의 역할 내용:`, agentRoles);
-
     const prompt = createPlanningPrompt(userProfile, teamContext);
 
     const completion = await openai.chat.completions.create({

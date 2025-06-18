@@ -435,9 +435,9 @@ async function executeAgentAction(
             body: JSON.stringify({
               evaluator: agentId,
               scores: {
-                insightful: evaluation.scores.insightful,
-                actionable: evaluation.scores.actionable,
-                relevance: evaluation.scores.relevance,
+                insightful: evaluation.insightful,
+                actionable: evaluation.actionable,
+                relevance: evaluation.relevance,
               },
               comment: evaluation.comment,
             }),
@@ -989,73 +989,6 @@ export async function POST(
       });
     }
 
-    // 특별한 액션들은 agentId 없이도 처리 가능
-    if (action === "reset_all_agents") {
-      console.log(`🔄 모든 에이전트 상태 초기화 시작`);
-
-      try {
-        const team = await getTeamById(teamId);
-        if (!team) {
-          return NextResponse.json(
-            { error: "팀을 찾을 수 없습니다." },
-            { status: 404 }
-          );
-        }
-
-        const results = [];
-
-        // 모든 AI 에이전트 상태 초기화
-        for (const member of team.members) {
-          if (!member.isUser && member.agentId) {
-            try {
-              const resetState: AgentStateInfo = {
-                agentId: member.agentId,
-                currentState: "idle",
-                lastStateChange: new Date().toISOString(),
-                isProcessing: false,
-                idleTimer: createNewIdleTimer(),
-              };
-
-              await setAgentState(teamId, member.agentId, resetState);
-              results.push({
-                agentId: member.agentId,
-                status: "success",
-                message: "상태가 초기화되었습니다.",
-              });
-
-              console.log(`✅ 에이전트 ${member.agentId} 상태 초기화 완료`);
-            } catch (error) {
-              console.error(
-                `❌ 에이전트 ${member.agentId} 상태 초기화 실패:`,
-                error
-              );
-              results.push({
-                agentId: member.agentId,
-                status: "error",
-                message: `초기화 실패: ${
-                  error instanceof Error ? error.message : "알 수 없는 오류"
-                }`,
-              });
-            }
-          }
-        }
-
-        console.log(`🔄 모든 에이전트 상태 초기화 완료`);
-
-        return NextResponse.json({
-          success: true,
-          message: "모든 에이전트 상태가 초기화되었습니다.",
-          results,
-        });
-      } catch (error) {
-        console.error("❌ 전체 에이전트 상태 초기화 실패:", error);
-        return NextResponse.json(
-          { error: "상태 초기화 중 오류가 발생했습니다." },
-          { status: 500 }
-        );
-      }
-    }
-
     // 다른 액션들은 agentId가 필요함
     if (!agentId) {
       return NextResponse.json(
@@ -1556,9 +1489,9 @@ async function handleEvaluateIdeaRequestDirect(
           body: JSON.stringify({
             evaluator: agentId,
             scores: {
-              insightful: evaluation.scores.insightful,
-              actionable: evaluation.scores.actionable,
-              relevance: evaluation.scores.relevance,
+              insightful: evaluation.insightful,
+              actionable: evaluation.actionable,
+              relevance: evaluation.relevance,
             },
             comment: evaluation.comment,
           }),

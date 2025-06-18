@@ -9,7 +9,9 @@ export async function POST(
   { params }: { params: Promise<{ teamId: string; ideaId: string }> }
 ) {
   // 시스템 내부 호출 확인 (AI 에이전트의 자율적 평가)
-  const isSystemCall = request.headers.get("x-system-internal") === "true";
+  const isSystemCall =
+    request.headers.get("x-system-internal") === "true" ||
+    request.headers.get("user-agent") === "TeamBuilder-Internal";
 
   if (!isSystemCall) {
     const session = await getServerSession();

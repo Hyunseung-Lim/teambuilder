@@ -115,6 +115,7 @@ export default function IdeationPage() {
   // 에이전트 메모리 관련 상태
   const [hoveredAgentId, setHoveredAgentId] = useState<string | null>(null);
   const [agentMemory, setAgentMemory] = useState<AgentMemory | null>(null);
+  const [agentMemoryV2, setAgentMemoryV2] = useState<any | null>(null);
   const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0 });
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [showMemoryModal, setShowMemoryModal] = useState(false);
@@ -540,13 +541,16 @@ export default function IdeationPage() {
       );
       if (response.ok) {
         const memoryData = await response.json();
-        setAgentMemory(memoryData);
+        setAgentMemory(memoryData.memoryV1 || memoryData); // 하위 호환성
+        setAgentMemoryV2(memoryData.memoryV2 || null);
       } else {
         setAgentMemory(null);
+        setAgentMemoryV2(null);
       }
     } catch (error) {
       console.error("Failed to fetch agent memory:", error);
       setAgentMemory(null);
+      setAgentMemoryV2(null);
     }
   };
 
@@ -948,9 +952,11 @@ export default function IdeationPage() {
           setShowMemoryModal(false);
           setSelectedAgentId(null);
           setAgentMemory(null);
+          setAgentMemoryV2(null);
         }}
         agentName={selectedAgentId ? getAuthorName(selectedAgentId) : ""}
         agentMemory={agentMemory}
+        agentMemoryV2={agentMemoryV2}
       />
 
       <ViewFeedbackSessionModal

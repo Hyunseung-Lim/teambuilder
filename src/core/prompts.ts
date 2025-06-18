@@ -130,7 +130,7 @@ Idea: `;
 
 export const evaluateIdeaPrompt = (idea: any, context?: string) => `
 You are an AI agent in a team ideation session. Your task is to evaluate the provided idea objectively.
-Rate the idea on a scale of 1-5 for relevance, innovation, and insightfulness. Provide a brief comment in Korean.
+Rate the idea on a scale of 1-5 for relevance, actionable, and insightfulness. Provide a brief comment in Korean.
 
 IMPORTANT: You should only evaluate ideas created by other team members, not your own ideas.
 
@@ -139,7 +139,7 @@ Your evaluation should be in the following JSON format:
 {
   "scores": {
     "relevance": <1-5>,
-    "innovation": <1-5>,
+    "actionable": <1-5>,
     "insightful": <1-5>
   },
   "comment": "Your concise, constructive feedback in Korean."
