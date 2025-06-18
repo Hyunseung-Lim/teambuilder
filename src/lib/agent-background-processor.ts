@@ -191,19 +191,46 @@ export async function processQueuedRequest(teamId: string, agentId: string) {
 // 액션 상태 생성
 function createActionState(agentId: string, requestData: any) {
   const now = new Date();
+
+  // 요청 타입에 따른 작업 타입 결정
+  const getTaskType = () => {
+    switch (requestData.type) {
+      case "generate_idea":
+        return "generate_idea" as const;
+      case "evaluate_idea":
+        return "evaluate_idea" as const;
+      case "give_feedback":
+        return "give_feedback" as const;
+      default:
+        return "thinking" as const;
+    }
+  };
+
+  // 요청 타입에 따른 설명 생성
+  const getDescription = () => {
+    const requester = requestData.requesterName;
+    const message = requestData.payload?.message || "요청 처리";
+
+    switch (requestData.type) {
+      case "generate_idea":
+        return `${requester}의 요청: 아이디어 생성 중`;
+      case "evaluate_idea":
+        return `${requester}의 요청: 아이디어 평가 중`;
+      case "give_feedback":
+        return `${requester}의 요청: 피드백 세션 준비 중`;
+      default:
+        return `${requester}의 요청: ${message}`;
+    }
+  };
+
   return {
     agentId,
     currentState: "action" as const,
     lastStateChange: now.toISOString(),
     isProcessing: true,
     currentTask: {
-      type:
-        requestData.type === "evaluate_idea"
-          ? ("evaluate_idea" as const)
-          : ("thinking" as const),
-      description: `${requestData.requesterName}의 요청: ${
-        requestData.payload?.message || "요청 처리"
-      }`,
+      type: getTaskType(),
+      description: getDescription(),
       startTime: now.toISOString(),
       estimatedDuration: 30,
       trigger: "user_request" as const,

@@ -26,19 +26,13 @@ export async function handleEvaluateIdeaRequestDirect(
   agentId: string,
   requestData: any
 ) {
-  console.log(`📊 에이전트 ${agentId} 아이디어 평가 요청 직접 처리`);
+  console.log(
+    `📊 에이전트 ${agentId} 아이디어 평가 요청 직접 처리 (요청 이미 수락됨)`
+  );
 
   try {
-    // 피드백 세션 중인지 확인
-    if (
-      (await isInActiveFeedbackSession(requestData.requesterId)) ||
-      (await isInActiveFeedbackSession(agentId))
-    ) {
-      console.log(
-        `⏳ 요청자 또는 대상 에이전트가 피드백 세션 중 - 평가 요청 무시`
-      );
-      return;
-    }
+    // 피드백 세션 체크 제거 - 요청 접수 시점에 이미 체크했음
+    console.log(`🎯 ${agentId} 아이디어 평가 요청 처리 시작 (세션 체크 스킵)`);
 
     const ideas = await getIdeas(teamId);
     if (ideas.length === 0) {
@@ -66,19 +60,13 @@ export async function handleGenerateIdeaRequestDirect(
   agentId: string,
   requestData: any
 ) {
-  console.log(`📊 에이전트 ${agentId} 아이디어 생성 요청 직접 처리`);
+  console.log(
+    `📊 에이언트 ${agentId} 아이디어 생성 요청 직접 처리 (요청 이미 수락됨)`
+  );
 
   try {
-    // 피드백 세션 중인지 확인
-    if (
-      (await isInActiveFeedbackSession(requestData.requesterId)) ||
-      (await isInActiveFeedbackSession(agentId))
-    ) {
-      console.log(
-        `⏳ 요청자 또는 대상 에이전트가 피드백 세션 중 - 생성 요청 무시`
-      );
-      return;
-    }
+    // 피드백 세션 체크 제거 - 요청 접수 시점에 이미 체크했음
+    console.log(`🎯 ${agentId} 아이디어 생성 요청 처리 시작 (세션 체크 스킵)`);
 
     const team = await getTeamById(teamId);
     const agentProfile = await getAgentById(agentId);
@@ -98,6 +86,11 @@ export async function handleGenerateIdeaRequestDirect(
         description: `요청받은 아이디어 생성`,
         startTime: new Date().toISOString(),
         estimatedDuration: 300,
+        trigger: "user_request",
+        requestInfo: {
+          requesterName: requestData.requesterName,
+          requestMessage: requestData.payload?.message || "",
+        },
       },
     });
 
@@ -163,7 +156,9 @@ export async function handleGiveFeedbackRequestDirect(
   agentId: string,
   requestData: any
 ) {
-  console.log(`💬 에이전트 ${agentId} 피드백 요청 직접 처리`);
+  console.log(
+    `💬 에이전트 ${agentId} 피드백 요청 직접 처리 (요청 이미 수락됨)`
+  );
 
   try {
     const team = await getTeamById(teamId);
@@ -177,16 +172,10 @@ export async function handleGiveFeedbackRequestDirect(
     const requesterName = requestData.requesterName;
     const requesterId = requestData.requesterId;
 
-    // 피드백 세션 중인지 확인
-    if (
-      (await isInActiveFeedbackSession(requesterId)) ||
-      (await isInActiveFeedbackSession(agentId))
-    ) {
-      console.log(
-        `⏳ 요청자 또는 대상 에이전트가 피드백 세션 중 - 피드백 요청 무시`
-      );
-      return;
-    }
+    // 피드백 세션 체크 제거 - 요청 접수 시점에 이미 체크했음
+    console.log(
+      `🎯 ${agentProfile.name} 피드백 요청 처리 시작 (세션 체크 스킵)`
+    );
 
     await setAgentState(teamId, agentId, {
       agentId,
@@ -198,6 +187,11 @@ export async function handleGiveFeedbackRequestDirect(
         description: `${requesterName}의 요청에 따른 피드백 전략 수립 중`,
         startTime: new Date().toISOString(),
         estimatedDuration: 60,
+        trigger: "user_request",
+        requestInfo: {
+          requesterName: requesterName,
+          requestMessage: requestData.payload?.message || "",
+        },
       },
     });
 
@@ -275,10 +269,25 @@ async function isInActiveFeedbackSession(agentId: string): Promise<boolean> {
     if (sessionData) {
       const session =
         typeof sessionData === "string" ? JSON.parse(sessionData) : sessionData;
+
+      // 세션 상태가 정확히 "active"이고 참가자에 포함된 경우만 true 반환
       if (
         session.status === "active" &&
         session.participants.some((p: any) => p.id === agentId)
       ) {
+        // 추가 검증: 세션이 너무 오래된 경우 (1시간 이상) 무시
+        const sessionStartTime = new Date(session.createdAt).getTime();
+        const now = Date.now();
+        const hourInMs = 60 * 60 * 1000;
+
+        if (now - sessionStartTime > hourInMs) {
+          console.log(
+            `⚠️ 세션 ${session.id}이 1시간을 초과하여 무시 (만료된 세션)`
+          );
+          continue;
+        }
+
+        console.log(`🔒 ${agentId}는 활성 피드백 세션 ${session.id}에 참가 중`);
         return true;
       }
     }
@@ -321,6 +330,11 @@ async function performIdeaEvaluation(
       description: `요청받은 아이디어 평가`,
       startTime: new Date().toISOString(),
       estimatedDuration: 300,
+      trigger: "user_request",
+      requestInfo: {
+        requesterName: "사용자 요청",
+        requestMessage: "",
+      },
     },
   });
 

@@ -98,8 +98,183 @@ async function getJsonResponse(prompt: string, agentProfile?: any) {
     return parsedResponse;
   } catch (error) {
     console.error("LLM 응답 처리 오류:", error);
+
+    // JSON 파싱 실패 시 에이전트 상태 복구 처리
+    if (agentProfile?.id) {
+      console.log(
+        `🚨 ${agentProfile.name} LLM 응답 파싱 실패 - 에이전트 상태 복구 시작`
+      );
+
+      try {
+        // 에이전트 상태 복구를 백그라운드에서 처리
+        setTimeout(async () => {
+          await handleAgentStateRecovery(agentProfile.id, agentProfile.name);
+        }, 0);
+      } catch (recoveryError) {
+        console.error(`❌ 에이전트 상태 복구 실패:`, recoveryError);
+      }
+    }
+
     // 오류를 그대로 전달하여 호출한 쪽에서 처리하도록 함
     throw error;
+  }
+}
+
+// 에이전트 상태 복구 함수
+async function handleAgentStateRecovery(agentId: string, agentName: string) {
+  try {
+    console.log(`🔧 ${agentName} 상태 복구 시작`);
+
+    // 먼저 팀 ID 추출
+    const teamId = await extractTeamIdFromContext(agentId);
+    if (!teamId) {
+      console.log(`⚠️ ${agentName} 팀 ID 추출 실패 - 복구 스킵`);
+      return;
+    }
+
+    // 에이전트 상태 관련 함수들 임포트
+    const { getAgentState, isFeedbackSessionActive } = await import(
+      "@/lib/agent-state-utils"
+    );
+
+    // 현재 에이전트 상태 확인
+    const currentState = await getAgentState(teamId, agentId);
+
+    if (!currentState) {
+      console.log(`⚠️ ${agentName} 상태 정보 없음 - 바로 대기 상태로 전환`);
+      await transitionToIdleState(teamId, agentId, agentName);
+      return;
+    }
+
+    // 피드백 세션 중인지 확인
+    if (isFeedbackSessionActive(currentState)) {
+      console.log(
+        `🔄 ${agentName} 피드백 세션 중 - 세션 종료 후 대기 상태로 전환`
+      );
+
+      // 피드백 세션 종료 처리
+      await terminateActiveFeedbackSessions(teamId, agentId, agentName);
+    } else {
+      console.log(`🔄 ${agentName} 일반 상태 - 바로 대기 상태로 전환`);
+    }
+
+    // 무조건 대기 상태로 전환
+    await transitionToIdleState(teamId, agentId, agentName);
+
+    console.log(`✅ ${agentName} 상태 복구 완료`);
+  } catch (error) {
+    console.error(`❌ ${agentName} 상태 복구 중 오류:`, error);
+  }
+}
+
+// 팀 ID 추출 (Redis 키나 상태에서)
+async function extractTeamIdFromContext(
+  agentId: string
+): Promise<string | null> {
+  try {
+    const { redis } = await import("@/lib/redis");
+
+    // Redis에서 agent_state 키 패턴으로 팀 ID 찾기
+    // 패턴: agent_state:teamId:agentId
+    const stateKeys = await redis.keys(`agent_state:*:${agentId}`);
+
+    if (stateKeys.length > 0) {
+      // 첫 번째 키에서 팀 ID 추출
+      const keyParts = stateKeys[0].split(":");
+      if (keyParts.length >= 3) {
+        const teamId = keyParts[1]; // agent_state:{teamId}:agentId
+        console.log(`📍 ${agentId} 팀 ID 발견: ${teamId}`);
+        return teamId;
+      }
+    }
+
+    console.log(`⚠️ ${agentId} 팀 ID 추출 실패 - Redis 키 없음`);
+    return null;
+  } catch (error) {
+    console.error(`❌ ${agentId} 팀 ID 추출 오류:`, error);
+    return null;
+  }
+}
+
+// 활성 피드백 세션 종료
+async function terminateActiveFeedbackSessions(
+  teamId: string,
+  agentId: string,
+  agentName: string
+) {
+  try {
+    const { redis } = await import("@/lib/redis");
+
+    // 활성 피드백 세션 찾기
+    const activeSessions = await redis.keys("feedback_session:*");
+
+    for (const sessionKey of activeSessions) {
+      const sessionData = await redis.get(sessionKey);
+      if (sessionData) {
+        const session =
+          typeof sessionData === "string"
+            ? JSON.parse(sessionData)
+            : sessionData;
+
+        // 에이전트가 참여 중인 활성 세션인지 확인
+        if (
+          session.status === "active" &&
+          session.participants.some((p: any) => p.id === agentId)
+        ) {
+          console.log(
+            `🛑 ${agentName} 활성 피드백 세션 ${session.id} 종료 처리`
+          );
+
+          // 세션 상태를 종료로 변경
+          session.status = "ended";
+          session.endedAt = new Date().toISOString();
+          session.endedBy = "system_recovery";
+
+          await redis.set(sessionKey, JSON.stringify(session), {
+            ex: 3600 * 24,
+          });
+
+          console.log(`✅ ${agentName} 피드백 세션 ${session.id} 종료 완료`);
+        }
+      }
+    }
+  } catch (error) {
+    console.error(`❌ ${agentName} 피드백 세션 종료 실패:`, error);
+  }
+}
+
+// 대기 상태로 전환
+async function transitionToIdleState(
+  teamId: string,
+  agentId: string,
+  agentName: string
+) {
+  try {
+    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+
+    const response = await fetch(
+      `${baseUrl}/api/teams/${teamId}/agent-states`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "TeamBuilder-Internal-Recovery",
+        },
+        body: JSON.stringify({
+          agentId,
+          currentState: "idle",
+          forceClear: true, // 강제 초기화
+        }),
+      }
+    );
+
+    if (response.ok) {
+      console.log(`😴 ${agentName} 대기 상태 전환 완료`);
+    } else {
+      console.error(`❌ ${agentName} 대기 상태 전환 실패:`, response.status);
+    }
+  } catch (error) {
+    console.error(`❌ ${agentName} 대기 상태 전환 오류:`, error);
   }
 }
 
