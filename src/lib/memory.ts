@@ -345,9 +345,24 @@ async function updateAgentMemoryForEvent(
       `🔧 에이전트 ${agentId} 메모리 업데이트 시작 (이벤트: ${event.type})`
     );
 
-    // 회고 상태로 변경
+    // 🔒 피드백 세션 중인지 확인
     const teamId = (event.payload as any).teamId || team.id;
-    await updateAgentState(teamId, agentId, "reflecting");
+    const { getAgentState, isFeedbackSessionActive } = await import(
+      "@/lib/agent-state-utils"
+    );
+
+    const currentState = await getAgentState(teamId, agentId);
+    const isInFeedbackSession =
+      currentState && isFeedbackSessionActive(currentState);
+
+    if (isInFeedbackSession) {
+      console.log(
+        `🔒 에이전트 ${agentId}는 피드백 세션 중이므로 reflecting 상태 전환 스킵 (메모리 업데이트는 진행)`
+      );
+    } else {
+      // 피드백 세션 중이 아닌 경우에만 회고 상태로 변경
+      await updateAgentState(teamId, agentId, "reflecting");
+    }
 
     // 메모리 조회 또는 생성
     let memory = await getAgentMemory(agentId);
@@ -391,7 +406,7 @@ async function updateAgentMemoryForEvent(
       }
     }
 
-    // 이벤트 타입에 따른 메모리 업데이트
+    // 이벤트 타입에 따른 메모리 업데이트 (항상 수행)
     try {
       const eventType = event.type;
       switch (eventType) {
@@ -412,10 +427,12 @@ async function updateAgentMemoryForEvent(
           break;
         case "FEEDBACK_SESSION_MESSAGE":
           await handleFeedbackSessionMessage(event.payload);
-          break;
+          // 피드백 세션 메시지는 별도 처리이므로 여기서 return
+          return;
         case "FEEDBACK_SESSION_ENDED":
           await handleFeedbackSessionEnded(event.payload);
-          break;
+          // 피드백 세션 종료도 별도 처리이므로 여기서 return
+          return;
         case "FEEDBACK_SESSION_COMPLETED":
           await updateMemoryForFeedbackSessionCompleted(
             memory,
@@ -425,8 +442,10 @@ async function updateAgentMemoryForEvent(
           break;
         default:
           console.warn(`알 수 없는 이벤트 타입: ${eventType}`);
-          // 회고 상태 해제 후 종료
-          await updateAgentState(teamId, agentId, "idle");
+          // 🔒 피드백 세션 중이 아닌 경우에만 idle 전환
+          if (!isInFeedbackSession) {
+            await updateAgentState(teamId, agentId, "idle");
+          }
           return;
       }
       console.log(`✅ ${agentId} 이벤트 처리 완료: ${eventType}`);
@@ -438,7 +457,7 @@ async function updateAgentMemoryForEvent(
       // 이벤트 처리 실패해도 메모리는 저장 시도
     }
 
-    // Long-term memory 압축 및 요약 (필요시)
+    // 메모리 압축 확인 및 적용 (항상 수행)
     try {
       const beforeRelationsCount = Object.values(
         memory.longTerm.relations
@@ -462,24 +481,20 @@ async function updateAgentMemoryForEvent(
       // 압축 실패해도 원본 메모리는 저장
     }
 
-    // 메모리 저장
+    // 메모리 저장 (항상 수행)
     await updateAgentMemory(agentId, memory);
     console.log(`✅ 에이전트 ${agentId} 메모리 업데이트 완료`);
 
-    // 회고 완료 후 idle 상태로 복귀
-    await updateAgentState(teamId, agentId, "idle");
-  } catch (error) {
-    console.error(`❌ 에이전트 ${agentId} 메모리 업데이트 실패:`, error);
-
-    // 오류 발생 시에도 idle 상태로 복귀
-    try {
-      const teamId = (event.payload as any).teamId || team.id;
+    // 🔒 reflecting 완료 후 피드백 세션 중이 아닌 경우에만 idle 상태로 전환
+    if (!isInFeedbackSession) {
       await updateAgentState(teamId, agentId, "idle");
-    } catch (stateError) {
-      console.error(`❌ 에이전트 ${agentId} 상태 복구 실패:`, stateError);
+    } else {
+      console.log(
+        `🔒 에이전트 ${agentId}는 피드백 세션 중이므로 idle 전환 스킵 (메모리 업데이트는 완료)`
+      );
     }
-
-    throw error; // 상위 함수에서 에러 처리하도록
+  } catch (error) {
+    console.error(`❌ ${agentId} 메모리 업데이트 실패:`, error);
   }
 }
 

@@ -1180,3 +1180,170 @@ ${messagesText}
     };
   }
 }
+
+// 피드백 전략 결정 함수 - AI가 모든 정보를 고려해서 피드백 대상과 방식을 결정
+export async function planFeedbackStrategy(
+  agentProfile: any,
+  teamContext: {
+    teamName: string;
+    topic: string;
+    teamMembers: Array<{
+      id: string;
+      name: string;
+      isUser: boolean;
+      roles: string[];
+      isAvailable: boolean; // 피드백 세션 중이지 않은지
+    }>;
+    existingIdeas: Array<{
+      ideaNumber: number;
+      authorId: string;
+      authorName: string;
+      object: string;
+      function: string;
+      behavior: string;
+      structure: string;
+      timestamp: string;
+      evaluations: any[];
+    }>;
+    recentMessages: any[];
+  },
+  requestContext: {
+    requesterName: string;
+    originalMessage: string;
+  },
+  memory?: AgentMemory
+): Promise<{
+  targetMember: {
+    id: string;
+    name: string;
+    isUser: boolean;
+  };
+  feedbackType:
+    | "general_collaboration"
+    | "specific_idea"
+    | "skill_development"
+    | "team_dynamics";
+  targetIdea?: {
+    ideaNumber: number;
+    authorId: string;
+    object: string;
+  };
+  feedbackMessage: string;
+  reasoning: string;
+}> {
+  // 메모리 컨텍스트 생성
+  const memoryContext = memory ? formatMemoryForPrompt(memory) : "";
+
+  // 팀 멤버 정보 포맷팅
+  const teamMembersInfo = teamContext.teamMembers
+    .filter((member) => member.id !== agentProfile.id) // 본인 제외
+    .map(
+      (member) =>
+        `- ${member.name}${
+          member.isUser ? " (인간 팀원)" : " (AI 팀원)"
+        }: 역할 [${member.roles.join(", ")}], ${
+          member.isAvailable ? "사용 가능" : "현재 바쁨"
+        }`
+    )
+    .join("\n");
+
+  // 아이디어 정보 포맷팅
+  const ideasInfo =
+    teamContext.existingIdeas.length > 0
+      ? teamContext.existingIdeas
+          .map(
+            (idea) =>
+              `${idea.ideaNumber}. "${idea.object}" by ${idea.authorName}
+   - 기능: ${idea.function}
+   - 작성자: ${idea.authorName}
+   - 평가 수: ${idea.evaluations?.length || 0}개`
+          )
+          .join("\n")
+      : "아직 생성된 아이디어가 없습니다.";
+
+  // 최근 메시지 포맷팅
+  const recentActivity =
+    teamContext.recentMessages.length > 0
+      ? teamContext.recentMessages
+          .slice(-5)
+          .map(
+            (msg) =>
+              `- ${msg.sender}: ${
+                typeof msg.payload === "object"
+                  ? msg.payload.content
+                  : msg.payload
+              }`
+          )
+          .join("\n")
+      : "최근 팀 활동이 없습니다.";
+
+  const prompt = `당신은 ${agentProfile.name}입니다. ${
+    requestContext.requesterName
+  }가 피드백을 요청했습니다.
+
+**당신의 정보:**
+- 이름: ${agentProfile.name}
+- 나이: ${agentProfile.age}세
+- 전문분야: ${agentProfile.professional}
+- 스킬: ${agentProfile.skills}
+- 성격: ${agentProfile.personality || "정보 없음"}
+- 역할: ${agentProfile.roles?.join(", ") || "정보 없음"}
+
+**팀 정보:**
+- 팀명: ${teamContext.teamName}
+- 주제: ${teamContext.topic}
+
+**요청 컨텍스트:**
+- 요청자: ${requestContext.requesterName}
+- 요청 메시지: "${requestContext.originalMessage}"
+
+**팀원 정보:**
+${teamMembersInfo}
+
+**팀의 아이디어 현황:**
+${ideasInfo}
+
+**최근 팀 활동:**
+${recentActivity}
+
+${memoryContext ? `**당신의 메모리:**\n${memoryContext}\n` : ""}
+
+모든 정보를 종합적으로 고려하여 다음을 결정하세요:
+
+1. **피드백 대상**: 사용 가능한 팀원 중에서 선택
+2. **피드백 유형**: 
+   - general_collaboration: 일반적인 협업과 팀워크에 대한 피드백
+   - specific_idea: 특정 아이디어에 대한 피드백
+   - skill_development: 개인의 스킬 발전에 대한 피드백
+   - team_dynamics: 팀 역학과 커뮤니케이션에 대한 피드백
+3. **대상 아이디어**: specific_idea 유형인 경우에만 선택
+4. **피드백 메시지**: 구체적이고 건설적인 피드백 내용
+5. **선택 이유**: 왜 이 대상과 방식을 선택했는지
+
+**고려사항:**
+- 요청자의 메시지 내용과 의도
+- 각 팀원의 역할과 최근 활동
+- 아이디어의 품질과 발전 가능성
+- 팀 전체의 성장과 협업 향상
+- 당신의 성격과 전문성에 맞는 피드백 방식
+- 메모리에 있는 다른 팀원들과의 관계
+
+다음 JSON 형식으로 응답하세요:
+{
+  "targetMember": {
+    "id": "대상 팀원의 ID",
+    "name": "대상 팀원의 이름",
+    "isUser": true/false
+  },
+  "feedbackType": "general_collaboration" | "specific_idea" | "skill_development" | "team_dynamics",
+  "targetIdea": {
+    "ideaNumber": 아이디어 번호,
+    "authorId": "아이디어 작성자 ID",
+    "object": "아이디어 제목"
+  }, // specific_idea 유형일 때만 포함
+  "feedbackMessage": "구체적이고 건설적인 피드백 메시지 (구어체로 자연스럽게)",
+  "reasoning": "이 선택을 한 이유에 대한 설명"
+}`;
+
+  return getJsonResponse(prompt, agentProfile);
+}

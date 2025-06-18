@@ -109,6 +109,7 @@ export async function POST(
         id: `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         type: "generate_idea",
         requesterName: sender || session?.user?.email || "팀원",
+        requesterId: sender || "나",
         payload: {
           message: messagePayload.content,
         },
@@ -174,6 +175,7 @@ export async function POST(
         id: `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         type: "evaluate_idea",
         requesterName: sender || session?.user?.email || "팀원",
+        requesterId: sender || "나",
         payload: {
           message: messagePayload.content,
         },
@@ -182,6 +184,72 @@ export async function POST(
       };
 
       // 에이전트 상태 API를 통해 요청 처리 (await 추가)
+      try {
+        const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
+        const response = await fetch(
+          `${baseUrl}/api/teams/${teamId}/agent-states`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "User-Agent": "TeamBuilder-Internal",
+            },
+            body: JSON.stringify({
+              agentId: messagePayload.mention,
+              action: "process_request",
+              requestData: requestData,
+            }),
+          }
+        );
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.queued) {
+            console.log(
+              `⏳ 에이전트 ${messagePayload.mention} 바쁨 - 큐에 추가됨`
+            );
+          } else {
+            console.log(`🔄 에이전트 ${messagePayload.mention} 즉시 처리 시작`);
+          }
+        } else {
+          const errorText = await response.text();
+          console.error(
+            `❌ 에이전트 ${messagePayload.mention} 요청 처리 실패:`,
+            response.status,
+            errorText
+          );
+        }
+      } catch (error) {
+        console.error(
+          `❌ 에이전트 ${messagePayload.mention} 요청 전달 실패:`,
+          error
+        );
+      }
+    }
+
+    // Check if it's a feedback request and trigger the action
+    if (
+      messageType === "make_request" &&
+      messagePayload.requestType === "give_feedback"
+    ) {
+      console.log(
+        `📨 피드백 요청 - 에이전트 ${messagePayload.mention}에게 전달`
+      );
+
+      // 새로운 에이전트 상태 시스템을 통해 요청 처리
+      const requestData = {
+        id: `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        type: "give_feedback",
+        requesterName: sender || session?.user?.email || "팀원",
+        requesterId: sender || "나",
+        payload: {
+          message: messagePayload.content,
+        },
+        timestamp: new Date().toISOString(),
+        teamId: teamId,
+      };
+
+      // 에이전트 상태 API를 통해 요청 처리
       try {
         const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
         const response = await fetch(

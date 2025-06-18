@@ -17,6 +17,7 @@ import {
   giveFeedbackOnIdea,
   makeRequestAction,
   alreadyEvaluatedResponseAction,
+  planFeedbackStrategy,
 } from "@/lib/openai";
 import { processMemoryUpdate } from "@/lib/memory";
 import {
@@ -154,9 +155,17 @@ async function updateAgentStateTimer(
             await executeAgentAction(teamId, state.agentId, planResult);
           } catch (error) {
             console.error(`❌ ${state.agentId} 액션 실행 실패:`, error);
-            // 실패 시 idle 상태로 복귀
+            // 실패 시 idle 상태로 복귀 (피드백 세션 중이 아닌 경우만)
             const failedState = await getAgentState(teamId, state.agentId);
             if (failedState) {
+              // 🔒 피드백 세션 중인지 확인
+              if (isFeedbackSessionActive(failedState)) {
+                console.log(
+                  `🔒 ${state.agentId} 액션 실행 실패했지만 피드백 세션 중이므로 idle 전환 스킵`
+                );
+                return;
+              }
+
               failedState.currentState = "idle";
               failedState.lastStateChange = new Date().toISOString();
               failedState.isProcessing = false;
@@ -179,14 +188,33 @@ async function updateAgentStateTimer(
     const elapsed = Math.floor((now.getTime() - taskStartTime) / 1000);
 
     // 작업 시간이 비정상적으로 긴 경우 (10분 이상) 강제 종료
+    // 🔒 단, 피드백 세션 중인 경우는 예외 처리
     if (elapsed > 600) {
-      console.warn(`⚠️ ${state.agentId} 작업 시간 초과, 강제 idle 전환`);
-      state.currentState = "idle";
-      state.lastStateChange = now.toISOString();
-      state.isProcessing = false;
-      state.idleTimer = createNewIdleTimer();
-      delete state.currentTask;
-      delete state.plannedAction;
+      if (isFeedbackSessionActive(state)) {
+        console.log(
+          `🔒 ${state.agentId} 작업 시간 초과이지만 피드백 세션 중이므로 강제 종료 차단`
+        );
+        // 피드백 세션의 경우 더 긴 시간 허용 (30분)
+        if (elapsed > 1800) {
+          console.warn(
+            `⚠️ ${state.agentId} 피드백 세션이 30분을 초과하여 강제 idle 전환`
+          );
+          state.currentState = "idle";
+          state.lastStateChange = now.toISOString();
+          state.isProcessing = false;
+          state.idleTimer = createNewIdleTimer();
+          delete state.currentTask;
+          delete state.plannedAction;
+        }
+      } else {
+        console.warn(`⚠️ ${state.agentId} 작업 시간 초과, 강제 idle 전환`);
+        state.currentState = "idle";
+        state.lastStateChange = now.toISOString();
+        state.isProcessing = false;
+        state.idleTimer = createNewIdleTimer();
+        delete state.currentTask;
+        delete state.plannedAction;
+      }
     }
   }
 
@@ -298,6 +326,14 @@ async function executeAgentAction(
 
     if (plannedAction.action === "evaluate_idea") {
       // 아이디어 평가 - 2단계 프롬프트 사용
+      const team = await getTeamById(teamId);
+      const agentProfile = await getAgentById(agentId);
+
+      if (!team || !agentProfile) {
+        console.error(`❌ ${agentId} 팀 또는 에이전트 정보 없음`);
+        return;
+      }
+
       const ideas = await getIdeas(teamId);
 
       if (ideas.length === 0) {
@@ -310,21 +346,88 @@ async function executeAgentAction(
 
       if (otherIdeas.length === 0) {
         console.log(
-          `⚠️ ${agentProfile.name} 평가할 다른 사람의 아이디어가 없음`
+          `⚠️ 에이전트 ${agentId} 평가할 다른 사람의 아이디어가 없음`
         );
         return;
       }
 
-      // 자율적 평가 완료 메시지
-      await addChatMessage(teamId, {
-        sender: agentId,
-        type: "system",
-        payload: {
-          content: `자율적으로 아이디어를 평가했습니다.`,
+      // 🎯 실제 아이디어 평가 수행
+      await setAgentState(teamId, agentId, {
+        agentId,
+        currentState: "action",
+        lastStateChange: new Date().toISOString(),
+        isProcessing: true,
+        currentTask: {
+          type: "evaluate_idea",
+          description: `요청받은 아이디어 평가`,
+          startTime: new Date().toISOString(),
+          estimatedDuration: 300,
         },
       });
 
-      console.log(`✅ 에이전트 ${agentId} 자율적 평가 완료`);
+      // 아이디어 평가 수행
+      const { evaluateIdeaAction } = await import("@/lib/openai");
+      const randomIdea =
+        otherIdeas[Math.floor(Math.random() * otherIdeas.length)];
+
+      console.log(
+        `📊 ${agentProfile.name} → ${randomIdea.content.object} 평가 시작`
+      );
+
+      try {
+        const evaluation = await evaluateIdeaAction(
+          randomIdea,
+          agentProfile.name
+        );
+
+        // 평가 저장
+        const response = await fetch(
+          `${
+            process.env.NEXTAUTH_URL || "http://localhost:3000"
+          }/api/teams/${teamId}/ideas/${randomIdea.id}/evaluate`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "User-Agent": "TeamBuilder-Internal",
+            },
+            body: JSON.stringify({
+              evaluator: agentId,
+              scores: {
+                insightful: evaluation.insightful,
+                actionable: evaluation.actionable,
+                relevance: evaluation.relevance,
+              },
+              comment: evaluation.comment,
+            }),
+          }
+        );
+
+        if (response.ok) {
+          console.log(`✅ ${agentProfile.name} 아이디어 평가 완료`);
+
+          // 평가 완료 메시지
+          await addChatMessage(teamId, {
+            sender: agentId,
+            type: "system",
+            payload: {
+              content: `요청받은 아이디어를 평가했습니다.`,
+            },
+          });
+        } else {
+          console.error(
+            `❌ ${agentProfile.name} 평가 저장 실패:`,
+            response.status
+          );
+        }
+      } catch (evaluationError) {
+        console.error(
+          `❌ ${agentProfile.name} 평가 수행 실패:`,
+          evaluationError
+        );
+      }
+
+      console.log(`✅ 에이전트 ${agentId} 아이디어 평가 요청 처리 완료`);
     }
 
     if (plannedAction.action === "give_feedback") {
@@ -432,8 +535,6 @@ async function executeAgentAction(
           );
 
           // 🔄 피드백 세션 생성 즉시 양쪽 에이전트 상태 변경
-          const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
-
           // 1. 피드백 제공자(현재 에이전트) 상태 변경
           try {
             const initiatorResponse = await fetch(
@@ -579,6 +680,15 @@ async function executeAgentAction(
       // 2초 후 idle 상태로 전환
       setTimeout(async () => {
         try {
+          // 🔍 피드백 세션 중인지 확인
+          const currentState = await getAgentState(teamId, agentId);
+          if (currentState && isFeedbackSessionActive(currentState)) {
+            console.log(
+              `🔒 에이전트 ${agentId}는 피드백 세션 중이므로 wait 후 idle 전환 스킵`
+            );
+            return;
+          }
+
           console.log(
             `😴 에이전트 ${agentId} → Wait 후 Idle 상태 전환 시도 중...`
           );
@@ -618,9 +728,27 @@ async function executeAgentAction(
   } catch (error) {
     console.error(`❌ ${agentId} 작업 실행 실패:`, error);
 
-    // 실패 시에도 idle 상태로 전환
+    // 🔍 실패 시에도 피드백 세션 중인지 확인
+    const currentState = await getAgentState(teamId, agentId);
+    if (currentState && isFeedbackSessionActive(currentState)) {
+      console.log(
+        `🔒 에이전트 ${agentId}는 피드백 세션 중이므로 실패 후에도 idle 전환 스킵`
+      );
+      return;
+    }
+
+    // 실패 시에도 idle 상태로 전환 (피드백 세션 중이 아닌 경우만)
     setTimeout(async () => {
       try {
+        // 다시 한번 피드백 세션 상태 확인
+        const finalState = await getAgentState(teamId, agentId);
+        if (finalState && isFeedbackSessionActive(finalState)) {
+          console.log(
+            `🔒 에이전트 ${agentId}는 여전히 피드백 세션 중이므로 실패 후에도 idle 전환 스킵`
+          );
+          return;
+        }
+
         console.log(
           `😴 에이전트 ${agentId} → 실패 후 Idle 상태 전환 시도 중...`
         );
@@ -1109,9 +1237,27 @@ async function processRequestInBackground(
 
     console.log(`✅ 에이전트 ${agentId} 요청 처리 완료`);
 
-    // 처리 완료 후 idle 상태로 전환
+    // 🔍 피드백 세션 중인지 확인 후 상태 전환 결정
+    const currentState = await getAgentState(teamId, agentId);
+    if (currentState && isFeedbackSessionActive(currentState)) {
+      console.log(
+        `🔒 에이전트 ${agentId}는 피드백 세션 중이므로 idle 전환 스킵`
+      );
+      return; // 피드백 세션 중이면 idle로 전환하지 않음
+    }
+
+    // 처리 완료 후 idle 상태로 전환 (피드백 세션 중이 아닌 경우만)
     setTimeout(async () => {
       try {
+        // 다시 한번 피드백 세션 상태 확인 (상태가 변경될 수 있음)
+        const finalState = await getAgentState(teamId, agentId);
+        if (finalState && isFeedbackSessionActive(finalState)) {
+          console.log(
+            `🔒 에이전트 ${agentId}는 여전히 피드백 세션 중이므로 idle 전환 스킵`
+          );
+          return;
+        }
+
         console.log(`😴 에이전트 ${agentId} → Idle 상태 전환 시도 중...`);
         const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
         const response = await fetch(
@@ -1146,9 +1292,27 @@ async function processRequestInBackground(
   } catch (error) {
     console.error(`❌ 에이전트 ${agentId} 백그라운드 요청 처리 실패:`, error);
 
-    // 실패 시에도 idle 상태로 전환
+    // 🔍 실패 시에도 피드백 세션 중인지 확인
+    const currentState = await getAgentState(teamId, agentId);
+    if (currentState && isFeedbackSessionActive(currentState)) {
+      console.log(
+        `🔒 에이전트 ${agentId}는 피드백 세션 중이므로 실패 후에도 idle 전환 스킵`
+      );
+      return;
+    }
+
+    // 실패 시에도 idle 상태로 전환 (피드백 세션 중이 아닌 경우만)
     setTimeout(async () => {
       try {
+        // 다시 한번 피드백 세션 상태 확인
+        const finalState = await getAgentState(teamId, agentId);
+        if (finalState && isFeedbackSessionActive(finalState)) {
+          console.log(
+            `🔒 에이전트 ${agentId}는 여전히 피드백 세션 중이므로 실패 후에도 idle 전환 스킵`
+          );
+          return;
+        }
+
         console.log(
           `😴 에이전트 ${agentId} → 실패 후 Idle 상태 전환 시도 중...`
         );
@@ -1252,16 +1416,89 @@ async function handleEvaluateIdeaRequestDirect(
       return;
     }
 
-    // 자율적 평가 완료 메시지
-    await addChatMessage(teamId, {
-      sender: agentId,
-      type: "system",
-      payload: {
-        content: `자율적으로 아이디어를 평가했습니다.`,
+    // 🎯 실제 아이디어 평가 수행
+    const team = await getTeamById(teamId);
+    const agentProfile = await getAgentById(agentId);
+
+    if (!team || !agentProfile) {
+      console.error(`❌ ${agentId} 팀 또는 에이전트 정보 없음`);
+      return;
+    }
+
+    // 에이전트 상태를 작업 중으로 변경
+    await setAgentState(teamId, agentId, {
+      agentId,
+      currentState: "action",
+      lastStateChange: new Date().toISOString(),
+      isProcessing: true,
+      currentTask: {
+        type: "evaluate_idea",
+        description: `요청받은 아이디어 평가`,
+        startTime: new Date().toISOString(),
+        estimatedDuration: 300,
       },
     });
 
-    console.log(`✅ 에이전트 ${agentId} 자율적 평가 완료`);
+    // 아이디어 평가 수행
+    const { evaluateIdeaAction } = await import("@/lib/openai");
+    const randomIdea =
+      otherIdeas[Math.floor(Math.random() * otherIdeas.length)];
+
+    console.log(
+      `📊 ${agentProfile.name} → ${randomIdea.content.object} 평가 시작`
+    );
+
+    try {
+      const evaluation = await evaluateIdeaAction(
+        randomIdea,
+        agentProfile.name
+      );
+
+      // 평가 저장
+      const response = await fetch(
+        `${
+          process.env.NEXTAUTH_URL || "http://localhost:3000"
+        }/api/teams/${teamId}/ideas/${randomIdea.id}/evaluate`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "TeamBuilder-Internal",
+          },
+          body: JSON.stringify({
+            evaluator: agentId,
+            scores: {
+              insightful: evaluation.insightful,
+              actionable: evaluation.actionable,
+              relevance: evaluation.relevance,
+            },
+            comment: evaluation.comment,
+          }),
+        }
+      );
+
+      if (response.ok) {
+        console.log(`✅ ${agentProfile.name} 아이디어 평가 완료`);
+
+        // 평가 완료 메시지
+        await addChatMessage(teamId, {
+          sender: agentId,
+          type: "system",
+          payload: {
+            content: `요청받은 아이디어를 평가했습니다.`,
+          },
+        });
+      } else {
+        console.error(
+          `❌ ${agentProfile.name} 평가 저장 실패:`,
+          response.status
+        );
+      }
+    } catch (evaluationError) {
+      console.error(`❌ ${agentProfile.name} 평가 수행 실패:`, evaluationError);
+    }
+
+    console.log(`✅ 에이전트 ${agentId} 아이디어 평가 요청 처리 완료`);
   } catch (error) {
     console.error(`❌ 에이전트 ${agentId} 평가 요청 처리 실패:`, error);
   }
@@ -1327,6 +1564,22 @@ async function handleGenerateIdeaRequestDirect(
       return;
     }
 
+    // 에이전트 상태를 작업 중으로 변경
+    await setAgentState(teamId, agentId, {
+      agentId,
+      currentState: "action",
+      lastStateChange: new Date().toISOString(),
+      isProcessing: true,
+      currentTask: {
+        type: "generate_idea",
+        description: `요청받은 아이디어 생성`,
+        startTime: new Date().toISOString(),
+        estimatedDuration: 300,
+      },
+    });
+
+    console.log(`🎯 ${agentProfile.name} 요청받은 아이디어 생성 시작`);
+
     const ideas = await getIdeas(teamId);
     const existingIdeas = ideas.map((idea, index) => ({
       ideaNumber: index + 1,
@@ -1388,7 +1641,7 @@ async function handleGiveFeedbackRequestDirect(
   agentId: string,
   requestData: any
 ) {
-  console.log(`📊 에이전트 ${agentId} 피드백 요청 직접 처리`);
+  console.log(`💬 에이전트 ${agentId} 피드백 요청 직접 처리`);
 
   try {
     const team = await getTeamById(teamId);
@@ -1402,6 +1655,13 @@ async function handleGiveFeedbackRequestDirect(
     // 요청자 정보 확인
     const requesterName = requestData.requesterName;
     const requesterId = requestData.requesterId;
+
+    console.log(`📋 피드백 요청 상세 정보:`, {
+      requesterName,
+      requesterId,
+      agentName: agentProfile.name,
+      agentId,
+    });
 
     // 🚫 요청자가 피드백 세션 중인지 확인
     const activeSessions = await redis.keys("feedback_session:*");
@@ -1425,7 +1685,6 @@ async function handleGiveFeedbackRequestDirect(
     }
 
     if (requesterInFeedbackSession) {
-      // 요청자가 피드백 세션 중이면 요청을 무시
       console.log(
         `⏳ 요청자 ${requesterName}가 피드백 세션 중 - 피드백 요청 무시`
       );
@@ -1452,38 +1711,38 @@ async function handleGiveFeedbackRequestDirect(
     }
 
     if (targetInFeedbackSession) {
-      // 대상 에이전트가 피드백 세션 중이면 요청을 무시
-      console.log(
-        `⏳ 대상 에이전트 ${agentProfile.name}가 피드백 세션 중 - 피드백 요청 무시`
-      );
+      console.log(`⏳ 대상 에이전트가 피드백 세션 중 - 피드백 요청 무시`);
       return;
     }
 
-    const ideas = await getIdeas(teamId);
+    // 에이전트 상태를 작업 중으로 변경
+    await setAgentState(teamId, agentId, {
+      agentId,
+      currentState: "action",
+      lastStateChange: new Date().toISOString(),
+      isProcessing: true,
+      currentTask: {
+        type: "give_feedback",
+        description: `${requesterName}의 요청에 따른 피드백 전략 수립 중`,
+        startTime: new Date().toISOString(),
+        estimatedDuration: 60,
+      },
+    });
 
-    if (ideas.length === 0) {
-      console.log(`⚠️ 에이전트 ${agentId} 피드백할 아이디어가 없음`);
-      return;
-    }
+    console.log(`🎯 ${agentProfile.name} 피드백 전략 수립 시작`);
 
-    // 본인이 만든 아이디어 제외
-    const otherIdeas = ideas.filter((idea) => idea.author !== agentId);
+    // 🔍 모든 필요한 정보 수집
+    // 1. 팀의 모든 에이전트 정보 가져오기
+    const agents = await Promise.all(
+      (team?.members || [])
+        .filter((m) => !m.isUser && m.agentId)
+        .map((m) => getAgentById(m.agentId!))
+    );
+    const validAgents = agents.filter((agent) => agent !== null);
 
-    if (otherIdeas.length === 0) {
-      console.log(
-        `⚠️ 에이전트 ${agentId} 피드백할 다른 사람의 아이디어가 없음`
-      );
-      return;
-    }
-
-    // 피드백 가능한 아이디어 중에서 사용 가능한 대상 선별
-    console.log(`🔍 ${agentProfile.name} 피드백 가능한 대상 찾는 중...`);
-
-    // 먼저 현재 활성 세션 목록 확인
-    const currentActiveSessions = await redis.keys("feedback_session:*");
+    // 2. 팀원 정보 구성 (사용 가능 여부 포함)
     const busyAgents = new Set<string>();
-
-    for (const sessionKey of currentActiveSessions) {
+    for (const sessionKey of activeSessions) {
       const sessionData = await redis.get(sessionKey);
       if (sessionData) {
         const session =
@@ -1492,47 +1751,356 @@ async function handleGiveFeedbackRequestDirect(
             : sessionData;
         if (session.status === "active") {
           session.participants.forEach((p: any) => {
-            if (p.id !== "나") {
-              busyAgents.add(p.id);
-            }
+            busyAgents.add(p.id);
           });
         }
       }
     }
 
-    // 피드백 관련 상태의 에이전트들도 확인
-    const feedbackBusyAgents = new Set<string>();
-    for (const idea of otherIdeas) {
-      const targetAgentId = idea.author === "나" ? "user" : idea.author;
-      if (targetAgentId !== "user") {
-        const targetAgentState = await getAgentState(teamId, targetAgentId);
-        if (
-          targetAgentState &&
-          (targetAgentState.currentState === "feedback_waiting" ||
-            targetAgentState.currentState === "feedback_session")
-        ) {
-          feedbackBusyAgents.add(targetAgentId);
+    const teamMembers = [];
+
+    // AI 에이전트들 추가 (본인 제외)
+    for (const member of team.members) {
+      if (!member.isUser && member.agentId && member.agentId !== agentId) {
+        const agent = validAgents.find((a: any) => a?.id === member.agentId);
+        if (agent) {
+          teamMembers.push({
+            id: member.agentId,
+            name: agent.name,
+            isUser: false,
+            roles: member.roles || [],
+            isAvailable: !busyAgents.has(member.agentId),
+          });
         }
       }
     }
 
-    // 사용 가능한 아이디어들만 필터링
-    const availableIdeas = otherIdeas.filter((idea) => {
-      const targetAgentId = idea.author === "나" ? "user" : idea.author;
-      const isBusy =
-        busyAgents.has(targetAgentId) || feedbackBusyAgents.has(targetAgentId);
+    // 인간 사용자 추가
+    const humanMember = team.members.find((member) => member.isUser);
+    if (humanMember) {
+      teamMembers.push({
+        id: "나",
+        name: "나",
+        isUser: true,
+        roles: humanMember.roles || [],
+        isAvailable: !busyAgents.has("나"),
+      });
+    }
 
-      if (isBusy) {
-        console.log(
-          `⏭️ ${idea.author} (${targetAgentId})는 이미 피드백 관련 작업 중 - 건너뛰기`
-        );
-      }
+    // 3. 아이디어 정보 가져오기
+    const ideas = await getIdeas(teamId);
+    const existingIdeas = ideas.map((idea, index) => ({
+      ideaNumber: index + 1,
+      authorId: idea.author,
+      authorName:
+        idea.author === "나"
+          ? "나"
+          : (() => {
+              const member = team?.members.find(
+                (tm) => tm.agentId === idea.author
+              );
+              if (member && !member.isUser) {
+                const agent = validAgents.find(
+                  (a: any) => a?.id === idea.author
+                );
+                return agent?.name || `에이전트 ${idea.author}`;
+              }
+              return idea.author;
+            })(),
+      object: idea.content.object,
+      function: idea.content.function,
+      behavior: idea.content.behavior,
+      structure: idea.content.structure,
+      timestamp: idea.timestamp,
+      evaluations: idea.evaluations || [],
+    }));
 
-      return !isBusy;
+    // 4. 최근 메시지 가져오기
+    const recentMessages = await getChatHistory(teamId, 5);
+
+    // 5. 에이전트 메모리 가져오기
+    const agentMemory = await getAgentMemory(agentId);
+
+    // 사용 가능한 팀원이 없는 경우
+    const availableMembers = teamMembers.filter((member) => member.isAvailable);
+    if (availableMembers.length === 0) {
+      console.log(
+        `⚠️ ${agentProfile.name} 현재 사용 가능한 피드백 대상이 없음`
+      );
+
+      await addChatMessage(teamId, {
+        sender: agentId,
+        type: "system",
+        payload: {
+          content: `현재 모든 팀원이 다른 작업 중이어서 피드백을 제공할 수 없습니다.`,
+        },
+      });
+      return;
+    }
+
+    // 🧠 AI에게 피드백 전략 결정 요청
+    console.log(`🧠 ${agentProfile.name} AI 피드백 전략 결정 중...`);
+
+    const feedbackStrategy = await planFeedbackStrategy(
+      agentProfile,
+      {
+        teamName: team.teamName || "팀",
+        topic: team.topic || "아이디에이션",
+        teamMembers: availableMembers, // 사용 가능한 팀원만 전달
+        existingIdeas,
+        recentMessages,
+      },
+      {
+        requesterName,
+        originalMessage:
+          requestData.payload?.message || "피드백을 요청했습니다.",
+      },
+      agentMemory || undefined
+    );
+
+    console.log(`🎯 ${agentProfile.name} 피드백 전략 결정 완료:`, {
+      target: feedbackStrategy.targetMember.name,
+      type: feedbackStrategy.feedbackType,
+      reasoning: feedbackStrategy.reasoning,
     });
 
-    console.log(`✅ 피드백 가능한 대상 필터링 완료`);
+    const targetMember = feedbackStrategy.targetMember;
+
+    // 락 키 생성 (작은 ID가 먼저 오도록 정렬)
+    const lockKey = `feedback_lock:${[agentId, targetMember.id]
+      .sort()
+      .join(":")}`;
+
+    // 분산 락 사용
+    const lockAcquired = await redis.set(lockKey, "locked", {
+      ex: 30, // 30초 TTL
+      nx: true, // 키가 존재하지 않을 때만 설정
+    });
+
+    if (!lockAcquired) {
+      console.log(
+        `⚠️ ${agentProfile.name} → ${targetMember.name} 피드백 세션 락 획득 실패 (이미 진행 중)`
+      );
+
+      await addChatMessage(teamId, {
+        sender: agentId,
+        type: "system",
+        payload: {
+          content: `${targetMember.name}와의 피드백 세션이 이미 진행 중입니다.`,
+        },
+      });
+      return;
+    }
+
+    try {
+      // 피드백 컨텍스트 구성
+      const feedbackContext = {
+        type: feedbackStrategy.feedbackType,
+        initiatedBy: "user_request",
+        description: `${requesterName}의 요청에 따른 ${feedbackStrategy.feedbackType} 피드백`,
+        originalRequest: requestData.payload?.message,
+        targetIdea: feedbackStrategy.targetIdea,
+        aiStrategy: {
+          reasoning: feedbackStrategy.reasoning,
+          plannedMessage: feedbackStrategy.feedbackMessage,
+        },
+      };
+
+      // 피드백 세션 생성 API 호출
+      const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
+      const sessionResponse = await fetch(
+        `${baseUrl}/api/teams/${teamId}/feedback-sessions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "TeamBuilder-Internal",
+          },
+          body: JSON.stringify({
+            action: "create",
+            initiatorId: agentId,
+            targetAgentId: targetMember.id,
+            message: feedbackStrategy.feedbackMessage,
+            feedbackContext: feedbackContext,
+          }),
+        }
+      );
+
+      if (sessionResponse.ok) {
+        const sessionData = await sessionResponse.json();
+        console.log(
+          `✅ ${agentProfile.name} → ${targetMember.name} 피드백 세션 생성 성공: ${sessionData.sessionId}`
+        );
+
+        // 성공 메시지 (전략 포함)
+        await addChatMessage(teamId, {
+          sender: agentId,
+          type: "system",
+          payload: {
+            content: `${requesterName}의 요청에 따라 ${targetMember.name}와 ${
+              feedbackStrategy.feedbackType === "specific_idea"
+                ? "특정 아이디어에 대한"
+                : "협업"
+            } 피드백 세션을 시작합니다.`,
+          },
+        });
+
+        // 🔄 피드백 세션 생성 즉시 양쪽 에이전트 상태 변경
+        // 1. 피드백 제공자(현재 에이전트) 상태 변경
+        try {
+          const initiatorResponse = await fetch(
+            `${baseUrl}/api/teams/${teamId}/agent-states`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "User-Agent": "TeamBuilder-Internal",
+              },
+              body: JSON.stringify({
+                agentId: agentId,
+                currentState: "feedback_session",
+                taskType: "feedback_session",
+                taskDescription: `${targetMember.name}와 ${feedbackStrategy.feedbackType} 피드백 세션 진행 중`,
+                estimatedDuration: 300,
+                trigger: "autonomous",
+                sessionInfo: {
+                  sessionId: sessionData.sessionId,
+                  participants: [agentProfile.name, targetMember.name],
+                  feedbackType: feedbackStrategy.feedbackType,
+                },
+              }),
+            }
+          );
+
+          if (initiatorResponse.ok) {
+            console.log(
+              `✅ ${agentProfile.name} 상태가 feedback_session으로 변경됨`
+            );
+          } else {
+            console.error(
+              `❌ ${agentProfile.name} feedback_session 상태 변경 실패:`,
+              initiatorResponse.status
+            );
+          }
+        } catch (error) {
+          console.error(
+            `❌ ${agentProfile.name} feedback_session 상태 변경 오류:`,
+            error
+          );
+        }
+
+        // 2. 피드백 대상자(타겟 에이전트) 상태 변경 (인간이 아닌 경우만)
+        if (!targetMember.isUser) {
+          try {
+            const targetResponse = await fetch(
+              `${baseUrl}/api/teams/${teamId}/agent-states`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "User-Agent": "TeamBuilder-Internal",
+                },
+                body: JSON.stringify({
+                  agentId: targetMember.id,
+                  currentState: "feedback_session",
+                  taskType: "feedback_session",
+                  taskDescription: `${agentProfile.name}와 ${feedbackStrategy.feedbackType} 피드백 세션 진행 중`,
+                  estimatedDuration: 300,
+                  trigger: "autonomous",
+                  sessionInfo: {
+                    sessionId: sessionData.sessionId,
+                    participants: [agentProfile.name, targetMember.name],
+                    feedbackType: feedbackStrategy.feedbackType,
+                  },
+                }),
+              }
+            );
+
+            if (targetResponse.ok) {
+              console.log(
+                `✅ ${targetMember.name} 상태가 feedback_session으로 변경됨`
+              );
+            } else {
+              console.error(
+                `❌ ${targetMember.name} feedback_session 상태 변경 실패:`,
+                targetResponse.status
+              );
+            }
+          } catch (error) {
+            console.error(
+              `❌ ${targetMember.name} feedback_session 상태 변경 오류:`,
+              error
+            );
+          }
+        }
+
+        // 인간에게 피드백하는 경우 즉시 첫 메시지 생성
+        const isTargetHuman = targetMember.isUser;
+        const delay = isTargetHuman ? 1000 : 3000; // 인간에게는 1초 후, AI에게는 3초 후
+
+        setTimeout(async () => {
+          try {
+            const aiProcessResponse = await fetch(
+              `${baseUrl}/api/teams/${teamId}/feedback-sessions/${sessionData.sessionId}/ai-process`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "User-Agent": "TeamBuilder-Internal",
+                },
+                body: JSON.stringify({
+                  triggerAgentId: agentId,
+                  action: "respond",
+                }),
+              }
+            );
+
+            if (aiProcessResponse.ok) {
+              console.log(
+                `✅ ${agentProfile.name} 첫 피드백 메시지 생성 트리거 성공 (대상: ${targetMember.name})`
+              );
+            } else {
+              console.error(
+                `❌ ${agentProfile.name} 첫 피드백 메시지 생성 트리거 실패:`,
+                aiProcessResponse.status
+              );
+            }
+          } catch (error) {
+            console.error(
+              `❌ ${agentProfile.name} 첫 피드백 메시지 생성 트리거 오류:`,
+              error
+            );
+          }
+        }, delay);
+      } else {
+        const errorData = await sessionResponse.json();
+        console.error(
+          `❌ ${agentProfile.name} → ${targetMember.name} 피드백 세션 생성 실패:`,
+          errorData
+        );
+
+        await addChatMessage(teamId, {
+          sender: agentId,
+          type: "system",
+          payload: {
+            content: `${targetMember.name}와의 피드백 세션 생성에 실패했습니다.`,
+          },
+        });
+      }
+    } finally {
+      // 락 해제
+      await redis.del(lockKey);
+      console.log(`🔓 ${agentProfile.name} → ${targetMember.name} 락 해제`);
+    }
   } catch (error) {
     console.error(`❌ 에이전트 ${agentId} 피드백 요청 처리 실패:`, error);
+
+    await addChatMessage(teamId, {
+      sender: agentId,
+      type: "system",
+      payload: {
+        content: `피드백 요청 처리 중 오류가 발생했습니다.`,
+      },
+    });
   }
 }
