@@ -95,6 +95,46 @@ export default function IdeaDetailModal({
     return JSON.stringify(obj);
   };
 
+  // 안전한 데이터 렌더링 함수
+  const renderSafeData = (data: any): React.ReactElement => {
+    if (typeof data === "string") {
+      try {
+        const parsed = JSON.parse(data);
+        if (typeof parsed === "object" && parsed !== null) {
+          return (
+            <div className="space-y-4">
+              {Object.entries(parsed).map(([key, value]) => (
+                <div key={key} className="">
+                  <div className="font-medium text-gray-800 mb-1">{key}</div>
+                  <div className="text-gray-600 text-sm">{String(value)}</div>
+                </div>
+              ))}
+            </div>
+          );
+        }
+        return <p>{data}</p>;
+      } catch {
+        // JSON 파싱 실패 시 문자열로 표시
+        return <p>{data}</p>;
+      }
+    } else if (typeof data === "object" && data !== null) {
+      // 이미 객체인 경우
+      return (
+        <div className="space-y-4">
+          {Object.entries(data).map(([key, value]) => (
+            <div key={key} className="">
+              <div className="font-medium text-gray-800 mb-1">{key}</div>
+              <div className="text-gray-600 text-sm">{String(value)}</div>
+            </div>
+          ))}
+        </div>
+      );
+    } else {
+      // 다른 타입인 경우 문자열로 변환
+      return <p>{String(data)}</p>;
+    }
+  };
+
   // 작성자 이름 가져오기 함수
   const getAuthorName = (authorId: string) => {
     if (authorId === "나") return "나";
@@ -396,27 +436,7 @@ export default function IdeaDetailModal({
                   </div>
                 ) : (
                   <div className="text-gray-700 leading-relaxed">
-                    {(() => {
-                      try {
-                        const behaviorObj = JSON.parse(idea.content.behavior);
-                        return (
-                          <div className="space-y-4">
-                            {Object.entries(behaviorObj).map(([key, value]) => (
-                              <div key={key} className="">
-                                <div className="font-medium text-gray-800 mb-1">
-                                  {key}
-                                </div>
-                                <div className="text-gray-600 text-sm">
-                                  {value as string}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      } catch {
-                        return <p>{idea.content.behavior}</p>;
-                      }
-                    })()}
+                    {renderSafeData(idea.content.behavior)}
                   </div>
                 )}
               </div>
@@ -480,29 +500,7 @@ export default function IdeaDetailModal({
                   </div>
                 ) : (
                   <div className="text-gray-700 leading-relaxed">
-                    {(() => {
-                      try {
-                        const structureObj = JSON.parse(idea.content.structure);
-                        return (
-                          <div className="space-y-4">
-                            {Object.entries(structureObj).map(
-                              ([key, value]) => (
-                                <div key={key} className="">
-                                  <div className="font-medium text-gray-800 mb-1">
-                                    {key}
-                                  </div>
-                                  <div className="text-gray-600 text-sm">
-                                    {value as string}
-                                  </div>
-                                </div>
-                              )
-                            )}
-                          </div>
-                        );
-                      } catch {
-                        return <p>{idea.content.structure}</p>;
-                      }
-                    })()}
+                    {renderSafeData(idea.content.structure)}
                   </div>
                 )}
               </div>
