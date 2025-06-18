@@ -74,16 +74,25 @@ export function useAgentStates(teamId: string) {
 
           const statesMap = new Map<string, AgentStateInfo>();
 
-          data.agentStates.forEach((state: AgentStateInfo) => {
-            console.log(`📝 에이전트 ${state.agentId} 상태 처리:`, {
-              currentState: state.currentState,
-              isProcessing: state.isProcessing,
-              hasCurrentTask: !!state.currentTask,
-              taskType: state.currentTask?.type,
-              hasIdleTimer: !!state.idleTimer,
-            });
+          data.agentStates.forEach((agentData: any) => {
+            // API 응답 구조: { agentId, name, state: AgentStateInfo, isFeedbackSession }
+            const state = agentData.state;
+            if (state) {
+              console.log(`📝 에이전트 ${state.agentId} 상태 처리:`, {
+                currentState: state.currentState,
+                isProcessing: state.isProcessing,
+                hasCurrentTask: !!state.currentTask,
+                taskType: state.currentTask?.type,
+                hasIdleTimer: !!state.idleTimer,
+              });
 
-            statesMap.set(state.agentId, state);
+              statesMap.set(state.agentId, state);
+            } else {
+              console.warn(
+                `⚠️ 에이전트 ${agentData.agentId}의 state가 없음:`,
+                agentData
+              );
+            }
           });
 
           console.log(`✅ 상태 맵 설정 완료:`, statesMap.size, "개 에이전트");

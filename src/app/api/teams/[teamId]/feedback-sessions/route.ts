@@ -635,47 +635,91 @@ export async function POST(
       // 🔄 모든 참가자들의 상태를 idle로 되돌리기
       const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
 
+      console.log(`🔄 ${session.participants.length}개 참가자 상태 정리 시작`);
+
       for (const participant of session.participants) {
         if (!participant.isUser && participant.id !== "나") {
           // AI 에이전트 상태 초기화
-          try {
-            const response = await fetch(
-              `${baseUrl}/api/teams/${teamId}/agent-states`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "User-Agent": "TeamBuilder-Internal",
-                },
-                body: JSON.stringify({
-                  agentId: participant.id,
-                  currentState: "idle",
-                }),
-              }
-            );
+          console.log(
+            `🔧 에이전트 ${participant.name}(${participant.id}) 상태를 idle로 변경 시도`
+          );
 
-            if (response.ok) {
-              console.log(
-                `✅ 에이전트 ${participant.name} 상태가 idle로 변경됨`
+          let retryCount = 0;
+          const maxRetries = 3;
+          let success = false;
+
+          while (retryCount < maxRetries && !success) {
+            try {
+              const response = await fetch(
+                `${baseUrl}/api/teams/${teamId}/agent-states`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "User-Agent": "TeamBuilder-Internal",
+                  },
+                  body: JSON.stringify({
+                    agentId: participant.id,
+                    currentState: "idle",
+                    forceClear: true, // 강제 초기화 플래그 추가
+                  }),
+                }
               );
-            } else {
+
+              if (response.ok) {
+                console.log(
+                  `✅ 에이전트 ${participant.name} 상태가 idle로 변경됨 (시도 ${
+                    retryCount + 1
+                  }/${maxRetries})`
+                );
+                success = true;
+              } else {
+                const responseText = await response.text();
+                console.error(
+                  `❌ 에이전트 ${participant.name} idle 상태 변경 실패 (시도 ${
+                    retryCount + 1
+                  }/${maxRetries}):`,
+                  response.status,
+                  responseText
+                );
+
+                if (retryCount < maxRetries - 1) {
+                  console.log(`🔄 ${participant.name} 재시도 대기 중...`);
+                  await new Promise((resolve) => setTimeout(resolve, 1000)); // 1초 대기
+                }
+              }
+            } catch (error) {
               console.error(
-                `❌ 에이전트 ${participant.name} idle 상태 변경 실패:`,
-                response.status
+                `❌ 에이전트 ${participant.name} idle 상태 변경 오류 (시도 ${
+                  retryCount + 1
+                }/${maxRetries}):`,
+                error
               );
+
+              if (retryCount < maxRetries - 1) {
+                console.log(`🔄 ${participant.name} 재시도 대기 중...`);
+                await new Promise((resolve) => setTimeout(resolve, 1000)); // 1초 대기
+              }
             }
-          } catch (error) {
+
+            retryCount++;
+          }
+
+          if (!success) {
             console.error(
-              `❌ 에이전트 ${participant.name} idle 상태 변경 오류:`,
-              error
+              `💥 에이전트 ${participant.name} 상태 변경 최종 실패`
             );
           }
         } else if (participant.id === "나") {
           // 인간 사용자 상태 초기화
+          console.log(`🔧 인간 사용자 피드백 세션 상태 제거 시도`);
+
           try {
             const userStateKey = `team:${teamId}:user_state`;
-            await redis.del(userStateKey); // 인간의 피드백 세션 상태 제거
-            console.log(`✅ 인간 사용자 피드백 세션 상태가 제거됨`);
+            const deleted = await redis.del(userStateKey);
+            console.log(
+              `✅ 인간 사용자 피드백 세션 상태 제거됨 (deleted: ${deleted})`
+            );
           } catch (error) {
             console.error(`❌ 인간 사용자 상태 초기화 오류:`, error);
           }

@@ -5,6 +5,7 @@ import {
   getTeamById,
   getChatHistory,
   getIdeas,
+  redis,
 } from "./redis";
 import {
   AgentMemory,
@@ -86,16 +87,6 @@ type MemoryEvent =
         teamId: string;
         senderId: string;
         message: ChatMessage;
-      };
-    }
-  | {
-      type: "FEEDBACK_SESSION_MESSAGE";
-      payload: {
-        teamId: string;
-        sessionId: string;
-        participantId: string;
-        message: any;
-        otherParticipants: any[];
       };
     }
   | {
@@ -243,7 +234,23 @@ ${
       return; // 특정 이벤트 처리 완료
     }
 
-    // 다른 이벤트 타입들은 기존 방식으로 처리
+    // 🔒 피드백 세션 종료도 개별 처리
+    if (
+      event.type === "FEEDBACK_SESSION_ENDED" ||
+      event.type === "FEEDBACK_SESSION_COMPLETED"
+    ) {
+      console.log(`📝 피드백 세션 종료: 개별 처리`);
+      if (event.type === "FEEDBACK_SESSION_ENDED") {
+        await handleFeedbackSessionEnded(event.payload);
+
+        // 🔄 피드백 세션 종료 후 팀 전체 상태 정리
+        console.log(`🔄 피드백 세션 종료 후 팀 전체 상태 정리 시작`);
+        await cleanupTeamAgentStatesAfterFeedbackSession(event.payload.teamId);
+      }
+      return; // 개별 처리 완료
+    }
+
+    // 다른 이벤트 타입들은 기존 방식으로 처리 (팀 전체)
     // 팀 정보 조회
     const team = await getTeamById(event.payload.teamId);
     if (!team) {
@@ -425,14 +432,6 @@ async function updateAgentMemoryForEvent(
         case "CHAT_MESSAGE_SENT":
           await updateMemoryForChatMessage(memory, event.payload, agentId);
           break;
-        case "FEEDBACK_SESSION_MESSAGE":
-          await handleFeedbackSessionMessage(event.payload);
-          // 피드백 세션 메시지는 별도 처리이므로 여기서 return
-          return;
-        case "FEEDBACK_SESSION_ENDED":
-          await handleFeedbackSessionEnded(event.payload);
-          // 피드백 세션 종료도 별도 처리이므로 여기서 return
-          return;
         case "FEEDBACK_SESSION_COMPLETED":
           await updateMemoryForFeedbackSessionCompleted(
             memory,
@@ -1085,8 +1084,8 @@ export async function createAgentMemory(
   return createInitialMemory(agent.id, team);
 }
 
-// 피드백 세션 메시지 처리
-async function handleFeedbackSessionMessage(payload: {
+// 피드백 세션 메시지 처리 - 외부에서 직접 호출 가능하도록 export
+export async function handleFeedbackSessionMessage(payload: {
   teamId: string;
   sessionId: string;
   participantId: string;
@@ -1330,6 +1329,143 @@ async function handleFeedbackSessionEnded(payload: {
         error
       );
     }
+  }
+}
+
+/**
+ * 피드백 세션 종료 후 팀 전체 에이전트 상태 정리
+ * reflecting 상태에 머물러 있는 에이전트들을 idle로 복구
+ */
+async function cleanupTeamAgentStatesAfterFeedbackSession(
+  teamId: string
+): Promise<void> {
+  try {
+    const { getAgentState, setAgentState, createNewIdleTimer } = await import(
+      "@/lib/agent-state-utils"
+    );
+
+    // 팀 정보 조회
+    const team = await getTeamById(teamId);
+    if (!team) {
+      console.error(`❌ 팀을 찾을 수 없음: ${teamId}`);
+      return;
+    }
+
+    // 에이전트 ID 목록 추출 (사용자 제외)
+    const agentIds = team.members
+      .filter((member) => !member.isUser && member.agentId)
+      .map((member) => member.agentId!);
+
+    if (agentIds.length === 0) {
+      console.log("정리할 에이전트가 없음");
+      return;
+    }
+
+    console.log(`🔄 ${agentIds.length}개 에이전트 상태 정리 시작`);
+
+    // 현재 활성 피드백 세션 목록 조회
+    const activeSessions = await redis.keys("feedback_session:*");
+    const agentsInFeedbackSession = new Set<string>();
+
+    for (const sessionKey of activeSessions) {
+      const sessionData = await redis.get(sessionKey);
+      if (sessionData) {
+        const session =
+          typeof sessionData === "string"
+            ? JSON.parse(sessionData)
+            : sessionData;
+        if (session.status === "active") {
+          for (const participant of session.participants) {
+            if (!participant.isUser && participant.id !== "나") {
+              agentsInFeedbackSession.add(participant.id);
+            }
+          }
+        }
+      }
+    }
+
+    // 각 에이전트 상태 확인 및 정리
+    let cleanedCount = 0;
+    for (const agentId of agentIds) {
+      try {
+        // 피드백 세션 중인 에이전트는 건드리지 않음
+        if (agentsInFeedbackSession.has(agentId)) {
+          console.log(`🔒 ${agentId}는 피드백 세션 중이므로 상태 정리 스킵`);
+          continue;
+        }
+
+        const currentState = await getAgentState(teamId, agentId);
+        if (!currentState) {
+          console.log(`⚠️ ${agentId} 상태 정보 없음 - 스킵`);
+          continue;
+        }
+
+        // reflecting 상태인 에이전트만 idle로 복구
+        if (currentState.currentState === "reflecting") {
+          console.log(`🔄 ${agentId} reflecting → idle 상태 복구`);
+
+          // API를 통한 강제 상태 변경 시도
+          let apiSuccess = false;
+          try {
+            const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+            const response = await fetch(
+              `${baseUrl}/api/teams/${teamId}/agent-states`,
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "User-Agent": "TeamBuilder-Internal",
+                },
+                body: JSON.stringify({
+                  agentId,
+                  currentState: "idle",
+                  forceClear: true,
+                }),
+              }
+            );
+
+            if (response.ok) {
+              apiSuccess = true;
+              console.log(`✅ ${agentId} API를 통한 상태 복구 성공`);
+            } else {
+              console.warn(
+                `⚠️ ${agentId} API를 통한 상태 복구 실패: ${response.status}`
+              );
+            }
+          } catch (apiError) {
+            console.warn(`⚠️ ${agentId} API 호출 오류:`, apiError);
+          }
+
+          // API 실패시 직접 상태 변경 시도
+          if (!apiSuccess) {
+            console.log(`🔄 ${agentId} 직접 상태 변경 시도`);
+
+            const newState = {
+              ...currentState,
+              currentState: "idle" as const,
+              lastStateChange: new Date().toISOString(),
+              isProcessing: false,
+              idleTimer: createNewIdleTimer(),
+            };
+
+            // currentTask와 plannedAction 제거
+            delete newState.currentTask;
+            delete newState.plannedAction;
+
+            await setAgentState(teamId, agentId, newState);
+            console.log(`✅ ${agentId} 직접 상태 복구 성공`);
+          }
+
+          cleanedCount++;
+        }
+      } catch (error) {
+        console.error(`❌ ${agentId} 상태 정리 실패:`, error);
+      }
+    }
+
+    console.log(`✅ 팀 상태 정리 완료: ${cleanedCount}개 에이전트 복구됨`);
+  } catch (error) {
+    console.error(`❌ 팀 상태 정리 실패:`, error);
   }
 }
 

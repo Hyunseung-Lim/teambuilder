@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { redis } from "@/lib/redis";
 import { FeedbackSession, FeedbackSessionMessage } from "@/lib/types";
-import { processMemoryUpdate } from "@/lib/memory";
 
 // 피드백 세션 메시지 전송
 export async function POST(
@@ -76,19 +75,19 @@ export async function POST(
     });
 
     // 메모리 업데이트 - 각 참가자의 short-term memory에 활성 채팅 정보 저장
+    // 🔒 피드백 세션 메시지는 processMemoryUpdate를 사용하지 않고 직접 처리
+    const { handleFeedbackSessionMessage } = await import("@/lib/memory");
+
     for (const participant of session.participants) {
       try {
-        await processMemoryUpdate({
-          type: "FEEDBACK_SESSION_MESSAGE",
-          payload: {
-            teamId,
-            sessionId,
-            participantId: participant.id,
-            message: newMessage,
-            otherParticipants: session.participants.filter(
-              (p) => p.id !== participant.id
-            ),
-          },
+        await handleFeedbackSessionMessage({
+          teamId,
+          sessionId,
+          participantId: participant.id,
+          message: newMessage,
+          otherParticipants: session.participants.filter(
+            (p) => p.id !== participant.id
+          ),
         });
       } catch (memoryError) {
         console.error(`메모리 업데이트 실패 (${participant.id}):`, memoryError);

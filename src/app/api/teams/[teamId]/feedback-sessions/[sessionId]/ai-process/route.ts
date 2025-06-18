@@ -416,9 +416,7 @@ export async function POST(
           );
 
           if (stateResponse.ok) {
-            console.log(
-              `✅ ${agent.name} 피드백 세션 상태 유지 확인 완료`
-            );
+            console.log(`✅ ${agent.name} 피드백 세션 상태 유지 확인 완료`);
           } else {
             console.warn(
               `⚠️ ${agent.name} 피드백 세션 상태 유지 실패:`,
@@ -433,16 +431,16 @@ export async function POST(
         }
 
         // 메모리 업데이트 - 메시지 추가
+        // 🔒 피드백 세션 메시지는 processMemoryUpdate를 사용하지 않고 직접 처리
+        const { handleFeedbackSessionMessage } = await import("@/lib/memory");
+
         try {
-          await processMemoryUpdate({
-            type: "FEEDBACK_SESSION_MESSAGE",
-            payload: {
-              teamId,
-              sessionId,
-              participantId: triggerAgentId,
-              message: responseMessage,
-              otherParticipants: [otherParticipant],
-            },
+          await handleFeedbackSessionMessage({
+            teamId,
+            sessionId,
+            participantId: triggerAgentId,
+            message: responseMessage,
+            otherParticipants: [otherParticipant],
           });
         } catch (memoryError) {
           console.error(
