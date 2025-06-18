@@ -270,9 +270,10 @@ export default function ChatArea({
                                     // AI끼리의 세션인 경우 참가자별로 다른 스타일 적용
                                     let messageStyle =
                                       "bg-gray-100 text-gray-900"; // 기본 스타일
-                                    let isRightAligned = true;
+                                    let isRightAligned = false;
 
                                     if (isFromUser) {
+                                      // 인간 사용자의 메시지: 파란색 + 오른쪽
                                       messageStyle = "bg-blue-500 text-white";
                                       isRightAligned = true;
                                     } else if (
@@ -289,27 +290,27 @@ export default function ChatArea({
                                       if (
                                         senderDisplayName === participant1Name
                                       ) {
-                                        // 첫 번째 참가자: 보라색 + 왼쪽
+                                        // 첫 번째 참가자: 회색 + 왼쪽 (에이전트 스타일)
                                         messageStyle =
-                                          "bg-purple-50 text-purple-900";
-                                        isRightAligned = true;
+                                          "bg-gray-100 text-gray-900";
+                                        isRightAligned = false;
                                       } else if (
                                         senderDisplayName === participant2Name
                                       ) {
-                                        // 두 번째 참가자: 파란색 + 오른쪽
-                                        messageStyle =
-                                          "bg-blue-50 text-blue-900";
-                                        isRightAligned = false;
+                                        // 두 번째 참가자: 파란색 + 오른쪽 (인간 스타일)
+                                        messageStyle = "bg-blue-500 text-white";
+                                        isRightAligned = true;
                                       } else {
                                         // 알 수 없는 발신자
                                         messageStyle =
                                           "bg-orange-100 text-orange-900";
-                                        isRightAligned = true;
+                                        isRightAligned = false;
                                       }
                                     } else if (!isFromUser) {
-                                      // 단일 AI 참가자 또는 일반적인 경우
+                                      // 에이전트의 메시지: 회색 + 왼쪽
                                       messageStyle =
                                         "bg-gray-100 text-gray-900";
+                                      isRightAligned = false;
                                     }
 
                                     return (
@@ -331,11 +332,9 @@ export default function ChatArea({
                                           {!isFromUser && (
                                             <div
                                               className={`text-xs mb-1 px-2 ${
-                                                isAIOnlySession
-                                                  ? isRightAligned
-                                                    ? "text-right text-purple-600 font-medium"
-                                                    : "text-left text-blue-600 font-medium"
-                                                  : "text-gray-500"
+                                                isRightAligned
+                                                  ? "text-right text-blue-600 font-medium"
+                                                  : "text-left text-gray-600 font-medium"
                                               }`}
                                             >
                                               {senderDisplayName}

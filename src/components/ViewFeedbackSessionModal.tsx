@@ -257,18 +257,27 @@ export default function ViewFeedbackSessionModal({
                 });
 
                 if (message.sender === participant1.id) {
-                  // 첫 번째 참가자: 보라색 + 왼쪽
-                  messageStyle =
-                    "bg-purple-100 text-purple-900 border-l-4 border-purple-400";
+                  // 첫 번째 참가자: 회색 + 왼쪽 (에이전트 스타일)
+                  messageStyle = "bg-gray-100 text-gray-900";
                   isRightAligned = false;
                 } else if (message.sender === participant2.id) {
-                  // 두 번째 참가자: 파란색 + 오른쪽
-                  messageStyle =
-                    "bg-blue-100 text-blue-900 border-r-4 border-blue-400";
+                  // 두 번째 참가자: 파란색 + 오른쪽 (인간 스타일)
+                  messageStyle = "bg-blue-500 text-white";
                   isRightAligned = true;
                 } else {
                   // 알 수 없는 발신자
                   messageStyle = "bg-orange-100 text-orange-900";
+                  isRightAligned = false;
+                }
+              } else {
+                // 인간-에이전트 세션인 경우
+                if (message.sender === "나") {
+                  // 인간의 메시지: 파란색 + 오른쪽
+                  messageStyle = "bg-blue-500 text-white";
+                  isRightAligned = true;
+                } else {
+                  // 에이전트의 메시지: 회색 + 왼쪽
+                  messageStyle = "bg-gray-100 text-gray-900";
                   isRightAligned = false;
                 }
               }
@@ -285,25 +294,15 @@ export default function ViewFeedbackSessionModal({
                       isRightAligned ? "ml-auto" : "mr-auto"
                     }`}
                   >
+                    {/* 발신자 이름 표시 */}
                     <div
                       className={`text-xs mb-1 px-3 ${
                         isRightAligned
                           ? "text-right text-blue-600 font-medium"
-                          : "text-left text-purple-600 font-medium"
+                          : "text-left text-gray-600 font-medium"
                       }`}
                     >
                       {senderName}
-                      {isAIOnlySession && (
-                        <span
-                          className={`ml-1 text-xs px-1 py-0.5 rounded ${
-                            isRightAligned
-                              ? "bg-blue-200 text-blue-800"
-                              : "bg-purple-200 text-purple-800"
-                          }`}
-                        >
-                          {isRightAligned ? "B" : "A"}
-                        </span>
-                      )}
                     </div>
                     <div className={`rounded-2xl px-4 py-3 ${messageStyle}`}>
                       <p className="text-sm leading-relaxed">
