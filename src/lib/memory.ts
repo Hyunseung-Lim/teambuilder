@@ -1364,11 +1364,13 @@ async function cleanupTeamAgentStatesAfterFeedbackSession(
     console.log(`🔄 ${agentIds.length}개 에이전트 상태 정리 시작`);
 
     // 현재 활성 피드백 세션 목록 조회
-    const activeSessions = await redis.keys("feedback_session:*");
+    const activeSessions = await redis.smembers(
+      `team:${teamId}:active_feedback_sessions`
+    );
     const agentsInFeedbackSession = new Set<string>();
 
-    for (const sessionKey of activeSessions) {
-      const sessionData = await redis.get(sessionKey);
+    for (const sessionId of activeSessions) {
+      const sessionData = await redis.get(`feedback_session:${sessionId}`);
       if (sessionData) {
         const session =
           typeof sessionData === "string"
@@ -1381,6 +1383,9 @@ async function cleanupTeamAgentStatesAfterFeedbackSession(
             }
           }
         }
+      } else {
+        // 존재하지 않는 세션은 set에서 제거
+        redis.srem(`team:${teamId}:active_feedback_sessions`, sessionId);
       }
     }
 
@@ -1470,7 +1475,7 @@ async function cleanupTeamAgentStatesAfterFeedbackSession(
 }
 
 /**
- * 피드백 세션 완료에 대한 메모리 업데이트
+ * 피드백 세션 종료에 대한 메모리 업데이트
  */
 async function updateMemoryForFeedbackSessionCompleted(
   memory: AgentMemory,
@@ -1528,5 +1533,32 @@ async function updateMemoryForFeedbackSessionCompleted(
         );
       }
     }
+  }
+}
+
+// 유틸리티: 에이전트 ID로부터 팀 ID 추출
+async function extractTeamIdFromAgentId(
+  agentId: string
+): Promise<string | null> {
+  try {
+    const { redis } = await import("@/lib/redis");
+
+    // Redis에서 agent_state 키 패턴으로 팀 ID 찾기
+    // 패턴: agent_state:teamId:agentId
+    const stateKeys = await redis.keys(`agent_state:*:${agentId}`);
+
+    if (stateKeys.length > 0) {
+      // 첫 번째 키에서 팀 ID 추출
+      const keyParts = stateKeys[0].split(":");
+      if (keyParts.length >= 3) {
+        const teamId = keyParts[1]; // agent_state:{teamId}:agentId
+        return teamId;
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error(`❌ ${agentId} 팀 ID 추출 오류:`, error);
+    return null;
   }
 }

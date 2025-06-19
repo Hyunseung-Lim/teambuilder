@@ -964,11 +964,14 @@ export async function GET(
 
     // 사용자 관련 피드백 세션 확인
     if (action === "check_user_sessions") {
-      const activeSessions = await redis.keys("feedback_session:*");
+      // redis.keys() 대신 smembers() 사용
+      const activeSessionIds = await redis.smembers(
+        `team:${teamId}:active_feedback_sessions`
+      );
       const userSessions = [];
 
-      for (const sessionKey of activeSessions) {
-        const sessionData = await redis.get(sessionKey);
+      for (const sessionId of activeSessionIds) {
+        const sessionData = await redis.get(`feedback_session:${sessionId}`);
         if (sessionData) {
           const session =
             typeof sessionData === "string"
@@ -982,6 +985,9 @@ export async function GET(
           ) {
             userSessions.push(session);
           }
+        } else {
+          // 존재하지 않는 세션은 set에서 제거
+          redis.srem(`team:${teamId}:active_feedback_sessions`, sessionId);
         }
       }
 

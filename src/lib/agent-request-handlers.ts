@@ -341,37 +341,42 @@ export async function handleGiveFeedbackRequestDirect(
 
 // 활성 피드백 세션 중인지 확인
 async function isInActiveFeedbackSession(agentId: string): Promise<boolean> {
-  const activeSessions = await redis.keys("feedback_session:*");
+  let isFeedbackSession = false;
+  try {
+    const { redis } = await import("@/lib/redis");
+    const teamId = await extractTeamIdFromAgentId(agentId);
 
-  for (const sessionKey of activeSessions) {
-    const sessionData = await redis.get(sessionKey);
-    if (sessionData) {
-      const session =
-        typeof sessionData === "string" ? JSON.parse(sessionData) : sessionData;
+    if (teamId) {
+      // redis.keys() 대신 smembers() 사용
+      const activeSessionIds = await redis.smembers(
+        `team:${teamId}:active_feedback_sessions`
+      );
 
-      // 세션 상태가 정확히 "active"이고 참가자에 포함된 경우만 true 반환
-      if (
-        session.status === "active" &&
-        session.participants.some((p: any) => p.id === agentId)
-      ) {
-        // 추가 검증: 세션이 너무 오래된 경우 (1시간 이상) 무시
-        const sessionStartTime = new Date(session.createdAt).getTime();
-        const now = Date.now();
-        const hourInMs = 60 * 60 * 1000;
+      for (const sessionId of activeSessionIds) {
+        const sessionData = await redis.get(`feedback_session:${sessionId}`);
+        if (sessionData) {
+          const session =
+            typeof sessionData === "string"
+              ? JSON.parse(sessionData)
+              : sessionData;
 
-        if (now - sessionStartTime > hourInMs) {
-          console.log(
-            `⚠️ 세션 ${session.id}이 1시간을 초과하여 무시 (만료된 세션)`
-          );
-          continue;
+          if (
+            session.status === "active" &&
+            session.participants.some((p: any) => p.id === agentId)
+          ) {
+            isFeedbackSession = true;
+            break;
+          }
+        } else {
+          // 존재하지 않는 세션은 set에서 제거
+          redis.srem(`team:${teamId}:active_feedback_sessions`, sessionId);
         }
-
-        console.log(`🔒 ${agentId}는 활성 피드백 세션 ${session.id}에 참가 중`);
-        return true;
       }
     }
+  } catch (error) {
+    console.error(`❌ ${agentId} 피드백 세션 확인 실패:`, error);
   }
-  return false;
+  return isFeedbackSession;
 }
 
 // 평가되지 않은 아이디어 가져오기
@@ -519,17 +524,31 @@ async function prepareFeedbackContext(
 
   const validAgents = agents.filter((agent) => agent !== null);
 
-  // 바쁜 에이전트들 찾기
-  const activeSessions = await redis.keys("feedback_session:*");
+  // 바쁜 에이전트들 찾기 - redis.keys() 대신 smembers() 사용
+  const extractedTeamId = await extractTeamIdFromAgentId(agentId);
   const busyAgents = new Set<string>();
 
-  for (const sessionKey of activeSessions) {
-    const sessionData = await redis.get(sessionKey);
-    if (sessionData) {
-      const session =
-        typeof sessionData === "string" ? JSON.parse(sessionData) : sessionData;
-      if (session.status === "active") {
-        session.participants.forEach((p: any) => busyAgents.add(p.id));
+  if (extractedTeamId) {
+    const activeSessionIds = await redis.smembers(
+      `team:${extractedTeamId}:active_feedback_sessions`
+    );
+
+    for (const sessionId of activeSessionIds) {
+      const sessionData = await redis.get(`feedback_session:${sessionId}`);
+      if (sessionData) {
+        const session =
+          typeof sessionData === "string"
+            ? JSON.parse(sessionData)
+            : sessionData;
+        if (session.status === "active") {
+          session.participants.forEach((p: any) => busyAgents.add(p.id));
+        }
+      } else {
+        // 존재하지 않는 세션은 set에서 제거
+        redis.srem(
+          `team:${extractedTeamId}:active_feedback_sessions`,
+          sessionId
+        );
       }
     }
   }
@@ -842,67 +861,38 @@ async function triggerFirstFeedbackMessage(
       );
     } else {
       console.error(
-        `❌ ${agentName} 첫 피드백 메시지 생성 트리거 실패:`,
-        aiProcessResponse.status
+        `❌ ${agentName} 첫 피드백 메시지 생성 트리거 실패 (대상: ${targetName})`
       );
     }
   } catch (error) {
-    console.error(`❌ ${agentName} 첫 피드백 메시지 생성 트리거 오류:`, error);
-  }
-}
-
-// 피드백 대상이 바쁠 때 적절한 메시지 생성
-async function generateBusyTargetMessage(
-  agentProfile: any,
-  targetMember: { id: string; name: string; isUser: boolean },
-  requesterName: string,
-  originalMessage: string
-): Promise<string> {
-  const prompt = `당신은 ${
-    agentProfile.name
-  }입니다. ${requesterName}가 "${originalMessage}"라고 요청하여 ${
-    targetMember.name
-  }에게 피드백을 제공하려고 했지만, ${
-    targetMember.name
-  }이 현재 다른 피드백 세션에 참여 중이어서 피드백을 할 수 없는 상황입니다.
-
-**당신의 정보:**
-- 이름: ${agentProfile.name}
-- 성격: ${agentProfile.personality || "친근하고 협조적"}
-- 전문분야: ${agentProfile.professional}
-
-**상황:**
-- 요청자: ${requesterName}
-- 요청 내용: "${originalMessage}"
-- 피드백 대상: ${targetMember.name} (${
-    targetMember.isUser ? "인간 팀원" : "AI 팀원"
-  })
-- 문제: ${targetMember.name}이 현재 다른 피드백 세션 중
-
-당신의 성격과 말투에 맞게 다음 내용을 포함한 자연스러운 메시지를 작성하세요:
-1. ${requesterName}의 요청을 받았다는 점
-2. ${targetMember.name}이 현재 피드백 세션 중이라는 상황 설명
-3. 나중에 다시 시도하겠다는 의지
-4. 이해와 양해를 구하는 톤
-
-구어체로 자연스럽고 친근하게 작성하되, 너무 길지 않게 2-3문장으로 작성하세요.
-
-다음 JSON 형식으로 응답하세요:
-{
-  "message": "생성된 메시지"
-}`;
-
-  try {
-    const response = await getJsonResponse(prompt, agentProfile);
-    return (
-      response.message ||
-      `${requesterName}님의 요청으로 ${targetMember.name}에게 피드백을 드리려고 했는데, 지금 다른 피드백 세션 중이네요. 조금 있다가 다시 시도해보겠습니다!`
+    console.error(
+      `❌ ${agentName} 첫 피드백 메시지 생성 트리거 오류 (대상: ${targetName}):`,
+      error
     );
-  } catch (error) {
-    console.error("피드백 대상 바쁨 메시지 생성 실패:", error);
-    return `${requesterName}님의 요청으로 ${targetMember.name}에게 피드백을 드리려고 했는데, 지금 다른 피드백 세션 중이네요. 조금 있다가 다시 시도해보겠습니다!`;
   }
 }
 
-// 필요한 함수 임포트 (getChatHistory)
-// import { getChatHistory } from "@/lib/redis"; - 이미 위에서 import 됨
+// 유틸리티: 에이전트 ID로부터 팀 ID 추출
+async function extractTeamIdFromAgentId(
+  agentId: string
+): Promise<string | null> {
+  try {
+    // Redis에서 agent_state 키 패턴으로 팀 ID 찾기
+    // 패턴: agent_state:teamId:agentId
+    const stateKeys = await redis.keys(`agent_state:*:${agentId}`);
+
+    if (stateKeys.length > 0) {
+      // 첫 번째 키에서 팀 ID 추출
+      const keyParts = stateKeys[0].split(":");
+      if (keyParts.length >= 3) {
+        const teamId = keyParts[1]; // agent_state:{teamId}:agentId
+        return teamId;
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error(`❌ ${agentId} 팀 ID 추출 오류:`, error);
+    return null;
+  }
+}

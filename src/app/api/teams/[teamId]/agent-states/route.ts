@@ -106,36 +106,47 @@ export async function GET(
       });
 
     // 활성 피드백 세션 조회와 사용자 상태 조회도 병렬로 처리
-    const [agentStates, activeSessions, userStateData] = await Promise.all([
+    const [agentStates, activeSessionIds, userStateData] = await Promise.all([
       Promise.all(agentStatePromises),
-      redis.keys("feedback_session:*"),
+      redis.smembers(`team:${teamId}:active_feedback_sessions`),
       redis.get(`team:${teamId}:user_state`),
     ]);
 
-    // 활성 피드백 세션 정보 처리
-    const sessionInfoPromises = activeSessions.map(async (sessionKey) => {
+    // 활성 피드백 세션 정보 처리 - 존재하는 세션만 조회
+    const sessionInfoPromises = activeSessionIds.map(async (sessionId) => {
       try {
-        const sessionData = await redis.get(sessionKey);
+        const sessionData = await redis.get(`feedback_session:${sessionId}`);
         if (sessionData) {
           const session =
             typeof sessionData === "string"
               ? JSON.parse(sessionData)
               : sessionData;
-          return {
-            sessionId: session.id,
-            status: session.status,
-            participants: session.participants.map((p: any) => ({
-              id: p.id,
-              name: p.name,
-              isUser: p.isUser,
-            })),
-            createdAt: session.createdAt,
-            endedAt: session.endedAt,
-          };
+
+          // 세션이 실제로 활성 상태인지 확인
+          if (session.status === "active") {
+            return {
+              sessionId: session.id,
+              status: session.status,
+              participants: session.participants.map((p: any) => ({
+                id: p.id,
+                name: p.name,
+                isUser: p.isUser,
+              })),
+              createdAt: session.createdAt,
+              endedAt: session.endedAt,
+            };
+          } else {
+            // 비활성 세션은 set에서 제거
+            redis.srem(`team:${teamId}:active_feedback_sessions`, sessionId);
+            return null;
+          }
+        } else {
+          // 존재하지 않는 세션은 set에서 제거
+          redis.srem(`team:${teamId}:active_feedback_sessions`, sessionId);
+          return null;
         }
-        return null;
       } catch (error) {
-        console.error(`❌ 세션 ${sessionKey} 조회 실패:`, error);
+        console.error(`❌ 세션 ${sessionId} 조회 실패:`, error);
         return null;
       }
     });

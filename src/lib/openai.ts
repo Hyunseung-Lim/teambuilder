@@ -205,11 +205,13 @@ async function terminateActiveFeedbackSessions(
   try {
     const { redis } = await import("@/lib/redis");
 
-    // 활성 피드백 세션 찾기
-    const activeSessions = await redis.keys("feedback_session:*");
+    // 활성 피드백 세션 찾기 - redis.keys() 대신 smembers() 사용
+    const activeSessionIds = await redis.smembers(
+      `team:${teamId}:active_feedback_sessions`
+    );
 
-    for (const sessionKey of activeSessions) {
-      const sessionData = await redis.get(sessionKey);
+    for (const sessionId of activeSessionIds) {
+      const sessionData = await redis.get(`feedback_session:${sessionId}`);
       if (sessionData) {
         const session =
           typeof sessionData === "string"
@@ -230,12 +232,25 @@ async function terminateActiveFeedbackSessions(
           session.endedAt = new Date().toISOString();
           session.endedBy = "system_recovery";
 
-          await redis.set(sessionKey, JSON.stringify(session), {
-            ex: 3600 * 24,
-          });
+          await redis.set(
+            `feedback_session:${sessionId}`,
+            JSON.stringify(session),
+            {
+              ex: 3600 * 24,
+            }
+          );
+
+          // 활성 세션 set에서도 제거
+          await redis.srem(
+            `team:${teamId}:active_feedback_sessions`,
+            sessionId
+          );
 
           console.log(`✅ ${agentName} 피드백 세션 ${session.id} 종료 완료`);
         }
+      } else {
+        // 존재하지 않는 세션은 set에서 제거
+        await redis.srem(`team:${teamId}:active_feedback_sessions`, sessionId);
       }
     }
   } catch (error) {
