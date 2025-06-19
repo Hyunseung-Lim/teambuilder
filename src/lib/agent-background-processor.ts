@@ -108,6 +108,7 @@ async function transitionToIdleIfNotInFeedbackSession(
         body: JSON.stringify({
           agentId,
           currentState: "idle",
+          forceClear: true,
         }),
       }
     );
