@@ -98,7 +98,8 @@ export async function POST(
     // Check if it's a generation request and trigger the action
     if (
       messageType === "make_request" &&
-      messagePayload.requestType === "generate"
+      (messagePayload.requestType === "generate" ||
+        messagePayload.requestType === "generate_idea")
     ) {
       console.log(
         `📨 아이디어 생성 요청 - 에이전트 ${messagePayload.mention}에게 전달`
@@ -164,7 +165,8 @@ export async function POST(
     // Check if it's an evaluation request and trigger the action
     if (
       messageType === "make_request" &&
-      messagePayload.requestType === "evaluate"
+      (messagePayload.requestType === "evaluate" ||
+        messagePayload.requestType === "evaluate_idea")
     ) {
       console.log(
         `📨 아이디어 평가 요청 - 에이전트 ${messagePayload.mention}에게 전달`

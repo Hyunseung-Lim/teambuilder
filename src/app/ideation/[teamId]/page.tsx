@@ -111,6 +111,9 @@ export default function IdeationPage() {
       startTime: string;
     }>
   >([]);
+  const [checkedSessionIds, setCheckedSessionIds] = useState<Set<string>>(
+    new Set()
+  );
 
   // 에이전트 메모리 관련 상태
   const [hoveredAgentId, setHoveredAgentId] = useState<string | null>(null);
@@ -124,7 +127,8 @@ export default function IdeationPage() {
   const ideaListRef = useRef<HTMLDivElement | null>(null);
 
   const teamId = params.teamId as string;
-  const { agentStates, userState, timers } = useAgentStates(teamId);
+  const { agentStates, userState, timers, isConnected } =
+    useAgentStates(teamId);
 
   // 현재 팀에 속한 AI 에이전트만 필터링
   const teamAgents = agents.filter((agent) =>
@@ -361,6 +365,7 @@ export default function IdeationPage() {
       setActiveTab("main");
       setTimeout(() => scrollToBottom(), 100);
     }
+    handleTabClose(tabId);
   };
 
   // 메시지 전송 핸들러
@@ -705,6 +710,111 @@ export default function IdeationPage() {
     return () => clearTimeout(timer);
   }, [team, agents, loading, ideas.length]);
 
+  // 사용자에게 요청한 피드백 세션 자동 감지 및 탭 생성
+  useEffect(() => {
+    if (!team?.id) return;
+
+    const checkUserFeedbackSessions = async () => {
+      try {
+        const response = await fetch(
+          `/api/teams/${team.id}/feedback-sessions?action=check_user_sessions`
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          const userSessions = data.userSessions || [];
+
+          for (const session of userSessions) {
+            // 이미 확인한 세션이거나 이미 탭이 열려있는 세션은 스킵
+            if (
+              checkedSessionIds.has(session.id) ||
+              feedbackTabs.some((tab) => tab.id === session.id)
+            ) {
+              continue;
+            }
+
+            // 사용자가 참여자인지 확인
+            const userParticipant = session.participants.find(
+              (p: any) => p.id === "나"
+            );
+            if (!userParticipant) continue;
+
+            // 다른 참여자 찾기 (AI 에이전트)
+            const otherParticipant = session.participants.find(
+              (p: any) => p.id !== "나"
+            );
+            if (!otherParticipant) continue;
+
+            console.log(
+              `🎯 사용자 피드백 세션 감지됨: ${session.id} with ${otherParticipant.name}`
+            );
+
+            // 피드백 탭 자동 생성 (세션이 이미 생성되어 있으므로 바로 탭만 열기)
+            const newTab = {
+              id: session.id,
+              name: `${otherParticipant.name}와의 피드백`,
+              participantId: otherParticipant.id,
+              participantName: otherParticipant.name,
+              type: "ai_to_user" as const,
+              sessionData: {
+                realSessionId: session.id,
+                mentionedAgent: {
+                  id: otherParticipant.id,
+                  name: otherParticipant.name,
+                },
+              },
+              isActive: true,
+            };
+
+            setFeedbackTabs((prev) => [...prev, newTab]);
+            setActiveTab(session.id);
+            setCheckedSessionIds((prev) => new Set(prev).add(session.id));
+
+            // 알림 표시
+            try {
+              await fetch(`/api/teams/${team.id}/chat`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  sender: "system",
+                  type: "system",
+                  payload: {
+                    content: `${otherParticipant.name}가 피드백을 요청했습니다. 피드백 탭이 자동으로 열렸습니다.`,
+                  },
+                }),
+              });
+            } catch (error) {
+              console.error("❌ 시스템 메시지 전송 실패:", error);
+            }
+
+            console.log(`✅ 피드백 탭 자동 생성 완료: ${session.id}`);
+          }
+        }
+      } catch (error) {
+        console.error("❌ 사용자 피드백 세션 체크 실패:", error);
+      }
+    };
+
+    // 초기 체크
+    checkUserFeedbackSessions();
+
+    // 3초마다 체크
+    const interval = setInterval(checkUserFeedbackSessions, 3000);
+
+    return () => clearInterval(interval);
+  }, [team?.id, feedbackTabs, checkedSessionIds]);
+
+  // 탭이 닫힐 때 체크된 세션 목록에서 제거
+  const handleTabClose = (tabId: string) => {
+    setCheckedSessionIds((prev) => {
+      const newSet = new Set(prev);
+      newSet.delete(tabId);
+      return newSet;
+    });
+  };
+
   // SSE 연결
   useEffect(() => {
     if (!team?.id) return;
@@ -843,6 +953,7 @@ export default function IdeationPage() {
             agentStates={agentStates}
             timers={timers}
             onAgentClick={handleAgentClick}
+            isConnected={isConnected}
           />
 
           {/* 가운데: 채팅 영역 */}

@@ -12,6 +12,7 @@ import {
   generateIdeaAction,
   evaluateIdeaAction,
   planFeedbackStrategy,
+  getJsonResponse,
 } from "@/lib/openai";
 import {
   AgentStateInfo,
@@ -142,34 +143,6 @@ export async function handleGenerateIdeaRequestDirect(
       `✅ ${agentProfile.name} 아이디어 생성 완료:`,
       generatedContent.object
     );
-
-    if (response.ok) {
-      const result = await response.json();
-      console.log(
-        `✅ ${agentProfile.name} 요청받은 아이디어 생성 완료:`,
-        result.idea
-      );
-
-      await addChatMessage(teamId, {
-        sender: agentId,
-        type: "system",
-        payload: {
-          content: `요청에 따라 새로운 아이디어를 생성했습니다: "${result.idea.content.object}"`,
-        },
-      });
-    } else {
-      console.error(
-        `❌ ${agentProfile.name} 아이디어 저장 실패:`,
-        response.status
-      );
-      await addChatMessage(teamId, {
-        sender: agentId,
-        type: "system",
-        payload: {
-          content: `아이디어 저장에 실패했습니다. (오류: ${response.status})`,
-        },
-      });
-    }
   } catch (error) {
     console.error(`❌ ${agentProfile.name} 아이디어 생성 실패:`, error);
 
@@ -290,6 +263,44 @@ export async function handleGiveFeedbackRequestDirect(
       type: feedbackStrategy.feedbackType,
       reasoning: feedbackStrategy.reasoning,
     });
+
+    // 피드백 전략 수립 후 대상이 현재 피드백 세션 중인지 재확인
+    const isTargetBusy = await isInActiveFeedbackSession(
+      feedbackStrategy.targetMember.id
+    );
+
+    if (isTargetBusy) {
+      console.log(
+        `⚠️ ${feedbackStrategy.targetMember.name}이 현재 피드백 세션 중이므로 피드백 불가능`
+      );
+
+      // LLM으로 적절한 메시지 생성
+      const busyMessage = await generateBusyTargetMessage(
+        agentProfile,
+        feedbackStrategy.targetMember,
+        requestData.requesterName,
+        requestData.payload?.message || "피드백을 요청했습니다."
+      );
+
+      await addChatMessage(teamId, {
+        sender: agentId,
+        type: "system",
+        payload: {
+          content: busyMessage,
+        },
+      });
+
+      // 상태를 idle로 전환
+      await setAgentState(teamId, agentId, {
+        agentId,
+        currentState: "idle",
+        lastStateChange: new Date().toISOString(),
+        isProcessing: false,
+        currentTask: null,
+      });
+
+      return;
+    }
 
     await executeFeedbackSession(
       teamId,
@@ -837,6 +848,59 @@ async function triggerFirstFeedbackMessage(
     }
   } catch (error) {
     console.error(`❌ ${agentName} 첫 피드백 메시지 생성 트리거 오류:`, error);
+  }
+}
+
+// 피드백 대상이 바쁠 때 적절한 메시지 생성
+async function generateBusyTargetMessage(
+  agentProfile: any,
+  targetMember: { id: string; name: string; isUser: boolean },
+  requesterName: string,
+  originalMessage: string
+): Promise<string> {
+  const prompt = `당신은 ${
+    agentProfile.name
+  }입니다. ${requesterName}가 "${originalMessage}"라고 요청하여 ${
+    targetMember.name
+  }에게 피드백을 제공하려고 했지만, ${
+    targetMember.name
+  }이 현재 다른 피드백 세션에 참여 중이어서 피드백을 할 수 없는 상황입니다.
+
+**당신의 정보:**
+- 이름: ${agentProfile.name}
+- 성격: ${agentProfile.personality || "친근하고 협조적"}
+- 전문분야: ${agentProfile.professional}
+
+**상황:**
+- 요청자: ${requesterName}
+- 요청 내용: "${originalMessage}"
+- 피드백 대상: ${targetMember.name} (${
+    targetMember.isUser ? "인간 팀원" : "AI 팀원"
+  })
+- 문제: ${targetMember.name}이 현재 다른 피드백 세션 중
+
+당신의 성격과 말투에 맞게 다음 내용을 포함한 자연스러운 메시지를 작성하세요:
+1. ${requesterName}의 요청을 받았다는 점
+2. ${targetMember.name}이 현재 피드백 세션 중이라는 상황 설명
+3. 나중에 다시 시도하겠다는 의지
+4. 이해와 양해를 구하는 톤
+
+구어체로 자연스럽고 친근하게 작성하되, 너무 길지 않게 2-3문장으로 작성하세요.
+
+다음 JSON 형식으로 응답하세요:
+{
+  "message": "생성된 메시지"
+}`;
+
+  try {
+    const response = await getJsonResponse(prompt, agentProfile);
+    return (
+      response.message ||
+      `${requesterName}님의 요청으로 ${targetMember.name}에게 피드백을 드리려고 했는데, 지금 다른 피드백 세션 중이네요. 조금 있다가 다시 시도해보겠습니다!`
+    );
+  } catch (error) {
+    console.error("피드백 대상 바쁨 메시지 생성 실패:", error);
+    return `${requesterName}님의 요청으로 ${targetMember.name}에게 피드백을 드리려고 했는데, 지금 다른 피드백 세션 중이네요. 조금 있다가 다시 시도해보겠습니다!`;
   }
 }
 

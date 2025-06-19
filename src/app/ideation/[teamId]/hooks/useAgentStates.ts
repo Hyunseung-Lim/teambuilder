@@ -60,6 +60,7 @@ export function useAgentStates(teamId: string) {
   );
   const [userState, setUserState] = useState<AgentStateInfo | null>(null);
   const [timers, setTimers] = useState<Map<string, number>>(new Map());
+  const [isConnected, setIsConnected] = useState(true); // 연결 상태 추가
 
   useEffect(() => {
     if (!teamId) return;
@@ -67,6 +68,7 @@ export function useAgentStates(teamId: string) {
     let isActive = true;
     let timeoutId: NodeJS.Timeout | null = null;
     let isRequestInProgress = false;
+    let consecutiveErrors = 0; // 연속 오류 횟수 추적
 
     const fetchAgentStates = async () => {
       if (!isActive || isRequestInProgress) return;
@@ -83,11 +85,16 @@ export function useAgentStates(teamId: string) {
           data.agentStates.forEach((agentData: any) => {
             // API 응답 구조: { agentId, name, state: AgentStateInfo, isFeedbackSession }
             const state = agentData.state;
-            if (state) {
+
+            // API에서 항상 유효한 상태를 반환하므로 state는 null이 아님
+            if (state && state.agentId) {
               statesMap.set(state.agentId, state);
+            } else {
+              console.error(`⚠️ 유효하지 않은 에이전트 상태:`, agentData);
             }
           });
 
+          // 성공적으로 응답을 받았으므로 상태 업데이트
           setAgentStates(statesMap);
 
           // 🔄 인간 사용자 상태 설정
@@ -96,24 +103,49 @@ export function useAgentStates(teamId: string) {
           } else {
             setUserState(null);
           }
+
+          // 연결 성공 시 연속 오류 횟수 초기화
+          consecutiveErrors = 0;
+          setIsConnected(true);
         } else {
           console.error(
             `에이전트 상태 API 응답 실패: ${response.status} ${response.statusText}`
           );
+          consecutiveErrors++;
+
+          // 3회 연속 실패 시 연결 상태를 false로 설정
+          if (consecutiveErrors >= 3) {
+            setIsConnected(false);
+          }
+
+          // 응답 실패 시에는 기존 상태를 유지 (setAgentStates 호출하지 않음)
         }
       } catch (error) {
         console.error("에이전트 상태 조회 실패:", error);
+        consecutiveErrors++;
+
+        // 3회 연속 실패 시 연결 상태를 false로 설정
+        if (consecutiveErrors >= 3) {
+          setIsConnected(false);
+        }
+
+        // 네트워크 오류 시에도 기존 상태를 유지 (setAgentStates 호출하지 않음)
         console.error("에러 상세 정보:", {
           name: error instanceof Error ? error.name : "Unknown",
           message: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
+          consecutiveErrors,
         });
       } finally {
         isRequestInProgress = false;
 
-        // 요청 완료 후 1초 대기하고 다음 요청 스케줄링
+        // 요청 완료 후 연속 오류 횟수에 따라 대기 시간 조정
+        const waitTime =
+          consecutiveErrors > 0
+            ? Math.min(5000, 1000 * consecutiveErrors)
+            : 1000;
+
         if (isActive) {
-          timeoutId = setTimeout(fetchAgentStates, 1000);
+          timeoutId = setTimeout(fetchAgentStates, waitTime);
         }
       }
     };
@@ -136,8 +168,14 @@ export function useAgentStates(teamId: string) {
 
       agentStates.forEach((state, agentId) => {
         if (state.currentState === "idle" && state.idleTimer) {
-          // 서버에서 계산된 remainingTime 사용
-          newTimers.set(agentId, state.idleTimer.remainingTime);
+          // 클라이언트에서도 시간 계산하여 더 정확한 표시
+          const startTime = new Date(state.idleTimer.startTime).getTime();
+          const elapsed = Math.floor((Date.now() - startTime) / 1000);
+          const remaining = Math.max(
+            0,
+            state.idleTimer.plannedDuration - elapsed
+          );
+          newTimers.set(agentId, remaining);
         } else if (state.currentTask) {
           // 작업 진행 시간 계산
           const elapsed = Math.floor(
@@ -178,5 +216,6 @@ export function useAgentStates(teamId: string) {
     agentStates,
     userState,
     timers,
+    isConnected, // 연결 상태도 반환
   };
 }

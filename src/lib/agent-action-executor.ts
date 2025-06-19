@@ -11,6 +11,7 @@ import {
   generateIdeaAction,
   evaluateIdeaAction,
   planFeedbackStrategy,
+  makeRequestAction,
 } from "@/lib/openai";
 import { processMemoryUpdate } from "@/lib/memory";
 import {
@@ -54,11 +55,27 @@ export async function executeAgentAction(
     }
 
     if (plannedAction.action === "evaluate_idea") {
-      await executeEvaluateIdeaAction(teamId, agentId, team, agentProfile);
+      await executeEvaluateIdeaAction(
+        teamId,
+        agentId,
+        team,
+        agentProfile,
+        false
+      );
     }
 
     if (plannedAction.action === "give_feedback") {
       await executeGiveFeedbackAction(teamId, agentId, team, agentProfile);
+    }
+
+    if (plannedAction.action === "make_request") {
+      await executeMakeRequestAction(
+        teamId,
+        agentId,
+        team,
+        agentProfile,
+        plannedAction
+      );
     }
   } catch (error) {
     console.error(`❌ ${agentId} 작업 실행 실패:`, error);
@@ -147,7 +164,8 @@ async function executeEvaluateIdeaAction(
   teamId: string,
   agentId: string,
   team: any,
-  agentProfile: any
+  agentProfile: any,
+  skipChatMessage: boolean = false
 ) {
   const ideas = await getIdeas(teamId);
 
@@ -184,7 +202,7 @@ async function executeEvaluateIdeaAction(
     isProcessing: true,
     currentTask: {
       type: "evaluate_idea",
-      description: `요청받은 아이디어 평가`,
+      description: `아이디어 평가`,
       startTime: new Date().toISOString(),
       estimatedDuration: 300,
     },
@@ -225,13 +243,16 @@ async function executeEvaluateIdeaAction(
     if (response.ok) {
       console.log(`✅ ${agentProfile.name} 아이디어 평가 완료`);
 
-      await addChatMessage(teamId, {
-        sender: agentId,
-        type: "system",
-        payload: {
-          content: `요청받은 아이디어를 평가했습니다.`,
-        },
-      });
+      // skipChatMessage가 true이면 채팅 메시지를 보내지 않음 (요청 처리에서 별도로 처리)
+      if (!skipChatMessage) {
+        await addChatMessage(teamId, {
+          sender: agentId,
+          type: "system",
+          payload: {
+            content: `아이디어를 평가했습니다.`,
+          },
+        });
+      }
     } else {
       console.error(`❌ ${agentProfile.name} 평가 저장 실패:`, response.status);
     }
@@ -589,5 +610,111 @@ async function transitionToIdleState(
     }
   } catch (e) {
     console.error(`❌ 에이전트 ${agentId} ${reason} Idle 전환 실패:`, e);
+  }
+}
+
+// 요청 만들기 액션 실행
+async function executeMakeRequestAction(
+  teamId: string,
+  agentId: string,
+  team: any,
+  agentProfile: any,
+  plannedAction: any
+) {
+  try {
+    console.log(`🎯 ${agentProfile.name} 자율적 요청 실행 시작`);
+
+    // 상태를 action으로 설정
+    await setAgentState(teamId, agentId, {
+      agentId,
+      currentState: "action",
+      lastStateChange: new Date().toISOString(),
+      isProcessing: true,
+      currentTask: {
+        type: "make_request",
+        description: `자율적 요청`,
+        startTime: new Date().toISOString(),
+        estimatedDuration: 300,
+        trigger: "autonomous",
+      },
+    });
+
+    // 팀원 정보 준비
+    const teamMembers = team.members.map((member: any) => ({
+      name: member.isUser ? "나" : member.agentId || "Unknown",
+      roles: member.roles.map((role: any) => role.toString()),
+      isUser: member.isUser,
+      agentId: member.agentId || undefined,
+    }));
+
+    // 현재 아이디어 정보 가져오기
+    const ideas = await getIdeas(teamId);
+    const currentIdeas = ideas.map((idea: any, index: number) => ({
+      ideaNumber: index + 1,
+      authorName: idea.author,
+      object: idea.content.object,
+      function: idea.content.function,
+    }));
+
+    // 에이전트 메모리 가져오기
+    const agentMemory = await getAgentMemory(agentId);
+
+    // 자율적 요청 실행
+    const triggerContext =
+      "팀 상황을 분석한 결과 다른 팀원에게 작업을 요청하기로 결정했습니다.";
+
+    const requestResult = await makeRequestAction(
+      triggerContext,
+      teamMembers,
+      currentIdeas,
+      agentProfile,
+      agentMemory || undefined
+    );
+
+    // 채팅 메시지로 추가
+    await addChatMessage(teamId, {
+      sender: agentId,
+      type: "make_request",
+      payload: {
+        type: "make_request",
+        content: requestResult.message.message,
+        mention: requestResult.analysis.targetMember,
+        target: requestResult.analysis.targetMember,
+        requestType: requestResult.analysis.requestType,
+      },
+    });
+
+    console.log(`✅ ${agentProfile.name} 자율적 요청 완료:`, {
+      target: requestResult.analysis.targetMember,
+      type: requestResult.analysis.requestType,
+      message: requestResult.message.message,
+    });
+
+    // 메모리 업데이트
+    try {
+      await processMemoryUpdate({
+        type: "REQUEST_MADE",
+        payload: {
+          teamId,
+          requesterId: agentId,
+          targetId: requestResult.analysis.targetMember,
+          requestType: requestResult.analysis.requestType,
+          content: requestResult.message.message,
+        },
+      });
+      console.log(
+        `✅ 자율적 요청 후 메모리 업데이트 성공: ${agentId} -> ${requestResult.analysis.targetMember}`
+      );
+    } catch (memoryError) {
+      console.error("❌ 자율적 요청 후 메모리 업데이트 실패:", memoryError);
+    }
+
+    // 요청 처리는 채팅 API에서 자동으로 처리됨 (중복 메시지 방지를 위해 직접 호출 제거)
+    console.log(
+      `📨 자율적 요청이 채팅 메시지로 생성되었습니다. 채팅 API에서 요청을 자동 처리할 예정입니다.`
+    );
+  } catch (error) {
+    console.error(`❌ ${agentProfile.name} 자율적 요청 실패:`, error);
+    throw error;
   }
 }

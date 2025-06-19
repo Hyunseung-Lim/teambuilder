@@ -32,7 +32,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-async function getJsonResponse(prompt: string, agentProfile?: any) {
+export async function getJsonResponse(prompt: string, agentProfile?: any) {
   const messages = [];
 
   // 시스템 프롬프트로 AI 에이전트 데모그래픽 정보 추가
@@ -553,9 +553,9 @@ ${(() => {
 }
 피드백 가이드라인:
 1. 구어체로 자연스럽게 작성 (예: "이 아이디어 정말 좋네요!", "~하면 어떨까요?")
-2. 구체적인 개선점이나 확장 아이디어 제시
-3. 긍정적이면서도 건설적인 톤 유지
-4. 작성자를 직접 언급하며 대화하듯 작성
+2. 구체적이고 실용적인 피드백을 제공하세요
+3. 질문을 통해 상대방의 생각을 더 깊이 이해하려 노력하세요
+4. 상대방의 가장 최근 메시지에 직접적으로 답변하되, 답변을 생성할 때 자신의 메모리와 과거 경험을 적극적으로 활용하세요
 5. 200자 내외로 간결하게
 
 다음 JSON 형식으로 응답하세요:
@@ -1442,6 +1442,16 @@ export async function planFeedbackStrategy(
     requestContext.requesterName
   }가 피드백을 요청했습니다.
 
+** 중요: 사용자의 요청 메시지를 최우선으로 고려하세요! **
+
+**사용자의 요청:**
+요청자: ${requestContext.requesterName}
+요청 메시지: "${requestContext.originalMessage}"
+
+→ 이 메시지의 의도와 요구사항을 정확히 파악하고 반영해야 합니다.
+→ 사용자가 특정 팀원이나 특정 주제에 대해 언급했다면 반드시 우선적으로 고려하세요.
+→ 사용자의 톤이나 긴급도도 피드백 방식에 반영하세요.
+
 **당신의 정보:**
 - 이름: ${agentProfile.name}
 - 나이: ${agentProfile.age}세
@@ -1454,10 +1464,6 @@ export async function planFeedbackStrategy(
 - 팀명: ${teamContext.teamName}
 - 주제: ${teamContext.topic}
 
-**요청 컨텍스트:**
-- 요청자: ${requestContext.requesterName}
-- 요청 메시지: "${requestContext.originalMessage}"
-
 **팀원 정보:**
 ${teamMembersInfo}
 
@@ -1469,20 +1475,30 @@ ${recentActivity}
 
 ${memoryContext ? `**당신의 메모리:**\n${memoryContext}\n` : ""}
 
-모든 정보를 종합적으로 고려하여 다음을 결정하세요:
+**사용자 요청 우선 반영 가이드라인:**
+1. 사용자가 특정 팀원을 언급했으면 → 해당 팀원을 우선적으로 피드백 대상으로 선택
+2. 사용자가 특정 아이디어를 언급했으면 → specific_idea 유형으로 해당 아이디어에 집중
+3. 사용자가 협업이나 팀워크를 언급했으면 → general_collaboration 유형 선택
+4. 사용자가 스킬이나 발전을 언급했으면 → skill_development 유형 선택
+5. 사용자의 요청이 불분명한 경우에만 → 팀 상황을 종합적으로 고려하여 결정
 
-1. **피드백 대상**: 사용 가능한 팀원 중에서 선택
+**중요: 대상자 ID 지정 규칙**
+- 인간 사용자를 대상으로 할 때는 반드시 "나"를 사용하세요
+- AI 에이전트를 대상으로 할 때는 해당 에이전트의 실제 agentId를 사용하세요
+
+모든 정보를 종합적으로 고려하되, **사용자의 요청 메시지를 최우선으로** 하여 다음을 결정하세요:
+
+1. **피드백 대상**: 사용 가능한 팀원 중에서 선택 (사용자 요청을 최우선 고려)
 2. **피드백 유형**: 
    - general_collaboration: 일반적인 협업과 팀워크에 대한 피드백
    - specific_idea: 특정 아이디어에 대한 피드백
    - skill_development: 개인의 스킬 발전에 대한 피드백
    - team_dynamics: 팀 역학과 커뮤니케이션에 대한 피드백
 3. **대상 아이디어**: specific_idea 유형인 경우에만 선택
-4. **피드백 메시지**: 구체적이고 건설적인 피드백 내용
-5. **선택 이유**: 왜 이 대상과 방식을 선택했는지
+4. **피드백 메시지**: 사용자 요청의 의도를 반영한 구체적이고 건설적인 피드백 내용
+5. **선택 이유**: 사용자 요청을 어떻게 반영했는지 포함하여 설명
 
-**고려사항:**
-- 요청자의 메시지 내용과 의도
+**추가 고려사항:**
 - 각 팀원의 역할과 최근 활동
 - 아이디어의 품질과 발전 가능성
 - 팀 전체의 성장과 협업 향상
@@ -1492,7 +1508,7 @@ ${memoryContext ? `**당신의 메모리:**\n${memoryContext}\n` : ""}
 다음 JSON 형식으로 응답하세요:
 {
   "targetMember": {
-    "id": "대상 팀원의 ID",
+    "id": "대상 팀원의 ID (인간 사용자인 경우 반드시 '나')",
     "name": "대상 팀원의 이름",
     "isUser": true/false
   },
@@ -1502,8 +1518,8 @@ ${memoryContext ? `**당신의 메모리:**\n${memoryContext}\n` : ""}
     "authorId": "아이디어 작성자 ID",
     "object": "아이디어 제목"
   }, // specific_idea 유형일 때만 포함
-  "feedbackMessage": "구체적이고 건설적인 피드백 메시지 (구어체로 자연스럽게)",
-  "reasoning": "이 선택을 한 이유에 대한 설명"
+  "feedbackMessage": "사용자 요청을 반영한 구체적이고 건설적인 피드백 메시지 (구어체로 자연스럽게)",
+  "reasoning": "사용자 요청을 어떻게 반영했는지와 이 선택을 한 이유에 대한 설명"
 }`;
 
   return getJsonResponse(prompt, agentProfile);

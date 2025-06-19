@@ -44,19 +44,62 @@ export async function GET(
             state = updatedState;
           }
 
+          // state가 여전히 null인 경우 기본 상태 생성 (getAgentState에서 실패한 경우)
+          if (!state) {
+            console.log(
+              `⚠️ ${member.agentId} 상태가 null이므로 기본 상태 생성`
+            );
+            state = {
+              agentId: member.agentId!,
+              currentState: "idle",
+              lastStateChange: new Date().toISOString(),
+              isProcessing: false,
+              idleTimer: createNewIdleTimer(),
+            };
+            // Redis에 저장
+            try {
+              await setAgentState(teamId, member.agentId!, state);
+            } catch (saveError) {
+              console.error(
+                `❌ ${member.agentId} 기본 상태 저장 실패:`,
+                saveError
+              );
+            }
+          }
+
           const agent = await getAgentById(member.agentId!);
           return {
             agentId: member.agentId!,
             name: agent?.name || member.agentId!,
-            state: state || null,
-            isFeedbackSession: state ? isFeedbackSessionActive(state) : false,
+            state: state, // 이제 항상 유효한 상태 객체
+            isFeedbackSession: isFeedbackSessionActive(state),
           };
         } catch (error) {
           console.error(`❌ 에이전트 ${member.agentId} 상태 조회 실패:`, error);
+
+          // 에러 발생 시에도 기본 상태 생성
+          const defaultState = {
+            agentId: member.agentId!,
+            currentState: "idle" as const,
+            lastStateChange: new Date().toISOString(),
+            isProcessing: false,
+            idleTimer: createNewIdleTimer(),
+          };
+
+          // 기본 상태를 Redis에 저장 시도
+          try {
+            await setAgentState(teamId, member.agentId!, defaultState);
+          } catch (saveError) {
+            console.error(
+              `❌ ${member.agentId} 에러 후 기본 상태 저장 실패:`,
+              saveError
+            );
+          }
+
           return {
             agentId: member.agentId!,
             name: member.agentId!,
-            state: null,
+            state: defaultState, // null 대신 기본 상태 반환
             isFeedbackSession: false,
           };
         }

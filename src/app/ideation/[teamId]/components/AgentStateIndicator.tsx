@@ -13,11 +13,14 @@ export default function AgentStateIndicator({
   timer,
   agentName,
 }: AgentStateIndicatorProps) {
-  if (!state) return null;
-
-  // 회고중 상태는 UI에서 숨김
-  if (state.currentState === "reflecting") {
-    return null;
+  // state가 undefined인 경우에만 조기 반환 (API 로딩 중)
+  if (!state) {
+    return (
+      <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-gray-100 text-gray-500 text-xs">
+        <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse"></div>
+        <span>로딩 중...</span>
+      </div>
+    );
   }
 
   const getStateInfo = () => {
@@ -60,6 +63,15 @@ export default function AgentStateIndicator({
           tooltip: state.currentTask?.requestInfo
             ? `${state.currentTask.requestInfo.requesterName}의 피드백을 기다리는 중`
             : state.currentTask?.description || "피드백을 기다리는 중",
+        };
+      case "reflecting":
+        return {
+          icon: <Brain className="h-3 w-3" />,
+          text: "회고중",
+          color: "bg-blue-100 text-blue-700",
+          tooltip:
+            state.currentTask?.description ||
+            "경험을 회고하고 메모리를 업데이트하는 중입니다",
         };
       case "action":
         // 작업 타입에 따른 구체적인 표시
