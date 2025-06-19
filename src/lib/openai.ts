@@ -1127,6 +1127,11 @@ export async function generateFeedbackSessionResponse(
     feedbackContext?: {
       category: string;
       description?: string;
+      type?: string;
+      aiStrategy?: {
+        reasoning: string;
+        plannedMessage: string;
+      };
     };
     teamIdeas?: any[];
   },
@@ -1145,6 +1150,25 @@ export async function generateFeedbackSessionResponse(
       (msg) => msg.type === "message"
     ).length;
 
+    // 첫 번째 메시지이고 계획된 메시지가 있는 경우 사용
+    if (
+      actualMessageCount === 0 &&
+      feedbackContext?.aiStrategy?.plannedMessage
+    ) {
+      console.log(
+        `🎯 첫 피드백 메시지에 계획된 메시지 사용: ${feedbackContext.aiStrategy.plannedMessage.substring(
+          0,
+          50
+        )}...`
+      );
+
+      return {
+        response: feedbackContext.aiStrategy.plannedMessage,
+        shouldEnd: false, // 첫 메시지는 항상 계속
+        reasoning: "계획된 첫 메시지 사용",
+      };
+    }
+
     // 최소 대화 횟수 미만이면 강제로 계속 진행
     const minMessages = 4; // 최소 4개 메시지 (사용자 1회 + AI 1회 + 사용자 1회 + AI 1회)
     const shouldForceContinue = actualMessageCount < minMessages;
@@ -1160,7 +1184,9 @@ export async function generateFeedbackSessionResponse(
 
     // 피드백 가이드라인 생성
     const feedbackGuideline = feedbackContext
-      ? `\n## 피드백 주제\n${feedbackContext.category}: ${
+      ? `\n## 피드백 주제\n${
+          feedbackContext.category || feedbackContext.type
+        }: ${
           feedbackContext.description || "일반적인 협업과 팀워크에 대한 피드백"
         }\n`
       : `\n## 피드백 주제\n일반적인 협업과 팀워크, 아이디어 발전 과정에 대한 건설적인 피드백\n`;

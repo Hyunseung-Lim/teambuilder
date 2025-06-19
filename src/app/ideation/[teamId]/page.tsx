@@ -114,6 +114,9 @@ export default function IdeationPage() {
   const [checkedSessionIds, setCheckedSessionIds] = useState<Set<string>>(
     new Set()
   );
+  const [notifiedSessionIds, setNotifiedSessionIds] = useState<Set<string>>(
+    new Set()
+  );
 
   // 에이전트 메모리 관련 상태
   const [hoveredAgentId, setHoveredAgentId] = useState<string | null>(null);
@@ -770,23 +773,33 @@ export default function IdeationPage() {
             setActiveTab(session.id);
             setCheckedSessionIds((prev) => new Set(prev).add(session.id));
 
-            // 알림 표시
-            try {
-              await fetch(`/api/teams/${team.id}/chat`, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  sender: "system",
-                  type: "system",
-                  payload: {
-                    content: `${otherParticipant.name}가 피드백을 요청했습니다. 피드백 탭이 자동으로 열렸습니다.`,
+            // 알림 표시 - 한 세션당 한 번만 (notifiedSessionIds로 중복 방지)
+            if (!notifiedSessionIds.has(session.id)) {
+              try {
+                await fetch(`/api/teams/${team.id}/chat`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
                   },
-                }),
-              });
-            } catch (error) {
-              console.error("❌ 시스템 메시지 전송 실패:", error);
+                  body: JSON.stringify({
+                    sender: "system",
+                    type: "give_feedback",
+                    payload: {
+                      content: `${otherParticipant.name}가 피드백을 요청했습니다. 피드백 탭이 자동으로 열렸습니다.`,
+                    },
+                  }),
+                });
+                setNotifiedSessionIds((prev) => new Set(prev).add(session.id));
+                console.log(
+                  `✅ 피드백 세션 알림 메시지 전송 완료: ${session.id}`
+                );
+              } catch (error) {
+                console.error("❌ 시스템 메시지 전송 실패:", error);
+              }
+            } else {
+              console.log(
+                `⚠️ 세션 ${session.id}는 이미 알림을 보냈으므로 스킵`
+              );
             }
 
             console.log(`✅ 피드백 탭 자동 생성 완료: ${session.id}`);
@@ -804,11 +817,16 @@ export default function IdeationPage() {
     const interval = setInterval(checkUserFeedbackSessions, 3000);
 
     return () => clearInterval(interval);
-  }, [team?.id, feedbackTabs, checkedSessionIds]);
+  }, [team?.id, feedbackTabs, checkedSessionIds, notifiedSessionIds]);
 
   // 탭이 닫힐 때 체크된 세션 목록에서 제거
   const handleTabClose = (tabId: string) => {
     setCheckedSessionIds((prev) => {
+      const newSet = new Set(prev);
+      newSet.delete(tabId);
+      return newSet;
+    });
+    setNotifiedSessionIds((prev) => {
       const newSet = new Set(prev);
       newSet.delete(tabId);
       return newSet;
