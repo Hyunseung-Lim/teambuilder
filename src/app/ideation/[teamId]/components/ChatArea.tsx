@@ -221,7 +221,7 @@ export default function ChatArea({
 
                   return (
                     <div key={message.id} className="flex justify-center mb-6">
-                      <div className="bg-slate-50 rounded-2xl p-6 max-w-2xl w-full">
+                      <div className="bg-slate-50 rounded-2xl p-6 max-w-4xl w-full">
                         <div className="flex items-center gap-2 mb-4">
                           <div
                             className={`w-6 h-6 ${
@@ -249,7 +249,7 @@ export default function ChatArea({
                               <p className="text-sm text-gray-600 mb-3">
                                 대화 내용
                               </p>
-                              <div className="bg-white rounded-lg p-3 space-y-2 max-h-60 overflow-y-auto">
+                              <div className="bg-white rounded-lg p-3 space-y-2">
                                 {summaryPayload.sessionMessages.map(
                                   (sessionMsg: any, msgIdx: number) => {
                                     if (sessionMsg.type === "system") {
