@@ -103,7 +103,8 @@ async function executeGenerateIdeaAction(
     team.topic || "Carbon Emission Reduction",
     agentProfile,
     existingIdeas,
-    agentMemory || undefined
+    agentMemory || undefined,
+    team
   );
 
   const newIdea = await addIdea(teamId, {
@@ -215,8 +216,47 @@ async function executeEvaluateIdeaAction(
     `📊 ${agentProfile.name} → ${randomIdea.content.object} 평가 시작`
   );
 
+  const finalPrompt = `
+최종 사용자 프롬프트: 
+You are an AI agent in a team ideation session. Your task is to evaluate the provided idea objectively.
+Rate the idea on a scale of 1-5 for relevance, actionable, and insightfulness. Provide a brief comment in Korean.
+
+IMPORTANT: You should only evaluate ideas created by other team members, not your own ideas.
+
+The idea to evaluate: ${JSON.stringify(randomIdea, null, 2)}`;
+
+  // 공유 멘탈 모델 추가
+  let extendedPrompt = finalPrompt;
+  if (team?.sharedMentalModel) {
+    extendedPrompt += `
+
+**팀의 공유 멘탈 모델:**
+${team.sharedMentalModel}
+
+위 공유 멘탈 모델을 바탕으로 팀의 방향성과 가치관에 맞는 평가를 해주세요.`;
+  }
+
+  extendedPrompt += `
+Your evaluation should be in the following JSON format:
+{
+  "scores": {
+    "relevance": <1-5>,
+    "actionable": <1-5>,
+    "insightful": <1-5>
+  },
+  "comment": "Your concise, constructive feedback in Korean."
+}
+
+Additional context for evaluation: "${agentProfile.name}"`;
+
+  console.log(extendedPrompt);
+
   try {
-    const evaluation = await evaluateIdeaAction(randomIdea, agentProfile.name);
+    const evaluation = await evaluateIdeaAction(
+      randomIdea,
+      agentProfile.name,
+      team
+    );
 
     const response = await fetch(
       `${
@@ -668,7 +708,10 @@ async function executeMakeRequestAction(
       teamMembers,
       currentIdeas,
       agentProfile,
-      agentMemory || undefined
+      agentMemory || undefined,
+      undefined,
+      undefined,
+      team.sharedMentalModel
     );
 
     // 채팅 메시지로 추가

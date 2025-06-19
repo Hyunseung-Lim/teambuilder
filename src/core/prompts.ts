@@ -549,6 +549,7 @@ export function createPlanningPrompt(
       object: string;
       function: string;
     }>;
+    sharedMentalModel?: string;
   }
 ): string {
   const existingIdeasText =
@@ -627,6 +628,16 @@ export function createPlanningPrompt(
         )} (다른 액션 선택 권장)`
       : "당신은 아직 액션을 수행하지 않았습니다.";
 
+  // 공유 멘탈 모델 섹션 생성
+  const sharedMentalModelSection = teamContext.sharedMentalModel
+    ? `
+
+**팀의 공유 멘탈 모델:**
+${teamContext.sharedMentalModel}
+
+위 공유 멘탈 모델을 바탕으로 팀의 방향성과 가치관에 맞는 행동을 선택하세요.`
+    : "";
+
   return `You are AI agent ${agentProfile.name} in the "${
     teamContext.teamName
   }" team.
@@ -641,7 +652,7 @@ Your Profile:
 Current Team Situation:
 - Topic: ${teamContext.topic}
 - Current number of ideas: ${teamContext.currentIdeasCount}
-- Team members: ${teamContext.teamMembers.join(", ")}
+- Team members: ${teamContext.teamMembers.join(", ")}${sharedMentalModelSection}
 
 Existing Ideas:
 ${existingIdeasText}
@@ -757,7 +768,8 @@ export const preRequestPrompt = (
     object: string;
     function: string;
   }>,
-  memory?: AgentMemory
+  memory?: AgentMemory,
+  sharedMentalModel?: string // 공유 멘탈 모델 추가
 ) => {
   const teamMembersInfo = teamMembers
     .map((member) => {
@@ -804,12 +816,22 @@ export const preRequestPrompt = (
 `
     : "";
 
+  // 공유 멘탈 모델 섹션 생성
+  const sharedMentalModelSection = sharedMentalModel
+    ? `
+
+**팀의 공유 멘탈 모델:**
+${sharedMentalModel}
+
+위 공유 멘탈 모델을 바탕으로 팀의 방향성과 가치관에 맞는 요청을 하세요.`
+    : "";
+
   return `You are making a request to another team member in the team ideation session. Strategically analyze who to request and what to request.
 
 ${memoryContext}
 
 **Request Context:**
-${triggerContext}
+${triggerContext}${sharedMentalModelSection}
 
 **Team Member Information:**
 ${teamMembersInfo}
@@ -860,7 +882,8 @@ export const executeRequestPrompt = (
     skills?: string;
     personality?: string;
     value?: string;
-  }
+  },
+  sharedMentalModel?: string // 공유 멘탈 모델 추가
 ) => {
   const relationshipDescription = relationshipType
     ? {
@@ -914,82 +937,70 @@ export const executeRequestPrompt = (
 - Roles: ${targetMemberRoles.join(", ")}
 `;
 
+  // 공유 멘탈 모델 섹션 생성
+  const sharedMentalModelSection = sharedMentalModel
+    ? `
+
+**팀의 공유 멘탈 모델:**
+${sharedMentalModel}
+
+위 공유 멘탈 모델을 바탕으로 팀의 방향성과 가치관에 맞는 요청을 작성하세요.`
+    : "";
+
   const isDelegation = originalRequest && originalRequester;
 
   if (isDelegation) {
     return `You are delegating a request received from ${originalRequester} to ${targetMember}.
 
-${memoryContext}${targetMemberDetails}
+${memoryContext}${targetMemberDetails}${sharedMentalModelSection}
 
-**Original Request:** ${originalRequest}
-**Original Requester:** ${originalRequester}
-**Delegation Target:** ${targetMember}
-**Request Strategy:** ${requestStrategy}
-**Context to Provide:** ${contextToProvide}
-**Relationship:** ${relationshipDescription}
+**Original Request from ${originalRequester}:**
+"${originalRequest}"
 
-**Delegation Message Guidelines:**
-1. Accurately convey the context of the original request
-2. Provide clear reasons why delegating to this team member (considering their background and expertise)
-3. Specify the original requester for transparency
-4. Write naturally and conversationally
-5. Acknowledge the other person's expertise and role when making the request
-6. Show respectful attitude that acknowledges they can decline
-7. Use appropriate honorifics/casual speech based on relationship
-${
-  targetMemberInfo?.isUser
-    ? "8. For human users, acknowledge their professional background and explain how their expertise can contribute"
-    : ""
-}
+**Delegation Strategy:**
+${requestStrategy}
 
-Respond in the following JSON format. Write all content in Korean:
+**Context to Provide:**
+${contextToProvide}
+
+**Request Type:** ${requestType}
+
+Based on the analysis, craft a natural and conversational message to delegate this request to ${targetMember}. Consider the following:
+- ${relationshipDescription}
+- Explain why you're delegating this specific request to them
+- Provide the necessary context for them to act on the request
+- Be clear about what specific action you want them to take
+- Reference the original requester if appropriate
+
+Write in Korean using casual but respectful language.
+
+Respond only in the following JSON format:
 {
-  "message": "Natural and specific message delegating the original request (Korean, conversational)"
-}
-
-Write the delegation message now.`;
+  "message": "Your delegation message to ${targetMember} in Korean"
+}`;
   } else {
-    return `You are requesting ${requestType} work from ${targetMember} in the team ideation session.
+    return `You are making a request to ${targetMember} based on your strategic analysis.
 
-${memoryContext}${targetMemberDetails}
+${memoryContext}${targetMemberDetails}${sharedMentalModelSection}
 
-**Request Target:** ${targetMember}
-**Request Content:** ${requestType}
-**Request Strategy:** ${requestStrategy}
-**Context to Provide:** ${contextToProvide}
-**Relationship:** ${relationshipDescription}
+**Request Analysis:**
+- Target: ${targetMember}
+- Request Type: ${requestType}
+- Strategy: ${requestStrategy}
+- Context: ${contextToProvide}
 
-**Request Writing Guidelines:**
-1. Write naturally and conversationally (not too formal)
-2. Acknowledge the other person's role and expertise when making the request
-3. Include specific work content and background explanation
-4. Show respectful attitude that acknowledges they can decline
-5. Use appropriate honorifics/casual speech based on relationship
-6. Emphasize cooperation for team goal achievement
-${
-  targetMemberInfo?.isUser
-    ? "7. For human users, acknowledge their professional background and explain how their expertise can contribute to the request"
-    : ""
-}
+Based on the analysis, craft a natural and conversational message to request ${requestType} from ${targetMember}. Consider the following:
+- ${relationshipDescription}
+- Explain why you're specifically requesting this from them
+- Provide any necessary context or background
+- Be clear about what specific action you want them to take
+- Consider their expertise and background when framing the request
 
-**Request Type Specifics:**
-${
-  requestType === "generate_idea"
-    ? "- Request idea generation from a specific perspective or topic\n- Suggest directions that can differentiate from existing ideas"
-    : requestType === "evaluate_idea"
-    ? "- Request evaluation of specific ideas or idea groups\n- Suggest perspectives to focus on during evaluation"
-    : "- Request feedback on specific ideas or situations\n- Specify what aspects you want feedback on"
-}${
-      targetMemberInfo?.isUser && targetMemberInfo.professional
-        ? `\n- Consider how ${targetMember}'s professional background in ${targetMemberInfo.professional} can provide unique insights`
-        : ""
-    }
+Write in Korean using casual but respectful language.
 
-Respond in the following JSON format. Write all content in Korean:
+Respond only in the following JSON format:
 {
-  "message": "Natural and specific request message (Korean, conversational)"
-}
-
-Write the request message now.`;
+  "message": "Your request message to ${targetMember} in Korean"
+}`;
   }
 };

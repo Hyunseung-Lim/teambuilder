@@ -33,6 +33,7 @@ export interface Team {
   members: TeamMember[];
   relationships: Relationship[];
   topic?: string; // 아이디에이션 주제
+  sharedMentalModel?: string; // 공유 멘탈 모델
   createdAt: Date;
 }
 

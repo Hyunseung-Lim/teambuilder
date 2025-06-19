@@ -120,6 +120,7 @@ export class Agent {
           object: idea.content.object,
           function: idea.content.function,
         })),
+        sharedMentalModel: this.team.sharedMentalModel,
       };
 
       const decision = await OpenAIActions.planNextAction(
@@ -238,7 +239,8 @@ export class Agent {
 
     const evaluationResult = await OpenAIActions.evaluateIdeaAction(
       payload.idea,
-      payload.context
+      payload.context,
+      this.team || undefined
     );
     const newEvaluation = {
       evaluator: this.agentInfo.name,
@@ -341,7 +343,8 @@ export class Agent {
       teamMembers,
       currentIdeas,
       this.agentInfo,
-      this.memory || undefined
+      this.memory || undefined,
+      this.team.sharedMentalModel
     );
 
     // 2단계: 요청 실행
@@ -376,7 +379,11 @@ export class Agent {
         this.agentInfo,
         this.memory || undefined,
         payload.originalRequest,
-        payload.originalRequester
+        payload.originalRequester,
+        {
+          isUser: targetMemberInfo.isUser,
+        },
+        this.team.sharedMentalModel
       );
     } else {
       // 직접 요청인 경우
@@ -388,7 +395,13 @@ export class Agent {
         targetMemberInfo.roles,
         relationship?.type,
         this.agentInfo,
-        this.memory || undefined
+        this.memory || undefined,
+        undefined,
+        undefined,
+        {
+          isUser: targetMemberInfo.isUser,
+        },
+        this.team.sharedMentalModel
       );
     }
 

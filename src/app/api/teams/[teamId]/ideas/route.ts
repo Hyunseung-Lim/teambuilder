@@ -64,9 +64,14 @@ export async function POST(
           agentProfile = await getAgentById(author);
         }
 
+        const team = await getTeamById(teamId);
+
         const generatedContent = await generateIdeaAction(
           topic || "Carbon Emission Reduction",
-          agentProfile
+          agentProfile,
+          undefined,
+          undefined,
+          team
         );
 
         const newIdea = await addIdea(teamId, {
@@ -253,9 +258,14 @@ export async function POST(
             60
           );
 
+          const team = await getTeamById(teamId);
+
           const generatedContent = await generateIdeaAction(
             topic || "Carbon Emission Reduction",
-            agentProfile
+            agentProfile,
+            undefined,
+            undefined,
+            team
           );
 
           const newIdea = await addIdea(teamId, {

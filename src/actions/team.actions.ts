@@ -19,55 +19,44 @@ export async function createTeamAction(formData: FormData) {
     throw new Error("인증이 필요합니다.");
   }
 
-  const teamName = formData.get("teamName") as string;
-  const topic = formData.get("topic") as string;
-  const selectedAgents = JSON.parse(formData.get("selectedAgents") as string);
-  const relationships = JSON.parse(
-    (formData.get("relationships") as string) || "[]"
-  );
-
-  if (!teamName || !topic || selectedAgents.length === 0) {
-    throw new Error("팀 이름, 주제, 에이전트를 모두 입력해주세요.");
-  }
-
-  // 각 멤버가 최소 하나의 역할을 가지는지 확인
-  for (const member of selectedAgents) {
-    if (!member.roles || member.roles.length === 0) {
-      throw new Error("모든 팀원에게 최소 하나의 역할을 할당해주세요.");
-    }
-  }
-
   try {
+    // 폼 데이터 파싱
+    const teamName = formData.get("teamName") as string;
+    const topic = formData.get("topic") as string;
+    const members = JSON.parse(formData.get("members") as string);
+    const relationships = JSON.parse(formData.get("relationships") as string);
+    const sharedMentalModel = formData.get("sharedMentalModel") as string;
+
+    if (!teamName || !topic || !members || !relationships) {
+      return { success: false, error: "필수 정보가 누락되었습니다." };
+    }
+
+    // 각 멤버가 최소 하나의 역할을 가지는지 확인
+    for (const member of members) {
+      if (!member.roles || member.roles.length === 0) {
+        throw new Error("모든 팀원에게 최소 하나의 역할을 할당해주세요.");
+      }
+    }
+
     const user = await getUserByEmail(session.user.email);
     if (!user) {
       throw new Error("사용자를 찾을 수 없습니다.");
     }
 
     // 팀 생성
-    const teamData = {
+    const team = await createTeam({
       teamName,
-      ownerId: user.id,
       topic,
-      members: selectedAgents,
+      members,
       relationships,
-    };
-    const team = await createTeam(teamData);
+      sharedMentalModel,
+      ownerId: user.id,
+    });
 
-    console.log("✅ 팀 생성 완료:", team.id);
-
-    // 새로운 에이전트 상태 시스템은 자동으로 초기화됨 (agent-states API에서 처리)
-    console.log("✅ 에이전트 상태 시스템은 첫 요청 시 자동 초기화됩니다");
-
-    revalidatePath("/");
-    redirect("/");
-    return team;
+    revalidatePath("/dashboard/teams");
+    return { success: true, teamId: team.id };
   } catch (error) {
-    // Next.js redirect는 정상 동작이므로 다시 throw
-    if (error instanceof Error && error.message === "NEXT_REDIRECT") {
-      throw error;
-    }
-    console.error("팀 생성 오류:", error);
-    throw new Error("팀 생성에 실패했습니다.");
+    return { success: false, error: "팀 생성에 실패했습니다." };
   }
 }
 

@@ -46,7 +46,7 @@ const AVAILABLE_ROLES: AgentRole[] = [
 export default function NewTeamPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState(1); // 1: 팀정보, 2: 역할설계, 3: 팀원생성, 4: 관계설정
+  const [step, setStep] = useState(1); // 1: 팀정보, 2: 역할설계, 3: 팀원생성, 4: 관계설정, 5: 공유 멘탈 모델
   const [existingAgents, setExistingAgents] = useState<AIAgent[]>([]);
   const [activeTab, setActiveTab] = useState<"create" | "import">("create");
   const [currentMemberIndex, setCurrentMemberIndex] = useState(0); // 현재 설정 중인 팀원 인덱스
@@ -61,6 +61,9 @@ export default function NewTeamPage() {
 
   // 4단계: 관계 설정
   const [relationships, setRelationships] = useState<Relationship[]>([]);
+
+  // 5단계: 공유 멘탈 모델
+  const [sharedMentalModel, setSharedMentalModel] = useState("");
 
   // 기존 에이전트 로드
   useEffect(() => {
@@ -176,7 +179,9 @@ export default function NewTeamPage() {
     .filter((member) => !member.isUser)
     .every((member) => member.agent);
 
-  const canSubmit = true; // 관계 설정은 선택사항
+  const canProceedToStep5 = true; // 관계 설정은 선택사항
+
+  const canSubmit = sharedMentalModel.trim().length > 0; // 공유 멘탈 모델은 필수
 
   // AI 팀원들만 필터링
   const aiMembers = memberSlots.filter((member) => !member.isUser);
@@ -243,23 +248,24 @@ export default function NewTeamPage() {
       const teamFormData = new FormData();
       teamFormData.append("teamName", teamName.trim());
       teamFormData.append("topic", topic.trim());
-      teamFormData.append("selectedAgents", JSON.stringify(teamMembers));
+      teamFormData.append("members", JSON.stringify(teamMembers));
       teamFormData.append("relationships", JSON.stringify(relationships));
+      teamFormData.append("sharedMentalModel", sharedMentalModel.trim());
 
-      await createTeamAction(teamFormData);
+      const result = await createTeamAction(teamFormData);
 
-      // 성공 시 리디렉션은 createTeamAction 내부에서 처리됨
-    } catch (error) {
-      // createTeamAction에서 redirect()가 호출되면 특정 에러가 발생합니다.
-      // 이 에러는 무시해야 정상적으로 리디렉션됩니다.
-      if (error instanceof Error && error.message.includes("NEXT_REDIRECT")) {
-        // 정상적인 리디렉션이므로 아무것도 하지 않음
+      // 성공 응답 확인 및 리디렉션
+      if (result.success && result.teamId) {
+        window.location.href = "/";
       } else {
-        setError(
-          error instanceof Error ? error.message : "팀 생성에 실패했습니다."
-        );
-        setIsLoading(false);
+        throw new Error(result.error || "팀 생성에 실패했습니다.");
       }
+    } catch (error) {
+      // 실제 에러인 경우에만 에러 상태를 설정합니다.
+      setError(
+        error instanceof Error ? error.message : "팀 생성에 실패했습니다."
+      );
+      setIsLoading(false);
     }
   };
 
@@ -325,6 +331,7 @@ export default function NewTeamPage() {
             { num: 2, label: "역할 & 리더" },
             { num: 3, label: "팀원 생성" },
             { num: 4, label: "관계 설정" },
+            { num: 5, label: "공유 멘탈 모델" },
           ].map((stepInfo, index) => (
             <div key={stepInfo.num} className="flex items-center">
               <div className="flex flex-col items-center">
@@ -345,7 +352,7 @@ export default function NewTeamPage() {
                   {stepInfo.label}
                 </span>
               </div>
-              {index < 3 && (
+              {index < 4 && (
                 <ArrowRight
                   className={`h-4 w-4 mx-2 ${
                     step > stepInfo.num ? "text-blue-600" : "text-gray-300"
@@ -1020,7 +1027,7 @@ export default function NewTeamPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="p-4 bg-blue-50 rounded-lg text-sm text-blue-800">
-              <p className="font-semibold">💡 사용법</p>
+              <p className="font-semibold mb-2">💡 사용법</p>
               <ul className="list-disc list-inside text-xs text-blue-700 mt-1 leading-normal">
                 <li>"관계 연결하기" 버튼을 눌러 관계 설정을 시작하세요.</li>
                 <li>노드를 클릭하여 관계를 만들고, 관계 종류를 선택하세요.</li>
@@ -1042,6 +1049,74 @@ export default function NewTeamPage() {
                 disabled={isLoading}
               >
                 이전: 팀원 생성
+              </Button>
+              <Button
+                onClick={() => setStep(5)}
+                disabled={isLoading || !canProceedToStep5}
+              >
+                다음: 공유 멘탈 모델
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 5단계: 공유 멘탈 모델 */}
+      {step === 5 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              5단계: 공유 멘탈 모델
+            </CardTitle>
+            <CardDescription>
+              팀의 공유 멘탈 모델을 설정해주세요. 이는 팀원들의 AI 에이전트에게
+              반영됩니다.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="p-4 bg-blue-50 rounded-lg text-sm text-blue-800">
+              <p className="font-semibold mb-2">💡 공유 멘탈 모델이란?</p>
+              <p>
+                공유 멘탈 모델(Shared Mental Model)은 팀 구성원들이 특정 과제나
+                상황에 대해 유사한 지식, 신념, 가정을 공유하여 팀 활동의
+                효율성을 높이는 개념입니다.
+                <br />
+                <br />
+                아래에 팀이 공유하면 좋을 업무 관련 지식(과업을 수행하기 위한
+                절차 및 전략, 업무에 대한 팀의 목표)과 팀 관련 지식(팀의
+                갖추어야할 태도나 신념, 팀 동료에 대한 지식)을 작성해주세요.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="sharedMentalModel">공유 멘탈 모델 *</Label>
+              <Textarea
+                id="sharedMentalModel"
+                value={sharedMentalModel}
+                onChange={(e) => setSharedMentalModel(e.target.value)}
+                placeholder="예: 우리 팀은 사용자 중심의 혁신적인 아이디어를 추구합니다. 모든 구성원은 열린 소통을 통해 창의적인 사고를 공유하며, 실패를 두려워하지 않고 도전하는 문화를 지향합니다..."
+                className="min-h-[200px]"
+              />
+              <p className="text-sm text-gray-600">
+                팀의 목표, 가치관, 업무 방식, 팀 문화 등을 자유롭게
+                작성해주세요.
+              </p>
+            </div>
+
+            {error && (
+              <div className="text-sm text-red-600 bg-red-50 p-4 rounded-lg">
+                {error}
+              </div>
+            )}
+
+            <div className="flex justify-between pt-6 border-t border-gray-200">
+              <Button
+                variant="outline"
+                onClick={() => setStep(4)}
+                disabled={isLoading}
+              >
+                이전: 관계 설정
               </Button>
               <Button onClick={handleSubmit} disabled={isLoading || !canSubmit}>
                 {isLoading ? "팀 생성 중..." : "팀 생성 완료"}

@@ -948,10 +948,16 @@ export default function HomePage() {
                 {/* 팀 기본 정보 */}
                 <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-6 border border-blue-200">
                   <div className="flex items-center justify-between mb-4">
-                    <div>
+                    <div className="flex-1">
                       <h3 className="text-xl font-bold text-gray-900 mb-2">
                         {selectedTeam.teamName}
                       </h3>
+                      {selectedTeam.topic && (
+                        <p className="text-sm text-gray-700 mb-3">
+                          <span className="font-medium">주제:</span>{" "}
+                          {selectedTeam.topic}
+                        </p>
+                      )}
                       <div className="flex items-center gap-4 text-sm text-gray-600">
                         <div className="flex items-center gap-2">
                           <Users className="h-4 w-4" />
@@ -986,6 +992,16 @@ export default function HomePage() {
                       </div>
                     </div>
                   </div>
+                  {selectedTeam.sharedMentalModel && (
+                    <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                      <h4 className="text-sm font-semibold text-blue-900 mb-2">
+                        공유 멘탈 모델
+                      </h4>
+                      <p className="text-sm text-blue-700 leading-relaxed">
+                        {selectedTeam.sharedMentalModel}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* 팀원 상세 정보 */}

@@ -161,7 +161,14 @@ export async function createTeam(
   teamData: Omit<Team, "id" | "createdAt"> & { ownerId: string }
 ): Promise<Team> {
   const teamId = `team_${nanoid()}`;
-  const { teamName, topic, members, relationships, ownerId } = teamData;
+  const {
+    teamName,
+    topic,
+    members,
+    relationships,
+    sharedMentalModel,
+    ownerId,
+  } = teamData;
 
   const newTeam = {
     id: teamId,
@@ -170,6 +177,7 @@ export async function createTeam(
     topic: topic || "",
     members: JSON.stringify(members || []),
     relationships: JSON.stringify(relationships || []),
+    sharedMentalModel: sharedMentalModel || "",
     createdAt: new Date().toISOString(),
   };
 
@@ -186,20 +194,24 @@ export async function createTeam(
         topic: topic || "",
         members: members || [],
         relationships: relationships || [],
+        sharedMentalModel,
         createdAt: new Date(),
       } as Team);
     }
   }
 
-  return {
+  const returnTeam = {
     id: teamId,
     ownerId,
     teamName: teamName || "",
     topic: topic || "",
     members: members || [],
     relationships: relationships || [],
+    sharedMentalModel,
     createdAt: new Date(),
   } as Team;
+
+  return returnTeam;
 }
 
 export async function getTeamById(id: string): Promise<Team | null> {
@@ -249,6 +261,7 @@ export async function getTeamById(id: string): Promise<Team | null> {
     ownerId: ownerId as string,
     members,
     relationships,
+    sharedMentalModel: teamData.sharedMentalModel || undefined,
     topic: teamData.topic || undefined,
   };
 }
@@ -281,10 +294,98 @@ export async function updateTeam(
     updateData.relationships = JSON.stringify(teamData.relationships);
   }
 
+  if (teamData.sharedMentalModel !== undefined) {
+    updateData.sharedMentalModel = teamData.sharedMentalModel;
+
+    // 공유 멘탈 모델이 업데이트되면 팀의 모든 에이전트 메모리에도 반영
+    if (existingTeam.members) {
+      await updateAgentsSharedMentalModel(
+        existingTeam.members,
+        teamData.sharedMentalModel
+      );
+    }
+  }
+
   // Redis에 업데이트
   if (Object.keys(updateData).length > 0) {
     await redis.hset(keys.team(teamId), updateData);
   }
+}
+
+// 팀의 모든 에이전트 메모리에 공유 멘탈 모델 업데이트
+async function updateAgentsSharedMentalModel(
+  members: any[],
+  sharedMentalModel: string
+): Promise<void> {
+  console.log("=== 팀 에이전트들의 메모리에 공유 멘탈 모델 업데이트 시작 ===");
+
+  for (const member of members) {
+    if (!member.isUser && member.agentId) {
+      try {
+        console.log(`에이전트 ${member.agentId}의 메모리 업데이트 시작`);
+
+        // v2 메모리 시스템 먼저 시도
+        try {
+          const { getNewAgentMemory, saveNewAgentMemory } = await import(
+            "./memory-v2"
+          );
+          const newMemory = await getNewAgentMemory(member.agentId);
+
+          if (newMemory) {
+            console.log(`v2 메모리 발견, 업데이트 진행: ${member.agentId}`);
+
+            // 기존 공유 멘탈 모델 섹션 제거
+            let updatedKnowledge = newMemory.longTerm.knowledge.replace(
+              /\n\n=== 팀의 공유 멘탈 모델 ===\n[\s\S]*?(?=\n\n|$)/,
+              ""
+            );
+
+            // 새로운 공유 멘탈 모델 추가
+            if (sharedMentalModel) {
+              const mentalModelPrefix = "\n\n=== 팀의 공유 멘탈 모델 ===\n";
+              updatedKnowledge =
+                updatedKnowledge + mentalModelPrefix + sharedMentalModel;
+            }
+
+            newMemory.longTerm.knowledge = updatedKnowledge;
+            newMemory.lastMemoryUpdate = new Date().toISOString();
+
+            await saveNewAgentMemory(member.agentId, newMemory);
+            console.log(`✅ v2 메모리 업데이트 완료: ${member.agentId}`);
+            continue;
+          }
+        } catch (error) {
+          console.error(`v2 메모리 업데이트 실패: ${member.agentId}`, error);
+        }
+
+        // 기존 메모리 시스템 폴백
+        const existingMemory = await getAgentMemory(member.agentId);
+        if (existingMemory) {
+          console.log(`기존 메모리 시스템으로 업데이트: ${member.agentId}`);
+
+          // 기존 공유 멘탈 모델 정보 제거 후 새로 추가
+          let updatedSelf = existingMemory.longTerm.self
+            .replace(/우리 팀의 공유 멘탈 모델:[\s\S]*?(?=\.|$)/, "")
+            .trim();
+
+          if (sharedMentalModel) {
+            updatedSelf = `${updatedSelf}. 우리 팀의 공유 멘탈 모델: ${sharedMentalModel}`;
+          }
+
+          existingMemory.longTerm.self = updatedSelf;
+          await updateAgentMemory(member.agentId, existingMemory);
+          console.log(`✅ 기존 메모리 업데이트 완료: ${member.agentId}`);
+        }
+      } catch (error) {
+        console.error(
+          `에이전트 ${member.agentId} 메모리 업데이트 실패:`,
+          error
+        );
+      }
+    }
+  }
+
+  console.log("=== 팀 에이전트들의 메모리 업데이트 완료 ===");
 }
 
 export async function getUserTeams(userId: string): Promise<Team[]> {
@@ -856,7 +957,21 @@ export async function initializeAgentMemory(
   console.log(
     `=== 에이전트 ${agentId}의 메모리 초기화 시작 (v2 시스템 사용) ===`
   );
-  console.log("팀 정보:", JSON.stringify(team, null, 2));
+  console.log(
+    "팀 정보:",
+    JSON.stringify({
+      teamName: team.teamName,
+      topic: team.topic,
+      memberCount: team.members.length,
+    })
+  );
+  console.log("공유 멘탈 모델 정보:");
+  console.log("- 존재 여부:", !!team.sharedMentalModel);
+  console.log("- 길이:", team.sharedMentalModel?.length || 0);
+  console.log(
+    "- 내용 미리보기:",
+    team.sharedMentalModel?.substring(0, 50) + "..."
+  );
 
   // v2 메모리 시스템 사용
   const { createNewAgentMemory, saveNewAgentMemory } = await import(
@@ -864,8 +979,23 @@ export async function initializeAgentMemory(
   );
 
   try {
-    // 새로운 v2 메모리 구조로 생성
+    // 새로운 v2 메모리 구조로 생성 (공유 멘탈 모델 포함)
     const newMemory = await createNewAgentMemory(agentId, team);
+
+    // 공유 멘탈 모델을 에이전트의 지식에 추가
+    if (team.sharedMentalModel) {
+      const mentalModelPrefix = "\n\n=== 팀의 공유 멘탈 모델 ===\n";
+      const originalKnowledge = newMemory.longTerm.knowledge;
+      newMemory.longTerm.knowledge =
+        originalKnowledge + mentalModelPrefix + team.sharedMentalModel;
+
+      console.log(`✅ 에이전트 ${agentId}에 공유 멘탈 모델 추가됨`);
+      console.log("- 추가 전 지식 길이:", originalKnowledge.length);
+      console.log("- 추가 후 지식 길이:", newMemory.longTerm.knowledge.length);
+    } else {
+      console.log(`⚠️ 에이전트 ${agentId}에 추가할 공유 멘탈 모델이 없음`);
+    }
+
     await saveNewAgentMemory(agentId, newMemory);
 
     console.log(`✅ 에이전트 ${agentId}의 v2 메모리 초기화 완료`);
@@ -880,7 +1010,9 @@ export async function initializeAgentMemory(
         feedbackSessionChat: null,
       },
       longTerm: {
-        self: "팀에 새로 합류했습니다. v2 메모리 시스템을 사용하여 더 스마트하게 학습하고 협력하겠습니다.",
+        self: team.sharedMentalModel
+          ? `팀에 새로 합류했습니다. 우리 팀의 공유 멘탈 모델: ${team.sharedMentalModel}`
+          : "팀에 새로 합류했습니다. v2 메모리 시스템을 사용하여 더 스마트하게 학습하고 협력하겠습니다.",
         relations: {},
       },
     };
@@ -900,11 +1032,17 @@ async function initializeAgentMemoryLegacy(
   team: Team
 ): Promise<AgentMemory> {
   console.log(`=== 에이전트 ${agentId}의 기존 메모리 초기화 (폴백) ===`);
+  console.log("공유 멘탈 모델 폴백 처리:");
+  console.log("- 존재 여부:", !!team.sharedMentalModel);
+  console.log("- 길이:", team.sharedMentalModel?.length || 0);
 
   // 자신을 제외한 팀원 정보로 관계 메모리 초기화
   const relations: Record<string, RelationalMemory> = {};
   const agentProfile = await getAgentById(agentId);
-  console.log("에이전트 프로필:", JSON.stringify(agentProfile, null, 2));
+  console.log(
+    "에이전트 프로필:",
+    JSON.stringify({ id: agentProfile?.id, name: agentProfile?.name }, null, 2)
+  );
 
   if (!agentProfile) {
     console.error(`에이전트 프로필을 찾을 수 없음: ${agentId}`);
@@ -977,6 +1115,12 @@ async function initializeAgentMemoryLegacy(
     console.log(`관계 추가: ${relationKey}`, relations[relationKey]);
   }
 
+  const initialSelf = team.sharedMentalModel
+    ? `팀에 새로 합류했습니다. 우리 팀의 공유 멘탈 모델: ${team.sharedMentalModel}. 앞으로 팀원들과 좋은 관계를 맺고 협력하여 좋은 결과를 만들어가고 싶습니다.`
+    : "팀에 새로 합류했습니다. 앞으로 팀원들과 좋은 관계를 맺고 협력하여 좋은 결과를 만들어가고 싶습니다.";
+
+  console.log("기존 메모리 self 섹션 길이:", initialSelf.length);
+
   const initialMemory: AgentMemory = {
     agentId,
     shortTerm: {
@@ -985,12 +1129,23 @@ async function initializeAgentMemoryLegacy(
       feedbackSessionChat: null,
     },
     longTerm: {
-      self: "팀에 새로 합류했습니다. 앞으로 팀원들과 좋은 관계를 맺고 협력하여 좋은 결과를 만들어가고 싶습니다.",
+      self: initialSelf,
       relations,
     },
   };
 
-  console.log("초기 메모리 구조:", JSON.stringify(initialMemory, null, 2));
+  console.log(
+    "초기 메모리 구조:",
+    JSON.stringify(
+      {
+        agentId,
+        selfLength: initialSelf.length,
+        relationCount: Object.keys(relations).length,
+      },
+      null,
+      2
+    )
+  );
   await updateAgentMemory(agentId, initialMemory);
   console.log(`=== 에이전트 ${agentId}의 기존 메모리 초기화 완료 ===`);
 

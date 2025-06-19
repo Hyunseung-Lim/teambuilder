@@ -344,7 +344,8 @@ export async function generateIdea({
       enhancedTopic,
       agentProfile,
       [], // 초기에는 기존 아이디어 없음
-      memory || undefined
+      memory || undefined,
+      teamContext
     );
 
     console.log(`✅ 에이전트 ${agentId} 아이디어 생성 결과:`, ideaResult);
@@ -415,10 +416,16 @@ export async function generateIdeaAction(
     object: string;
     function: string;
   }>,
-  memory?: AgentMemory
+  memory?: AgentMemory,
+  team?: any
 ) {
   // 기존 아이디어가 있으면 프롬프트에 포함
   let enhancedContext = context || "Carbon Emission Reduction";
+
+  // 공유 멘탈 모델 추가
+  if (team?.sharedMentalModel) {
+    enhancedContext += `\n\n**팀의 공유 멘탈 모델:**\n${team.sharedMentalModel}\n\n위 공유 멘탈 모델을 바탕으로 팀의 방향성과 가치관에 맞는 아이디어를 생성하세요.`;
+  }
 
   if (existingIdeas && existingIdeas.length > 0) {
     const existingIdeasText = existingIdeas
@@ -482,8 +489,43 @@ export async function generateIdeaAction(
   return getJsonResponse(prompt, userProfile);
 }
 
-export async function evaluateIdeaAction(idea: any, context?: string) {
-  const prompt = evaluateIdeaPrompt(idea, context);
+export async function evaluateIdeaAction(
+  idea: any,
+  context?: string,
+  team?: { sharedMentalModel?: string }
+) {
+  let prompt = `You are an AI agent in a team ideation session. Your task is to evaluate the provided idea objectively.
+Rate the idea on a scale of 1-5 for relevance, actionable, and insightfulness. Provide a brief comment in Korean.
+
+IMPORTANT: You should only evaluate ideas created by other team members, not your own ideas.
+
+The idea to evaluate: ${JSON.stringify(idea, null, 2)}`;
+
+  // 공유 멘탈 모델 추가
+  if (team?.sharedMentalModel) {
+    prompt += `
+
+**팀의 공유 멘탈 모델:**
+${team.sharedMentalModel}
+
+위 공유 멘탈 모델을 바탕으로 팀의 방향성과 가치관에 맞는 평가를 해주세요.`;
+  }
+
+  prompt += `
+Your evaluation should be in the following JSON format:
+{
+  "scores": {
+    "relevance": <1-5>,
+    "actionable": <1-5>,
+    "insightful": <1-5>
+  },
+  "comment": "Your concise, constructive feedback in Korean."
+}
+
+Additional context for evaluation: "${
+    context || "Evaluate based on general principles."
+  }"`;
+
   return getJsonResponse(prompt);
 }
 
@@ -509,17 +551,26 @@ export async function giveFeedbackOnIdea(
           return member?.name || targetIdea.author;
         })();
 
-  const prompt = `당신은 ${
-    userProfile.name
-  }입니다. 팀 아이디어 세션에서 다음 아이디어에 대해 구어체로 자연스러운 피드백을 주세요.
+  let prompt = `당신은 ${userProfile.name}입니다. 팀 아이디어 세션에서 다음 아이디어에 대해 구어체로 자연스러운 피드백을 주세요.
 
 평가할 아이디어:
 - 제목: ${targetIdea.content.object}
 - 기능: ${targetIdea.content.function}
 - 작성자: ${ideaAuthor}
 
-주제: ${teamContext.topic}
+주제: ${teamContext.topic}`;
 
+  // 공유 멘탈 모델 추가
+  if (teamContext.sharedMentalModel) {
+    prompt += `
+
+**팀의 공유 멘탈 모델:**
+${teamContext.sharedMentalModel}
+
+위 공유 멘탈 모델을 바탕으로 팀의 방향성과 가치관에 맞는 피드백을 주세요.`;
+  }
+
+  prompt += `
 ${
   memory
     ? `
@@ -602,6 +653,7 @@ export async function planNextAction(
       object: string;
       function: string;
     }>;
+    sharedMentalModel?: string; // 공유 멘탈 모델 추가
   }
 ): Promise<{
   action:
@@ -891,13 +943,15 @@ export async function preRequestAction(
     function: string;
   }>,
   userProfile?: any,
-  memory?: AgentMemory
+  memory?: AgentMemory,
+  sharedMentalModel?: string // 공유 멘탈 모델 추가
 ) {
   const prompt = preRequestPrompt(
     triggerContext,
     teamMembers,
     currentIdeas,
-    memory
+    memory,
+    sharedMentalModel
   );
   return getJsonResponse(prompt, userProfile);
 }
@@ -921,7 +975,8 @@ export async function executeRequestAction(
     skills?: string;
     personality?: string;
     value?: string;
-  }
+  },
+  sharedMentalModel?: string // 공유 멘탈 모델 추가
 ) {
   const prompt = executeRequestPrompt(
     targetMember,
@@ -933,7 +988,8 @@ export async function executeRequestAction(
     memory,
     originalRequest,
     originalRequester,
-    targetMemberInfo
+    targetMemberInfo,
+    sharedMentalModel
   );
   return getJsonResponse(prompt, userProfile);
 }
@@ -965,7 +1021,8 @@ export async function makeRequestAction(
   userProfile?: any,
   memory?: AgentMemory,
   originalRequest?: string,
-  originalRequester?: string
+  originalRequester?: string,
+  sharedMentalModel?: string // 공유 멘탈 모델 추가
 ) {
   // Step 1: Analyze request
   const requestAnalysis = await preRequestAction(
@@ -973,7 +1030,8 @@ export async function makeRequestAction(
     teamMembers,
     currentIdeas,
     userProfile,
-    memory
+    memory,
+    sharedMentalModel
   );
 
   // Step 2: Execute request
@@ -1008,7 +1066,8 @@ export async function makeRequestAction(
         }
       : {
           isUser: false,
-        }
+        },
+    sharedMentalModel
   );
 
   return {
@@ -1149,6 +1208,7 @@ export async function generateFeedbackSessionResponse(
       };
     };
     teamIdeas?: any[];
+    sharedMentalModel?: string; // 공유 멘탈 모델 추가
   },
   agentMemory?: any
 ): Promise<{
@@ -1157,8 +1217,13 @@ export async function generateFeedbackSessionResponse(
   reasoning: string;
 }> {
   try {
-    const { otherParticipant, messageHistory, feedbackContext, teamIdeas } =
-      sessionContext;
+    const {
+      otherParticipant,
+      messageHistory,
+      feedbackContext,
+      teamIdeas,
+      sharedMentalModel,
+    } = sessionContext;
 
     // 현재 메시지 수 확인 (system 메시지 제외하고 실제 대화 메시지만)
     const actualMessageCount = messageHistory.filter(
@@ -1197,6 +1262,11 @@ export async function generateFeedbackSessionResponse(
         ? `\n## 팀의 아이디어 현황\n현재 팀에서 ${teamIdeas.length}개의 아이디어가 제안되었습니다. 다양한 접근법과 창의적인 솔루션들이 논의되고 있습니다.\n`
         : "";
 
+    // 공유 멘탈 모델 컨텍스트 생성
+    const sharedMentalModelContext = sharedMentalModel
+      ? `\n## 팀의 공유 멘탈 모델\n${sharedMentalModel}\n위 공유 멘탈 모델을 바탕으로 팀의 방향성과 가치관에 맞는 피드백을 제공하세요.\n`
+      : "";
+
     // 피드백 가이드라인 생성
     const feedbackGuideline = feedbackContext
       ? `\n## 피드백 주제\n${
@@ -1227,7 +1297,7 @@ export async function generateFeedbackSessionResponse(
 
     const prompt = `당신은 ${agent.name}입니다.\n\n## 상황\n현재 ${
       otherParticipant.name
-    }와 피드백 세션에 참여하고 있습니다.\n${feedbackGuideline}\n${conversationHistory}\n${memoryContext}\n${teamIdeasContext}\n${endingGuideline}\n\n## 성격과 역할\n- 이름: ${
+    }와 피드백 세션에 참여하고 있습니다.\n${feedbackGuideline}\n${conversationHistory}\n${memoryContext}\n${teamIdeasContext}\n${sharedMentalModelContext}\n${endingGuideline}\n\n## 성격과 역할\n- 이름: ${
       agent.name
     }\n- 나이: ${agent.age}세\n- 성별: ${agent.gender}\n- 직업: ${
       agent.professional
@@ -1235,17 +1305,7 @@ export async function generateFeedbackSessionResponse(
       agent.personality || "협력적이고 건설적"
     }\n- 가치관: ${
       agent.value || "팀워크와 혁신을 중시"
-    }\n\n## 피드백 세션 가이드라인\n1. 상대방의 전문성과 의견을 존중하며 대화하세요\n2. 구체적이고 실용적인 피드백을 제공하세요\n3. 질문을 통해 상대방의 생각을 더 깊이 이해하려 노력하세요\n4. 상대방의 가장 최근 메시지에 직접적으로 답변하되, 답변을 생성할 때 자신의 메모리와 과거 경험을 적극적으로 활용하세요\n\n## 대화 스타일\n- 상대와의 관계를 고려한 대화 스타일\n- 너무 길지 않고 간결하면서도 의미 있는 응답\n- 상대방과의 협업과 창의적 사고에 대해 진심으로 관심을 보이기\n- 메모리에 있는 과거 상호작용, 자기 성찰, 관계 정보를 바탕으로 개인화된 응답 제공\n\n## 세션 종료 판단 기준\n${
-      shouldForceContinue
-        ? "**중요: 현재는 대화를 계속 진행해야 합니다. shouldEnd를 반드시 false로 설정하세요.**"
-        : `다음 중 하나에 해당하면 세션을 종료할 수 있습니다:
-- 피드백이 충분히 주고받아졌을 때 (최소 ${minMessages}개 메시지 이후)
-- 대화가 반복되거나 더 이상 진전이 없을 때
-- 양측이 만족스러운 결론에 도달했을 때
-- 메시지가 8개 이상 주고받아졌을 때`
-    }\n\n다음 JSON 형식으로 응답하세요:\n{\n  \"response\": \"피드백 세션에서의 응답 (한국어, 1-3문장)\",\n  \"shouldEnd\": ${
-      shouldForceContinue ? "false" : "true/false"
-    },\n  \"reasoning\": \"세션을 종료하거나 계속하는 이유\"\n}`;
+    }\n\n## 피드백 세션 가이드라인\n1. 상대방의 전문성과 의견을 존중하며 대화하세요\n2. 구체적이고 실용적인 피드백을 제공하세요\n3. 질문을 통해 상대방의 생각을 더 깊이 이해하려 노력하세요\n4. 상대방의 가장 최근 메시지에 직접적으로 답변하되, 답변을 생성할 때 자신의 메모리와 과거 경험을 적극적으로 활용하세요\n5. 200자 내외로 간결하게\n\n다음 JSON 형식으로 응답하세요:\n{\n  \"response\": \"구어체로 작성된 자연스러운 피드백 내용\",\n  \"shouldEnd\": true/false,\n  \"reasoning\": \"세션을 종료하거나 계속하는 이유\"\n}`;
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -1408,6 +1468,7 @@ export async function planFeedbackStrategy(
       evaluations: any[];
     }>;
     recentMessages: any[];
+    sharedMentalModel?: string; // 공유 멘탈 모델 추가
   },
   requestContext: {
     requesterName: string;
@@ -1479,7 +1540,7 @@ export async function planFeedbackStrategy(
           .join("\n")
       : "최근 팀 활동이 없습니다.";
 
-  const prompt = `당신은 ${agentProfile.name}입니다. ${
+  let prompt = `당신은 ${agentProfile.name}입니다. ${
     requestContext.requesterName
   }가 피드백을 요청했습니다.
 
@@ -1503,7 +1564,19 @@ export async function planFeedbackStrategy(
 
 **팀 정보:**
 - 팀명: ${teamContext.teamName}
-- 주제: ${teamContext.topic}
+- 주제: ${teamContext.topic}`;
+
+  // 공유 멘탈 모델 추가
+  if (teamContext.sharedMentalModel) {
+    prompt += `
+
+**팀의 공유 멘탈 모델:**
+${teamContext.sharedMentalModel}
+
+→ 위 공유 멘탈 모델을 바탕으로 팀의 방향성과 가치관에 맞는 피드백을 제공하세요.`;
+  }
+
+  prompt += `
 
 **팀원 정보:**
 ${teamMembersInfo}

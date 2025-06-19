@@ -30,9 +30,11 @@ export default function Header({
           </Link>
           <div>
             <h1 className="text-xl font-bold text-gray-900">{team.teamName}</h1>
-            <p className="text-sm text-gray-600">
-              {topic ? `주제: ${topic}` : "아이디에이션 세션"}
-            </p>
+            <div className="flex flex-row gap-2 text-sm text-gray-600 items-center">
+              <p className="text-sm">
+                {topic ? `주제: ${topic}` : "아이디에이션 세션"}
+              </p>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-4">

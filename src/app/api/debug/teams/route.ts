@@ -65,7 +65,43 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const { teamId, action } = await req.json();
+    const { teamId, action, sharedMentalModel } = await req.json();
+
+    if (action === "updateSharedMentalModel") {
+      // 팀에 공유 멘탈 모델 추가
+      const { redis, keys } = await import("@/lib/redis");
+
+      if (!teamId || !sharedMentalModel) {
+        return NextResponse.json(
+          { error: "teamId와 sharedMentalModel이 필요합니다." },
+          { status: 400 }
+        );
+      }
+
+      // 팀 존재 확인
+      const teamExists = await redis.exists(keys.team(teamId));
+      if (!teamExists) {
+        return NextResponse.json(
+          { error: "팀을 찾을 수 없습니다." },
+          { status: 404 }
+        );
+      }
+
+      // 공유 멘탈 모델 업데이트
+      await redis.hset(keys.team(teamId), {
+        sharedMentalModel: sharedMentalModel,
+      });
+
+      // 업데이트된 팀 정보 조회
+      const updatedTeam = await redis.hgetall(keys.team(teamId));
+
+      return NextResponse.json({
+        message: `팀 ${teamId}에 공유 멘탈 모델을 추가했습니다.`,
+        teamId,
+        sharedMentalModel,
+        updatedTeam,
+      });
+    }
 
     if (action === "fixAllTeams") {
       // 모든 기존 팀을 현재 사용자에게 할당

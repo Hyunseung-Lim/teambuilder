@@ -110,7 +110,8 @@ export async function handleGenerateIdeaRequestDirect(
       team.topic || "Carbon Emission Reduction",
       agentProfile,
       existingIdeas,
-      agentMemory || undefined
+      agentMemory || undefined,
+      team
     );
 
     const newIdea = await addIdea(teamId, {
@@ -249,6 +250,7 @@ export async function handleGiveFeedbackRequestDirect(
         teamMembers: feedbackContext.availableMembers,
         existingIdeas: feedbackContext.existingIdeas,
         recentMessages: feedbackContext.recentMessages,
+        sharedMentalModel: team.sharedMentalModel,
       },
       {
         requesterName,
@@ -429,7 +431,11 @@ async function performIdeaEvaluation(
   );
 
   try {
-    const evaluation = await evaluateIdeaAction(randomIdea, agentProfile.name);
+    const evaluation = await evaluateIdeaAction(
+      randomIdea,
+      agentProfile.name,
+      team
+    );
 
     const response = await fetch(
       `${
