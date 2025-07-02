@@ -165,7 +165,7 @@ async function updateMemoryAfterEvaluation(
   // Long-term memory 업데이트
   // 1. 자기 성찰 추가
   const reflection = {
-    reflection: `내가 ${authorId}의 아이디어를 "${evaluation.scores.insightful}"점으로 평가했다. 코멘트: ${evaluation.comment}`,
+    reflection: `I evaluated ${authorId}'s idea with comprehensive scores: Insightful ${evaluation.scores.insightful}/5, Feasible ${evaluation.scores.feasible}/5, Impactful ${evaluation.scores.impactful}/5. Comment: ${evaluation.comment || 'No additional comments provided'}`,
     triggeringEvent: "evaluated_idea",
     relatedIdeaId: ideaId,
     timestamp: new Date().toISOString(),
@@ -189,9 +189,7 @@ async function updateMemoryAfterEvaluation(
   if (memory.longTerm.relations[relationKey]) {
     const interactionRecord = {
       action: "evaluated_their_idea",
-      content: `평가 점수: ${JSON.stringify(evaluation.scores)}. 코멘트: ${
-        evaluation.comment
-      }`,
+      content: `Evaluated their idea with full assessment: Insightful ${evaluation.scores.insightful}/5, Feasible ${evaluation.scores.feasible}/5, Impactful ${evaluation.scores.impactful}/5. Comment: ${evaluation.comment || 'No additional comments provided'}`,
       timestamp: new Date().toISOString(),
     };
     memory.longTerm.relations[relationKey].interactionHistory.push(

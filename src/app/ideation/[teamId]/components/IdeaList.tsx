@@ -12,6 +12,9 @@ interface IdeaListProps {
   authorFilter: string;
   uniqueAuthors: string[];
   onAuthorFilterChange: (author: string) => void;
+  sortBy: "latest" | "rating";
+  onSortChange: (sortBy: "latest" | "rating") => void;
+  calculateAverageRating: (idea: Idea) => number | null;
   onIdeaClick: (idea: Idea, index: number) => void;
   getAuthorName: (authorId: string) => string;
   generationProgress: { completed: number; total: number };
@@ -29,6 +32,9 @@ export default function IdeaList({
   authorFilter,
   uniqueAuthors,
   onAuthorFilterChange,
+  sortBy,
+  onSortChange,
+  calculateAverageRating,
   onIdeaClick,
   getAuthorName,
   generationProgress,
@@ -64,39 +70,53 @@ export default function IdeaList({
             )}
           </button>
         )}
-        <div className="flex items-center justify-end gap-2 mt-3">
-          {/* 필터 드롭다운 */}
-          <select
-            value={authorFilter}
-            onChange={(e) => onAuthorFilterChange(e.target.value)}
-            className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
-          >
-            {uniqueAuthors.map((author) => (
-              <option key={author} value={author}>
-                {author}
-              </option>
-            ))}
-          </select>
+        <div className="flex items-center justify-between gap-2 mt-3">
+          <div className="flex items-center gap-2">
+            {/* 정렬 드롭다운 */}
+            <select
+              value={sortBy}
+              onChange={(e) => onSortChange(e.target.value as "latest" | "rating")}
+              className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+            >
+              <option value="latest">최신순</option>
+              <option value="rating">평가순</option>
+            </select>
+            
+            {/* 필터 드롭다운 */}
+            <select
+              value={authorFilter}
+              onChange={(e) => onAuthorFilterChange(e.target.value)}
+              className="text-xs border border-gray-300 rounded px-2 py-1 bg-white"
+            >
+              {uniqueAuthors.map((author) => (
+                <option key={author} value={author}>
+                  {author}
+                </option>
+              ))}
+            </select>
+          </div>
 
-          <button className="p-2 hover:bg-gray-100 rounded">
-            <div className="grid grid-cols-3 gap-1">
-              {[...Array(9)].map((_, i) => (
-                <div key={i} className="w-1 h-1 bg-gray-400 rounded-full"></div>
-              ))}
-            </div>
-          </button>
-          <button className="p-2 hover:bg-gray-100 rounded">
-            <div className="flex flex-col gap-1">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="w-4 h-0.5 bg-gray-400"></div>
-              ))}
-            </div>
-          </button>
-          <button className="p-2 hover:bg-gray-100 rounded">
-            <div className="w-4 h-4 border border-gray-400">
-              <div className="w-full h-full border-l border-gray-400 rotate-45 origin-center"></div>
-            </div>
-          </button>
+          <div className="flex items-center gap-1">
+            <button className="p-2 hover:bg-gray-100 rounded">
+              <div className="grid grid-cols-3 gap-1">
+                {[...Array(9)].map((_, i) => (
+                  <div key={i} className="w-1 h-1 bg-gray-400 rounded-full"></div>
+                ))}
+              </div>
+            </button>
+            <button className="p-2 hover:bg-gray-100 rounded">
+              <div className="flex flex-col gap-1">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="w-4 h-0.5 bg-gray-400"></div>
+                ))}
+              </div>
+            </button>
+            <button className="p-2 hover:bg-gray-100 rounded">
+              <div className="w-4 h-4 border border-gray-400">
+                <div className="w-full h-full border-l border-gray-400 rotate-45 origin-center"></div>
+              </div>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -117,9 +137,19 @@ export default function IdeaList({
               onClick={() => onIdeaClick(idea, filteredIdeas.indexOf(idea))}
             >
               <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-gray-900">
-                  Idea {creationIndex + 1}
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-gray-900">
+                    Idea {creationIndex + 1}
+                  </h3>
+                  {(() => {
+                    const avgRating = calculateAverageRating(idea);
+                    return avgRating !== null ? (
+                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
+                        {avgRating.toFixed(1)}
+                      </span>
+                    ) : null;
+                  })()}
+                </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-500">아이디어 제작자</span>
                   <div

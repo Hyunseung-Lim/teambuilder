@@ -53,6 +53,7 @@ export default function IdeationPage() {
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [authorFilter, setAuthorFilter] = useState<string>("전체");
+  const [sortBy, setSortBy] = useState<"latest" | "rating">("latest");
   const [isGeneratingIdea, setIsGeneratingIdea] = useState(false);
   const [showAddIdeaModal, setShowAddIdeaModal] = useState(false);
   const [addIdeaFormData, setAddIdeaFormData] = useState({
@@ -186,15 +187,49 @@ export default function IdeationPage() {
     }
   };
 
-  // 아이디어 필터링
+  // 아이디어 필터링 (생성 순서용)
   const ideasSortedByCreation = [...ideas].sort((a, b) => a.id - b.id);
-  const filteredIdeas = ideas
-    .filter((idea) => {
+
+  // 평가 평균 점수 계산 함수
+  const calculateAverageRating = (idea: Idea): number | null => {
+    if (!idea.evaluations || idea.evaluations.length === 0) {
+      return null;
+    }
+    
+    const totalScores = idea.evaluations.reduce((sum, evaluation) => {
+      return sum + evaluation.scores.insightful + evaluation.scores.actionable + evaluation.scores.relevance;
+    }, 0);
+    
+    const totalEvaluations = idea.evaluations.length * 3; // 3가지 평가 항목
+    return totalScores / totalEvaluations;
+  };
+
+  // 정렬된 아이디어 목록
+  const getSortedIdeas = () => {
+    const filtered = ideas.filter((idea) => {
       if (authorFilter === "전체") return true;
       const authorName = getAuthorName(idea.author);
       return authorName === authorFilter;
-    })
-    .sort((a, b) => b.id - a.id);
+    });
+
+    if (sortBy === "rating") {
+      return filtered.sort((a, b) => {
+        const avgA = calculateAverageRating(a);
+        const avgB = calculateAverageRating(b);
+        
+        // 평가가 없는 아이디어는 가장 아래로
+        if (avgA === null && avgB === null) return b.id - a.id; // 최신순으로
+        if (avgA === null) return 1;
+        if (avgB === null) return -1;
+        
+        return avgB - avgA; // 높은 점수순
+      });
+    } else {
+      return filtered.sort((a, b) => b.id - a.id); // 최신순
+    }
+  };
+
+  const sortedAndFilteredIdeas = getSortedIdeas();
 
   // 고유한 작성자 목록
   const uniqueAuthors = [
@@ -1019,11 +1054,14 @@ export default function IdeationPage() {
             isAutoGenerating={isAutoGenerating}
             isGeneratingIdea={isGeneratingIdea}
             onShowAddIdeaModal={() => setShowAddIdeaModal(true)}
-            filteredIdeas={filteredIdeas}
+            filteredIdeas={sortedAndFilteredIdeas}
             ideasSortedByCreation={ideasSortedByCreation}
             authorFilter={authorFilter}
             uniqueAuthors={uniqueAuthors}
             onAuthorFilterChange={setAuthorFilter}
+            sortBy={sortBy}
+            onSortChange={setSortBy}
+            calculateAverageRating={calculateAverageRating}
             onIdeaClick={(idea, index) => {
               setIdeaDetailModalData(idea);
               setCurrentIdeaIndex(index);

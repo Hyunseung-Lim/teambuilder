@@ -8,6 +8,12 @@ import {
   redis,
 } from "./redis";
 import {
+  createSelfReflectionPrompt,
+  createRelationOpinionPrompt,
+  createDeepSelfReflectionPrompt,
+  createMemoryCompressionPrompt,
+} from "@/core/prompts";
+import {
   AgentMemory,
   ChatMessage,
   AIAgent,
@@ -152,45 +158,15 @@ export async function processMemoryUpdate(event: MemoryEvent): Promise<void> {
       }
 
       // 자기 성찰 생성
-      const selfReflectionPrompt = `
-당신은 ${agentProfile.name}입니다.
-
-**당신의 정보:**
-- 이름: ${agentProfile.name}
-- 나이: ${agentProfile.age}세
-- 성별: ${agentProfile.gender}
-- 전문성: ${agentProfile.professional}
-- 스킬: ${agentProfile.skills}
-- 성격: ${agentProfile.personality || "정보 없음"}
-- 가치관: ${agentProfile.value || "정보 없음"}
-- 자율성: ${agentProfile.autonomy}/5
-
-**방금 일어난 일:**
-${
-  isAutonomous
-    ? `당신이 스스로 계획하여 새로운 아이디어를 생성했습니다: "${idea.content.object}"`
-    : `팀원의 요청에 따라 새로운 아이디어를 생성했습니다: "${idea.content.object}"`
-}
-
-**팀 컨텍스트:**
-- 팀 이름: ${team.teamName}
-- 주제: ${team.topic || "Carbon Emission Reduction"}
-
-**현재 자기 성찰 내용:**
-${
-  typeof agentMemory.longTerm.self === "string" &&
-  agentMemory.longTerm.self.trim()
-    ? agentMemory.longTerm.self
-    : "아직 특별한 성찰 내용이 없습니다."
-}
-
-방금 아이디어를 생성한 경험을 바탕으로 자신에 대한 성찰을 업데이트해주세요. 
-기존 성찰 내용을 바탕으로 하되, 새로운 경험이 당신에게 어떤 의미인지, 
-당신의 성격이나 업무 스타일에 대해 새롭게 깨달은 점이 있는지 포함해주세요.
-
-**응답 형식:**
-간결하고 자연스러운 문체로 200자 이내로 작성해주세요.
-`;
+      const selfReflectionPrompt = createSelfReflectionPrompt(
+        agentProfile,
+        team,
+        idea,
+        isAutonomous || false,
+        typeof agentMemory.longTerm.self === "string" && agentMemory.longTerm.self.trim()
+          ? agentMemory.longTerm.self
+          : "아직 특별한 성찰 내용이 없습니다."
+      );
 
       try {
         const reflection = await getTextResponse(selfReflectionPrompt);
@@ -589,7 +565,7 @@ async function updateMemoryForIdeaEvaluation(
       const requesterName = await getAgentNameById(requesterId);
       const newReflection = await generateSelfReflection(
         memory.longTerm.self,
-        `${requesterName}의 요청에 따라 아이디어를 평가했습니다. 객관적이고 공정한 평가를 하려고 노력했으며, 건설적인 평가로 팀에 도움이 되고자 했습니다. 다른 사람의 요청에 성실히 응답하는 것이 팀워크의 기본이라고 생각합니다.`,
+        `I evaluated an idea upon ${requesterName}'s request. I strived to provide an objective and fair assessment, aiming to help the team through constructive evaluation. I believe responding sincerely to others' requests is fundamental to good teamwork.`,
         "requested_evaluation"
       );
       memory.longTerm.self = newReflection;
@@ -598,15 +574,18 @@ async function updateMemoryForIdeaEvaluation(
     // 평가받은 사람과의 관계 업데이트
     const relationKey = getRelationKey(ideaAuthorId);
     if (memory.longTerm.relations[relationKey]) {
+      // Generate full evaluation summary instead of just insights
+      const evaluationSummary = `Evaluated their idea with scores: Insightful ${evaluation.scores.insightful}/5, Feasible ${evaluation.scores.feasible}/5, Impactful ${evaluation.scores.impactful}/5. Comment: ${evaluation.comment || 'No additional comments'}`;
+      
       memory.longTerm.relations[relationKey].interactionHistory.push({
         action: "evaluated_their_idea",
-        content: `그들의 아이디어를 평가함. 점수: 통찰력 ${evaluation.scores.insightful}/5`,
+        content: evaluationSummary,
         timestamp: new Date().toISOString(),
       });
 
       await updateRelationOpinion(
         memory.longTerm.relations[relationKey],
-        "아이디어 평가 제공"
+        "provided idea evaluation"
       );
     }
   } else if (currentAgentId === ideaAuthorId) {
@@ -626,7 +605,7 @@ async function updateMemoryForIdeaEvaluation(
     // 평가를 받았을 때 self reflection 업데이트
     const newReflection = await generateSelfReflection(
       memory.longTerm.self,
-      `내 아이디어가 ${evaluatorName}에 의해 평가받았습니다. 다른 사람의 관점에서 보는 피드백이 도움이 됩니다. 앞으로 더 나은 아이디어를 만들기 위해 받은 평가를 깊이 성찰하고 개선점을 찾아보겠습니다.`,
+      `My idea was evaluated by ${evaluatorName}. Receiving feedback from different perspectives is valuable for improving my ideas. I will deeply reflect on the evaluation and find areas for improvement to create better ideas in the future.`,
       "received_evaluation"
     );
     memory.longTerm.self = newReflection;
@@ -634,15 +613,18 @@ async function updateMemoryForIdeaEvaluation(
     // 평가자와의 관계 업데이트
     const relationKey = getRelationKey(evaluatorId);
     if (memory.longTerm.relations[relationKey]) {
+      // Generate full evaluation summary instead of just insights
+      const receivedEvaluationSummary = `Received evaluation on my idea with scores: Insightful ${evaluation.scores.insightful}/5, Feasible ${evaluation.scores.feasible}/5, Impactful ${evaluation.scores.impactful}/5. Comment: ${evaluation.comment || 'No additional comments'}`;
+      
       memory.longTerm.relations[relationKey].interactionHistory.push({
         action: "received_evaluation_from",
-        content: `내 아이디어를 평가해줌. 통찰력 점수: ${evaluation.scores.insightful}/5`,
+        content: receivedEvaluationSummary,
         timestamp: new Date().toISOString(),
       });
 
       await updateRelationOpinion(
         memory.longTerm.relations[relationKey],
-        "평가 받음"
+        "received evaluation"
       );
     }
   } else {
@@ -812,30 +794,7 @@ async function updateRelationOpinion(
       return;
     }
 
-    const prompt = `
-당신은 팀 내 다른 멤버에 대한 의견을 형성하는 AI 에이전트입니다.
-
-대상 에이전트 정보:
-- 이름: ${relation.agentInfo.name}
-- 직업: ${relation.agentInfo.professional}
-- 관계: ${relation.relationship}
-
-최근 상호작용들:
-${recentInteractions
-  .map(
-    (interaction) =>
-      `- ${interaction.action}: ${interaction.content} (${interaction.timestamp})`
-  )
-  .join("\n")}
-
-현재 상황: ${context}
-
-기존 의견: ${relation.myOpinion}
-
-위 정보를 바탕으로 이 사람에 대한 새로운 의견을 1-2문장으로 작성해주세요. 
-기존 의견을 참고하되, 최근 상호작용을 반영하여 업데이트해주세요.
-JSON 형식이 아닌 일반 텍스트로만 응답해주세요.
-`;
+    const prompt = createRelationOpinionPrompt(relation, context);
 
     const response = await getTextResponse(prompt);
     if (response && response.trim()) {
@@ -859,28 +818,11 @@ async function generateSelfReflection(
   triggeringEvent: string
 ): Promise<string> {
   try {
-    const prompt = `
-당신은 팀에서 활동하는 AI 에이전트입니다. 새로운 경험을 바탕으로 자기 성찰을 업데이트해주세요.
-
-기존 성찰 내용:
-${currentReflection || "아직 특별한 성찰 내용이 없습니다."}
-
-새로운 경험:
-${newExperience}
-
-발생 상황: ${triggeringEvent}
-
-위 내용을 바탕으로 다음 가이드라인에 따라 성찰을 작성해주세요:
-
-1. **반성적 태도**: 자신의 행동과 감정을 깊이 돌아보세요
-2. **학습과 성장**: 이 경험에서 무엇을 배웠는지 성찰하세요  
-3. **미래 지향적**: 앞으로 어떻게 개선하고 발전할지 다짐하세요
-4. **팀워크 중시**: 팀원들과의 관계와 협력에 대해 생각해보세요
-5. **겸손한 자세**: 자만하지 않고 계속 배우려는 마음가짐을 보이세요
-
-기존 성찰 내용이 있다면 이를 발전시키고, 새로운 경험을 통합하여 더 깊이 있는 성찰로 업데이트해주세요.
-200-300자 정도의 한 문단으로 작성해주세요.
-`;
+    const prompt = createDeepSelfReflectionPrompt(
+      currentReflection,
+      newExperience,
+      triggeringEvent
+    );
 
     const response = await getTextResponse(prompt);
     if (response && response.trim()) {
@@ -920,22 +862,10 @@ async function compressLongTermMemory(
         const oldInteractions = relation.interactionHistory.slice(0, -10);
         const recentInteractions = relation.interactionHistory.slice(-10);
 
-        const prompt = `
-다음은 ${relation.agentInfo.name}과의 상호작용 기록들입니다. 
-이를 5-7개의 핵심 상호작용 요약으로 압축해주세요.
-
-상호작용 기록들:
-${oldInteractions.map((i) => `- ${i.action}: ${i.content}`).join("\n")}
-
-각 요약은 다음 형태로 작성해주세요:
-{
-  "action": "compressed_summary",
-  "content": "요약된 상호작용 내용",
-  "timestamp": "${new Date().toISOString()}"
-}
-
-JSON 배열로 응답해주세요.
-`;
+        const prompt = createMemoryCompressionPrompt(
+          relation.agentInfo.name,
+          oldInteractions
+        );
 
         const response = await getTextResponse(prompt);
         if (response && response.trim()) {
@@ -1003,12 +933,15 @@ async function createInitialMemory(
     if (member.isUser) {
       otherAgentId = "나";
       otherAgentName = "나";
+      // Check if user is actually the leader
+      const userRole = member.isLeader ? "팀 리더" : "팀원";
+      const userSkills = member.isLeader ? "리더십" : "협업";
       otherAgentProfile = {
         id: "나",
         name: "나",
-        professional: "팀 리더",
+        professional: userRole,
         personality: "알 수 없음",
-        skills: "리더십",
+        skills: userSkills,
       };
     } else {
       otherAgentId = member.agentId!;

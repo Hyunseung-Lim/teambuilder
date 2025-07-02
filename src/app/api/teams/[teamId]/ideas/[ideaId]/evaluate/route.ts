@@ -66,11 +66,11 @@ export async function POST(
       !scores.actionable ||
       !scores.relevance ||
       scores.insightful < 1 ||
-      scores.insightful > 5 ||
+      scores.insightful > 7 ||
       scores.actionable < 1 ||
-      scores.actionable > 5 ||
+      scores.actionable > 7 ||
       scores.relevance < 1 ||
-      scores.relevance > 5
+      scores.relevance > 7
     ) {
       console.error(`❌ 점수 범위 오류:`, {
         insightful: scores.insightful,
@@ -78,7 +78,7 @@ export async function POST(
         relevance: scores.relevance,
       });
       return NextResponse.json(
-        { error: "모든 점수는 1-5 사이의 값이어야 합니다." },
+        { error: "모든 점수는 1-7 사이의 값이어야 합니다." },
         { status: 400 }
       );
     }

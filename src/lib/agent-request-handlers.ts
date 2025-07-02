@@ -70,12 +70,20 @@ export async function handleGenerateIdeaRequestDirect(
     console.log(`🎯 ${agentId} 아이디어 생성 요청 처리 시작 (세션 체크 스킵)`);
 
     const team = await getTeamById(teamId);
-    const agentProfile = await getAgentById(agentId);
+    const baseAgentProfile = await getAgentById(agentId);
 
-    if (!team || !agentProfile) {
+    if (!team || !baseAgentProfile) {
       console.error(`❌ ${agentId} 팀 또는 에이전트 정보 없음`);
       return;
     }
+
+    // TeamMember 정보로 agentProfile 강화
+    const teamMember = team.members.find((m) => m.agentId === agentId);
+    const agentProfile = {
+      ...baseAgentProfile,
+      roles: teamMember?.roles || [],
+      isLeader: teamMember?.isLeader || false
+    };
 
     await setAgentState(teamId, agentId, {
       agentId,
@@ -186,12 +194,20 @@ export async function handleGiveFeedbackRequestDirect(
 
   try {
     const team = await getTeamById(teamId);
-    const agentProfile = await getAgentById(agentId);
+    const baseAgentProfile = await getAgentById(agentId);
 
-    if (!team || !agentProfile) {
+    if (!team || !baseAgentProfile) {
       console.error(`❌ ${agentId} 팀 또는 에이전트 정보 없음`);
       return;
     }
+
+    // TeamMember 정보로 agentProfile 강화
+    const teamMember = team.members.find((m) => m.agentId === agentId);
+    const agentProfile = {
+      ...baseAgentProfile,
+      roles: teamMember?.roles || [],
+      isLeader: teamMember?.isLeader || false
+    };
 
     const requesterName = requestData.requesterName;
     const requesterId = requestData.requesterId;

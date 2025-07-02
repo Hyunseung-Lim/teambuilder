@@ -75,7 +75,7 @@ export async function POST(
         );
 
         const newIdea = await addIdea(teamId, {
-          author: author || session.user.email,
+          author: author === "나" ? "나" : (author || session.user.email),
           timestamp: new Date().toISOString(),
           content: {
             object: generatedContent.object || "생성된 아이디어",
@@ -128,7 +128,7 @@ export async function POST(
         console.error("AI 아이디어 생성 오류:", error);
         // 실패시 기본 아이디어로 대체
         const newIdea = await addIdea(teamId, {
-          author: author || session.user.email,
+          author: author === "나" ? "나" : (author || session.user.email),
           timestamp: new Date().toISOString(),
           content: {
             object: "AI 기반 환경 보호 솔루션",

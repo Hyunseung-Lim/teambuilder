@@ -85,12 +85,20 @@ export async function updateAgentStateTimer(
         console.log(
           `🔒 ${state.agentId} 작업 시간 초과이지만 피드백 세션 중이므로 강제 종료 차단`
         );
-        // 피드백 세션의 경우 더 긴 시간 허용 (30분)
-        if (elapsed > 1800) {
-          console.warn(
-            `⚠️ ${state.agentId} 피드백 세션이 30분을 초과하여 강제 idle 전환`
-          );
-          state = resetToIdleState(state);
+        // 피드백 세션의 경우 더 긴 시간 허용 (5분)
+        if (elapsed > 300) {
+          // 실제 활성 세션이 있는지 확인
+          const isActuallyInSession = await verifyActiveFeedbackSession(teamId, state.agentId);
+          if (isActuallyInSession) {
+            console.warn(
+              `⚠️ ${state.agentId} 활성 피드백 세션이 5분을 초과했지만 유지`
+            );
+          } else {
+            console.warn(
+              `⚠️ ${state.agentId} 고아 피드백 세션 상태로 5분 초과 - 강제 idle 전환`
+            );
+            state = resetToIdleState(state);
+          }
         }
       } else {
         console.warn(`⚠️ ${state.agentId} 작업 시간 초과, 강제 idle 전환`);
@@ -100,6 +108,36 @@ export async function updateAgentStateTimer(
   }
 
   return state;
+}
+
+// 에이전트가 실제로 활성 피드백 세션에 참여 중인지 확인
+async function verifyActiveFeedbackSession(teamId: string, agentId: string): Promise<boolean> {
+  try {
+    const { redis } = await import("@/lib/redis");
+    
+    // 활성 피드백 세션 목록 가져오기
+    const activeSessionIds = await redis.smembers(`team:${teamId}:active_feedback_sessions`);
+    
+    for (const sessionId of activeSessionIds) {
+      const sessionData = await redis.get(`feedback_session:${sessionId}`);
+      if (sessionData) {
+        const session = typeof sessionData === "string" ? JSON.parse(sessionData) : sessionData;
+        
+        // 에이전트가 이 세션에 참여 중이고 세션이 활성 상태인지 확인
+        if (
+          session.status === "active" &&
+          session.participants.some((p: any) => p.id === agentId)
+        ) {
+          return true;
+        }
+      }
+    }
+    
+    return false; // 활성 세션에 참여하지 않음
+  } catch (error) {
+    console.error(`❌ 피드백 세션 확인 실패 (${agentId}):`, error);
+    return false; // 확인 실패 시 안전하게 해제 허용
+  }
 }
 
 // planning 로직 실행
@@ -119,12 +157,13 @@ async function executePlanningLogic(
       .map((m) => getAgentById(m.agentId!))
   );
 
-  // 팀 멤버 정보에서 해당 에이전트의 역할 가져오기
+  // 팀 멤버 정보에서 해당 에이전트의 역할과 리더 정보 가져오기
   const teamMember = team?.members.find((m) => m.agentId === agentId);
   const agentProfileWithRoles = agentProfile
     ? {
         ...agentProfile,
         roles: teamMember?.roles || [],
+        isLeader: teamMember?.isLeader || false,
       }
     : null;
 

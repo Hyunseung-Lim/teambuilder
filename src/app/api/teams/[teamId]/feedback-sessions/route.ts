@@ -745,8 +745,28 @@ export async function POST(
 
           if (!success) {
             console.error(
-              `💥 에이전트 ${participant.name} 상태 변경 최종 실패`
+              `💥 에이전트 ${participant.name} 상태 변경 최종 실패 - 강제 복구 시도`
             );
+            
+            // 강제 복구: Redis에서 직접 에이전트 상태 초기화
+            try {
+              const { setAgentState, createNewIdleTimer } = await import("@/lib/agent-state-utils");
+              
+              await setAgentState(teamId, participant.id, {
+                agentId: participant.id,
+                currentState: "idle",
+                lastStateChange: new Date().toISOString(),
+                isProcessing: false,
+                idleTimer: createNewIdleTimer(),
+              });
+              
+              console.log(`🛠️ 에이전트 ${participant.name} 강제 복구 완료`);
+            } catch (forceRecoveryError) {
+              console.error(
+                `💥 에이전트 ${participant.name} 강제 복구도 실패:`,
+                forceRecoveryError
+              );
+            }
           }
         } else if (participant.id === "나") {
           // 인간 사용자 상태 초기화
@@ -760,6 +780,44 @@ export async function POST(
             );
           } catch (error) {
             console.error(`❌ 인간 사용자 상태 초기화 오류:`, error);
+          }
+        }
+      }
+
+      // 최종 검증: 모든 참가자가 실제로 피드백 세션 상태에서 해제되었는지 확인
+      console.log(`🔍 피드백 세션 종료 후 상태 검증 시작`);
+      
+      for (const participant of session.participants) {
+        if (!participant.isUser && participant.id !== "나") {
+          try {
+            const { getAgentState } = await import("@/lib/agent-state-utils");
+            const agentState = await getAgentState(teamId, participant.id);
+            
+            if (agentState && (agentState.currentState === "feedback_session" || agentState.currentState === "feedback_waiting")) {
+              console.warn(
+                `⚠️ 에이전트 ${participant.name}이 여전히 피드백 세션 상태에 있음 - 추가 복구 필요`
+              );
+              
+              // 추가 강제 복구
+              const { setAgentState, createNewIdleTimer } = await import("@/lib/agent-state-utils");
+              
+              await setAgentState(teamId, participant.id, {
+                agentId: participant.id,
+                currentState: "idle",
+                lastStateChange: new Date().toISOString(),
+                isProcessing: false,
+                idleTimer: createNewIdleTimer(),
+              });
+              
+              console.log(`🔧 에이전트 ${participant.name} 추가 강제 복구 완료`);
+            } else {
+              console.log(`✅ 에이전트 ${participant.name} 상태 정상 확인`);
+            }
+          } catch (verificationError) {
+            console.error(
+              `❌ 에이전트 ${participant.name} 상태 검증 실패:`,
+              verificationError
+            );
           }
         }
       }

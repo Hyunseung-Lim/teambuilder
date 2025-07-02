@@ -39,12 +39,20 @@ export async function executeAgentAction(
 ) {
   try {
     const team = await getTeamById(teamId);
-    const agentProfile = await getAgentById(agentId);
+    const baseAgentProfile = await getAgentById(agentId);
 
-    if (!team || !agentProfile) {
+    if (!team || !baseAgentProfile) {
       console.error(`❌ ${agentId} 팀 또는 에이전트 정보 없음`);
       return;
     }
+
+    // TeamMember 정보로 agentProfile 강화 (isLeader, roles 포함)
+    const teamMember = team.members.find((m) => m.agentId === agentId);
+    const agentProfile = {
+      ...baseAgentProfile,
+      roles: teamMember?.roles || [],
+      isLeader: teamMember?.isLeader || false
+    };
 
     console.log(
       `🎯 ${agentProfile.name} 자율 행동 실행: ${plannedAction.action}`
@@ -573,15 +581,55 @@ async function triggerFeedbackMessage(
 async function handleExecutionFailure(teamId: string, agentId: string) {
   const currentState = await getAgentState(teamId, agentId);
   if (currentState && isFeedbackSessionActive(currentState)) {
-    console.log(
-      `🔒 에이전트 ${agentId}는 피드백 세션 중이므로 실패 후에도 idle 전환 스킵`
-    );
-    return;
+    // 실제로 활성 피드백 세션이 존재하는지 확인
+    const isActuallyInActiveSession = await verifyActiveFeedbackSession(teamId, agentId);
+    
+    if (isActuallyInActiveSession) {
+      console.log(
+        `🔒 에이전트 ${agentId}는 활성 피드백 세션 중이므로 실패 후에도 idle 전환 스킵`
+      );
+      return;
+    } else {
+      console.log(
+        `🧹 에이전트 ${agentId}가 존재하지 않는 피드백 세션에 갇혀있음 - 강제 해제`
+      );
+      // 고아 상태에서 강제로 해제
+    }
   }
 
   setTimeout(async () => {
     await transitionToIdleState(teamId, agentId, "실패 후");
   }, 2000);
+}
+
+// 에이전트가 실제로 활성 피드백 세션에 참여 중인지 확인
+async function verifyActiveFeedbackSession(teamId: string, agentId: string): Promise<boolean> {
+  try {
+    const { redis } = await import("@/lib/redis");
+    
+    // 활성 피드백 세션 목록 가져오기
+    const activeSessionIds = await redis.smembers(`team:${teamId}:active_feedback_sessions`);
+    
+    for (const sessionId of activeSessionIds) {
+      const sessionData = await redis.get(`feedback_session:${sessionId}`);
+      if (sessionData) {
+        const session = typeof sessionData === "string" ? JSON.parse(sessionData) : sessionData;
+        
+        // 에이전트가 이 세션에 참여 중이고 세션이 활성 상태인지 확인
+        if (
+          session.status === "active" &&
+          session.participants.some((p: any) => p.id === agentId)
+        ) {
+          return true;
+        }
+      }
+    }
+    
+    return false; // 활성 세션에 참여하지 않음
+  } catch (error) {
+    console.error(`❌ 피드백 세션 확인 실패 (${agentId}):`, error);
+    return false; // 확인 실패 시 안전하게 해제 허용
+  }
 }
 
 // 락 획득 실패 처리

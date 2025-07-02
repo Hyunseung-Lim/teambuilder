@@ -51,6 +51,7 @@ export default function NewTeamPage() {
   const [existingAgents, setExistingAgents] = useState<AIAgent[]>([]);
   const [existingTeams, setExistingTeams] = useState<Team[]>([]);
   const [useTemplate, setUseTemplate] = useState(false); // 기존 팀 템플릿 사용 여부
+  const [selectedTemplate, setSelectedTemplate] = useState<Team | null>(null); // 선택된 템플릿 팀
   const [activeTab, setActiveTab] = useState<"create" | "import">("create");
   const [currentMemberIndex, setCurrentMemberIndex] = useState(0); // 현재 설정 중인 팀원 인덱스
 
@@ -171,6 +172,7 @@ export default function NewTeamPage() {
   // 템플릿 적용 함수
   const applyTemplate = async (template: Team) => {
     try {
+      setSelectedTemplate(template);
       setTeamName(`${template.teamName} (복사본)`);
       setTopic(template.topic || "");
       setTeamSize(template.members.length);
@@ -381,13 +383,13 @@ export default function NewTeamPage() {
       {step > 0 && (
         <div className="flex items-center justify-center mb-8">
           <div className="flex items-center space-x-2">
-          {[
-            { num: 1, label: "팀 정보" },
-            { num: 2, label: "역할 & 리더" },
-            { num: 3, label: "팀원 생성" },
-            { num: 4, label: "관계 설정" },
-            { num: 5, label: "공유 멘탈 모델" },
-          ].map((stepInfo, index) => (
+            {[
+              { num: 1, label: "팀 정보" },
+              { num: 2, label: "역할 & 리더" },
+              { num: 3, label: "팀원 생성" },
+              { num: 4, label: "관계 설정" },
+              { num: 5, label: "공유 멘탈 모델" },
+            ].map((stepInfo, index) => (
             <div key={stepInfo.num} className="flex items-center">
               <div className="flex flex-col items-center">
                 <div
@@ -417,8 +419,7 @@ export default function NewTeamPage() {
             </div>
           ))}
         </div>
-        </div>
-      )}
+      </div>
 
       {/* 0단계: 팀 생성 방식 선택 */}
       {step === 0 && (
@@ -438,6 +439,7 @@ export default function NewTeamPage() {
               <button
                 onClick={() => {
                   setUseTemplate(false);
+                  setSelectedTemplate(null);
                   setStep(1);
                 }}
                 className="p-6 border-2 border-gray-200 rounded-xl hover:border-blue-300 hover:shadow-md transition-all text-left"

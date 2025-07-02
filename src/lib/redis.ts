@@ -66,6 +66,32 @@ export async function getUserByEmail(email: string): Promise<User | null> {
   return getUserById(userId);
 }
 
+// 중복된 이름에 번호를 붙이는 헬퍼 함수
+async function generateUniqueAgentName(
+  baseName: string,
+  ownerId: string
+): Promise<string> {
+  // 현재 사용자의 모든 에이전트 가져오기
+  const existingAgents = await getUserAgents(ownerId);
+  const existingNames = existingAgents.map(agent => agent.name.toLowerCase());
+  
+  // 기본 이름이 중복되지 않으면 그대로 반환
+  if (!existingNames.includes(baseName.toLowerCase())) {
+    return baseName;
+  }
+  
+  // 중복되는 경우 번호를 찾아서 붙이기
+  let counter = 1;
+  let uniqueName = `${baseName} (${counter})`;
+  
+  while (existingNames.includes(uniqueName.toLowerCase())) {
+    counter++;
+    uniqueName = `${baseName} (${counter})`;
+  }
+  
+  return uniqueName;
+}
+
 // AI 에이전트 관련 함수들
 export async function createAgent(
   agentData: Omit<AIAgent, "id" | "createdAt"> & { ownerId: string }
@@ -85,9 +111,12 @@ export async function createAgent(
     ownerId,
   } = agentData;
 
+  // 중복 이름 확인 및 고유 이름 생성
+  const uniqueName = await generateUniqueAgentName(name, ownerId);
+
   const newAgent = {
     id: agentId,
-    name,
+    name: uniqueName,
     age: age?.toString() || "",
     gender: gender || "",
     education: education || "",
@@ -106,7 +135,7 @@ export async function createAgent(
 
   return {
     id: agentId,
-    name,
+    name: uniqueName,
     age,
     gender,
     education,
@@ -1064,12 +1093,15 @@ async function initializeAgentMemoryLegacy(
       // 사용자의 경우
       otherAgentId = "나";
       otherAgentName = "나";
+      // Check if user is actually the leader
+      const userRole = member.isLeader ? "팀 리더" : "팀원";
+      const userSkills = member.isLeader ? "리더십" : "협업";
       otherAgentProfile = {
         id: "나",
         name: "나",
-        professional: "팀 리더",
+        professional: userRole,
         personality: "알 수 없음",
-        skills: "리더십",
+        skills: userSkills,
       };
       console.log("사용자 멤버 처리:", otherAgentProfile);
     } else {

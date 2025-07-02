@@ -20,6 +20,10 @@ import {
   redis,
 } from "./redis";
 import {
+  createKnowledgeAndActionPlanUpdatePrompt,
+  createRelationOpinionUpdatePrompt,
+} from "@/core/prompts";
+import {
   NewAgentMemory,
   ShortTermMemory,
   NewLongTermMemory,
@@ -75,12 +79,15 @@ export async function createNewAgentMemory(
     if (member.isUser) {
       otherAgentId = "나";
       otherAgentName = "나";
+      // Check if user is actually the leader
+      const userRole = member.isLeader ? "팀 리더" : "팀원";
+      const userSkills = member.isLeader ? "리더십" : "협업";
       otherAgentProfile = {
         id: "나",
         name: "나",
-        professional: "팀 리더",
+        professional: userRole,
         personality: "알 수 없음",
-        skills: "리더십",
+        skills: userSkills,
       };
     } else {
       otherAgentId = member.agentId!;
@@ -108,7 +115,7 @@ export async function createNewAgentMemory(
       agentInfo: otherAgentProfile,
       relationship: relationship ? relationship.type : "AWKWARD",
       interactionHistory: [],
-      myOpinion: "아직 상호작용이 없어 의견이 없습니다.",
+      myOpinion: "No interactions yet to form an opinion.",
     };
   }
 
@@ -120,18 +127,18 @@ export async function createNewAgentMemory(
       currentChat: null,
     },
     longTerm: {
-      knowledge: `${
+      knowledge: `I am participating in an ideation session focused on ${
         team.topic || "Carbon Emission Reduction"
-      } 주제에 대한 아이디에이션을 진행하고 있습니다. 창의적이고 실용적인 아이디어를 생성하고 평가하는 것이 목표입니다.`,
+      }. My goal is to generate creative and practical ideas while collaborating effectively with team members to achieve our shared objectives.`,
       actionPlan: {
         idea_generation:
-          "주제와 관련된 혁신적이고 실현 가능한 아이디어를 브레인스토밍하여 생성합니다.",
+          "Brainstorm innovative and feasible ideas related to the topic using my professional expertise and creative thinking methods.",
         idea_evaluation:
-          "아이디어의 창의성, 실현가능성, 영향력을 종합적으로 평가합니다.",
+          "Evaluate ideas comprehensively considering creativity, feasibility, and potential impact using systematic criteria.",
         feedback:
-          "건설적이고 구체적인 피드백을 제공하여 아이디어를 개선할 수 있도록 돕습니다.",
-        request: "필요한 도움이나 의견을 명확하고 예의바르게 요청합니다.",
-        response: "요청에 대해 신속하고 도움이 되는 응답을 제공합니다.",
+          "Provide constructive and specific feedback to help improve ideas and enhance team collaboration.",
+        request: "Make clear and polite requests for assistance or opinions when needed to advance team goals.",
+        response: "Provide prompt and helpful responses to requests from team members using my expertise.",
       },
       relation: relations,
     },
@@ -205,44 +212,11 @@ async function updateKnowledgeAndActionPlan(
     .map((log) => `- ${log.type}: ${log.content} (${log.timestamp})`)
     .join("\n");
 
-  const prompt = `
-당신은 ${agentProfile.name}입니다.
-
-**당신의 정보:**
-- 이름: ${agentProfile.name}
-- 전문성: ${agentProfile.professional}
-- 스킬: ${agentProfile.skills}
-- 성격: ${agentProfile.personality || "정보 없음"}
-
-**기존 Knowledge:**
-${memory.longTerm.knowledge}
-
-**기존 ActionPlan:**
-- 아이디어 생성: ${memory.longTerm.actionPlan.idea_generation}
-- 아이디어 평가: ${memory.longTerm.actionPlan.idea_evaluation}
-- 피드백: ${memory.longTerm.actionPlan.feedback}
-- 요청: ${memory.longTerm.actionPlan.request}
-- 응답: ${memory.longTerm.actionPlan.response}
-
-**최근 상호작용 로그:**
-${interactionSummary}
-
-위 상호작용 로그에서 아이디에이션과 관련된 새로운 지식을 얻었다면 기존 knowledge에 추가하고, 각 action을 더 잘 수행하기 위한 actionPlan을 개선해주세요.
-
-**응답 형식 (JSON):**
-{
-  "knowledge": "업데이트된 knowledge (기존 + 새로운 지식)",
-  "actionPlan": {
-    "idea_generation": "개선된 아이디어 생성 방법",
-    "idea_evaluation": "개선된 아이디어 평가 방법", 
-    "feedback": "개선된 피드백 방법",
-    "request": "개선된 요청 방법",
-    "response": "개선된 응답 방법"
-  }
-}
-
-JSON 형식으로만 응답해주세요.
-`;
+  const prompt = createKnowledgeAndActionPlanUpdatePrompt(
+    agentProfile,
+    memory,
+    interactionSummary
+  );
 
   try {
     const response = await getTextResponse(prompt);
@@ -301,25 +275,7 @@ async function updateRelationMemories(
       .map((log) => `- ${log.type}: ${log.content}`)
       .join("\n");
 
-    const prompt = `
-당신은 팀원 "${relation.agentInfo.name}"에 대한 의견을 업데이트해야 합니다.
-
-**대상 정보:**
-- 이름: ${relation.agentInfo.name}
-- 전문성: ${relation.agentInfo.professional}
-- 관계: ${relation.relationship}
-
-**기존 의견:**
-${relation.myOpinion}
-
-**최근 상호작용:**
-${interactionSummary}
-
-위 상호작용을 바탕으로 이 사람에 대한 의견을 업데이트해주세요. 
-기존 의견을 참고하되, 최근 상호작용을 반영하여 100자 이내로 작성해주세요.
-
-의견만 작성하고 다른 설명은 하지 마세요.
-`;
+    const prompt = createRelationOpinionUpdatePrompt(relation, interactionSummary);
 
     try {
       const response = await getTextResponse(prompt);
@@ -419,7 +375,11 @@ async function migrateOldToNewMemory(
               actionItem: item.action,
               content: item.content,
             })) || [],
-          myOpinion: relation.myOpinion || "마이그레이션된 관계입니다.",
+          myOpinion: relation.myOpinion && !relation.myOpinion.includes("아직 상호작용이 없어 의견이 없습니다") && !relation.myOpinion.includes("No interactions yet to form an opinion.")
+            ? (relation.myOpinion.includes("한글") || /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(relation.myOpinion)
+                ? "Professional team member with demonstrated capabilities in their field."
+                : relation.myOpinion)
+            : "No interactions yet to form an opinion.",
         };
       }
     );
@@ -443,19 +403,16 @@ async function migrateOldToNewMemory(
         : null,
     },
     longTerm: {
-      knowledge: `${
+      knowledge: `I am participating in an ideation session focused on team collaboration. My goal is to generate creative and practical ideas while leveraging my professional expertise in ${
         agentProfile.professional
-      } 전문성을 바탕으로 아이디에이션에 참여하고 있습니다. ${
-        oldMemory.longTerm?.self ||
-        "팀원들과 협력하여 좋은 아이디어를 만들어가고 있습니다."
-      }`,
+      }. I am committed to effective collaboration with team members to achieve our shared objectives.`,
       actionPlan: {
         idea_generation:
-          "전문성과 창의성을 활용하여 혁신적인 아이디어를 생성합니다.",
-        idea_evaluation: "객관적이고 공정한 기준으로 아이디어를 평가합니다.",
-        feedback: "건설적이고 구체적인 피드백을 제공합니다.",
-        request: "필요한 도움을 명확하고 예의바르게 요청합니다.",
-        response: "요청에 대해 신속하고 도움이 되는 응답을 제공합니다.",
+          "Generate innovative ideas using my professional expertise and creative thinking methods.",
+        idea_evaluation: "Evaluate ideas using objective and fair criteria based on my professional knowledge.",
+        feedback: "Provide constructive and specific feedback to improve ideas and collaboration.",
+        request: "Make clear and polite requests for necessary help when needed.",
+        response: "Provide prompt and helpful responses using my professional expertise.",
       },
       relation: newRelations,
     },
@@ -649,7 +606,7 @@ export async function endChatSession(agentId: string): Promise<void> {
   // 채팅 내용을 Long-term memory의 relation에 추가
   if (memory.longTerm.relation[chat.targetAgentId]) {
     const relationKey = chat.targetAgentId;
-    const chatSummary = `${chat.chatType} 세션: ${chat.messages.length}개 메시지 교환`;
+    const chatSummary = `${chat.chatType} session: exchanged ${chat.messages.length} messages`;
 
     memory.longTerm.relation[relationKey].interactionHistory.push({
       timestamp: new Date().toISOString(),

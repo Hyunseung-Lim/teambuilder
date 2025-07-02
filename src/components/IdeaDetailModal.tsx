@@ -670,10 +670,10 @@ export default function IdeaDetailModal({
                     {/* Insightful */}
                     <div className="mb-4">
                       <label className="text-sm font-medium text-gray-700 mb-2 block">
-                        Insightful
+                        Insightful (1=매우 나쁨 ~ 7=매우 좋음)
                       </label>
-                      <div className="flex justify-between">
-                        {[1, 2, 3, 4, 5].map((value) => (
+                      <div className="flex justify-between gap-1">
+                        {[1, 2, 3, 4, 5, 6, 7].map((value) => (
                           <button
                             key={value}
                             onClick={() =>
@@ -682,7 +682,7 @@ export default function IdeaDetailModal({
                                 insightful: value,
                               })
                             }
-                            className={`w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all ${
+                            className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all ${
                               evaluationFormData.insightful === value
                                 ? "border-blue-500 bg-blue-500 text-white"
                                 : "border-gray-300 text-gray-600 hover:border-blue-300"
@@ -697,10 +697,10 @@ export default function IdeaDetailModal({
                     {/* actionable */}
                     <div className="mb-4">
                       <label className="text-sm font-medium text-gray-700 mb-2 block">
-                        actionable
+                        Actionable (1=매우 나쁨 ~ 7=매우 좋음)
                       </label>
-                      <div className="flex justify-between">
-                        {[1, 2, 3, 4, 5].map((value) => (
+                      <div className="flex justify-between gap-1">
+                        {[1, 2, 3, 4, 5, 6, 7].map((value) => (
                           <button
                             key={value}
                             onClick={() =>
@@ -709,7 +709,7 @@ export default function IdeaDetailModal({
                                 actionable: value,
                               })
                             }
-                            className={`w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all ${
+                            className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all ${
                               evaluationFormData.actionable === value
                                 ? "border-blue-500 bg-blue-500 text-white"
                                 : "border-gray-300 text-gray-600 hover:border-blue-300"
@@ -724,10 +724,10 @@ export default function IdeaDetailModal({
                     {/* Relevance */}
                     <div className="mb-4">
                       <label className="text-sm font-medium text-gray-700 mb-2 block">
-                        Relevance
+                        Relevance (1=매우 나쁨 ~ 7=매우 좋음)
                       </label>
-                      <div className="flex justify-between">
-                        {[1, 2, 3, 4, 5].map((value) => (
+                      <div className="flex justify-between gap-1">
+                        {[1, 2, 3, 4, 5, 6, 7].map((value) => (
                           <button
                             key={value}
                             onClick={() =>
@@ -736,7 +736,7 @@ export default function IdeaDetailModal({
                                 relevance: value,
                               })
                             }
-                            className={`w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all ${
+                            className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all ${
                               evaluationFormData.relevance === value
                                 ? "border-blue-500 bg-blue-500 text-white"
                                 : "border-gray-300 text-gray-600 hover:border-blue-300"
