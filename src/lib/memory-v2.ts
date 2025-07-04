@@ -113,7 +113,7 @@ export async function createNewAgentMemory(
     const relationKey = member.isUser ? "나" : otherAgentId;
     relations[relationKey] = {
       agentInfo: otherAgentProfile,
-      relationship: relationship ? relationship.type : "AWKWARD",
+      relationship: relationship ? relationship.type : "NULL",
       interactionHistory: [],
       myOpinion: "No interactions yet to form an opinion.",
     };
@@ -139,6 +139,7 @@ export async function createNewAgentMemory(
           "Provide constructive and specific feedback to help improve ideas and enhance team collaboration.",
         request: "Make clear and polite requests for assistance or opinions when needed to advance team goals.",
         response: "Provide prompt and helpful responses to requests from team members using my expertise.",
+        planning: "Develop systematic approaches for organizing my activities and setting priorities to contribute effectively to team goals.",
       },
       relation: relations,
     },
@@ -413,6 +414,7 @@ async function migrateOldToNewMemory(
         feedback: "Provide constructive and specific feedback to improve ideas and collaboration.",
         request: "Make clear and polite requests for necessary help when needed.",
         response: "Provide prompt and helpful responses using my professional expertise.",
+        planning: "Plan my activities systematically to maximize effectiveness and contribute meaningfully to team objectives.",
       },
       relation: newRelations,
     },

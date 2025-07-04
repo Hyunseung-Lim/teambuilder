@@ -138,6 +138,20 @@ export function RelationshipGraph({
 
   return (
     <div className="relative">
+      {/* 사용법 안내 */}
+      <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+        <h4 className="text-sm font-semibold text-blue-900 mb-2">📋 관계 설정 사용법</h4>
+        <div className="text-sm text-blue-800 space-y-1">
+          <p>• <strong>동료 관계:</strong> 서로 대등한 관계로 피드백과 요청이 가능합니다</p>
+          <p>• <strong>상사-부하 관계:</strong> 화살표가 가리키는 방향이 중요합니다</p>
+          <div className="ml-4 space-y-1 text-xs">
+            <p>→ 화살표가 가리키는 사람이 <span className="font-semibold text-blue-900">부하</span></p>
+            <p>→ 화살표 시작점이 <span className="font-semibold text-blue-900">상사</span></p>
+            <p>→ 예: A → B (A가 상사, B가 부하)</p>
+          </div>
+        </div>
+      </div>
+      
       <div className="flex gap-2 mb-4 p-3 bg-gray-50 rounded-lg items-center justify-between">
         <div>
           {!isConnecting && !connectionCandidate && (
@@ -171,7 +185,9 @@ export function RelationshipGraph({
 
         {connectionCandidate && (
           <div className="flex gap-2">
-            {Object.entries(RELATIONSHIP_TYPES).map(([type, config]) => (
+            {Object.entries(RELATIONSHIP_TYPES)
+              .filter(([type, config]) => !config.hidden) // Filter out hidden relationships
+              .map(([type, config]) => (
               <Button
                 key={type}
                 size="sm"
@@ -213,7 +229,7 @@ export function RelationshipGraph({
         </defs>
 
         {/* 관계 엣지 */}
-        {relationships.map((rel, index) => {
+        {relationships.filter(rel => rel.type !== "NULL").map((rel, index) => {
           // 이름으로 멤버를 찾아서 member.id로 노드 위치 가져오기
           const fromMember = members.find(
             (m) =>
@@ -232,11 +248,20 @@ export function RelationshipGraph({
           const toNode = nodes[toMember.id];
 
           if (!fromNode || !toNode) return null;
+          
+          // Safety check for valid coordinates
+          if (isNaN(fromNode.x) || isNaN(fromNode.y) || isNaN(toNode.x) || isNaN(toNode.y)) {
+            return null;
+          }
 
           const relType = RELATIONSHIP_TYPES[rel.type];
           const dx = toNode.x - fromNode.x;
           const dy = toNode.y - fromNode.y;
           const length = Math.sqrt(dx * dx + dy * dy);
+          
+          // Prevent division by zero
+          if (length === 0) return null;
+          
           const unitX = dx / length;
           const unitY = dy / length;
 
@@ -248,6 +273,11 @@ export function RelationshipGraph({
           const endOffset = isSupervisor ? nodeRadius + 2 : nodeRadius;
           const endX = toNode.x - unitX * endOffset;
           const endY = toNode.y - unitY * endOffset;
+          
+          // Final safety check for calculated coordinates
+          if (isNaN(startX) || isNaN(startY) || isNaN(endX) || isNaN(endY)) {
+            return null;
+          }
 
           return (
             <g key={index} className="group">

@@ -54,23 +54,26 @@ export type AgentRole =
 
 // 관계 타입 정의
 export const RELATIONSHIP_TYPES = {
-  FRIEND: {
-    label: "친구",
+  PEER: {
+    label: "동료",
     color: "#374151", // gray-700
     strokeWidth: 2,
     strokeDasharray: undefined,
-  },
-  AWKWARD: {
-    label: "어색한 사이",
-    color: "#6b7280", // gray-500
-    strokeDasharray: "5,5",
-    strokeWidth: 1.5,
+    hidden: false,
   },
   SUPERVISOR: {
-    label: "상사",
+    label: "상사-부하",
     color: "#111827", // gray-900
     strokeWidth: 2.5,
     strokeDasharray: undefined,
+    hidden: false,
+  },
+  NULL: {
+    label: "관계 없음",
+    color: "#9ca3af", // gray-400
+    strokeWidth: 1,
+    strokeDasharray: "2,2",
+    hidden: true, // UI에서 숨김
   },
 } as const;
 
@@ -138,9 +141,9 @@ export interface Evaluation {
   evaluator: string; // '나' 또는 agentId
   timestamp: string;
   scores: {
-    relevance: number;
-    actionable: number;
-    insightful: number;
+    novelty: number;
+    completeness: number;
+    quality: number;
   };
   comment: string;
 }
@@ -261,6 +264,7 @@ export interface NewLongTermMemory {
     feedback: string;
     request: string;
     response: string;
+    planning: string;
   };
 
   // 팀원들과의 관계 및 상호작용 정보

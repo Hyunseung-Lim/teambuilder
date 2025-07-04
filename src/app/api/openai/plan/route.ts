@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { PlanDecision } from "@/lib/types";
+import { createAgentContextSections } from "@/core/prompts";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -8,17 +9,44 @@ const openai = new OpenAI({
 
 export async function POST(request: NextRequest) {
   try {
-    const { agentId, prompt } = await request.json();
+    const { agentId, prompt, agentProfile, memory, sharedMentalModel } = await request.json();
 
     console.log(`🤖 Plan API 호출 - 에이전트: ${agentId}`);
+
+    // Create enhanced system prompt with agent context
+    let systemPrompt = "You are an AI agent planning your next action in a team ideation session. Respond only with valid JSON.";
+    
+    if (agentProfile) {
+      const { profileContext, memoryContext, sharedMentalModelContext } = createAgentContextSections(
+        agentProfile,
+        memory,
+        sharedMentalModel,
+        "Plan your actions strategically based on your personality, relationships, and team dynamics."
+      );
+      
+      systemPrompt = `${profileContext}${memoryContext}${sharedMentalModelContext}
+
+## Planning Guidelines
+You are planning your next action in a team ideation session. Consider:
+
+1. **Your Personality & Role**: Act according to your professional background, skills, and personality traits
+2. **Team Relationships**: Consider your relationships with team members and past interactions
+3. **Shared Mental Model**: Align your planning with the team's shared understanding and goals
+4. **Strategic Thinking**: Balance team needs with your unique contributions and expertise
+5. **Collaboration Style**: Match your communication and action style to your personality
+
+## Response Format
+Respond only with valid JSON that reflects your strategic decision-making process.
+
+Your planning should demonstrate authentic personality-driven decision making that considers team dynamics and your role within the group.`;
+    }
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
           role: "system",
-          content:
-            "You are an AI agent planning your next action in a team ideation session. Respond only with valid JSON.",
+          content: systemPrompt,
         },
         {
           role: "user",
@@ -26,7 +54,7 @@ export async function POST(request: NextRequest) {
         },
       ],
       temperature: 0.7,
-      max_tokens: 500,
+      max_tokens: 800,
     });
 
     const responseText = completion.choices[0]?.message?.content;

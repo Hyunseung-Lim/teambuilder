@@ -1183,12 +1183,10 @@ export default function HomePage() {
 
                             const getRelationshipIcon = (type: string) => {
                               switch (type) {
-                                case "친구":
+                                case "동료":
                                   return "👫";
-                                case "상사":
+                                case "상사-부하":
                                   return "👔";
-                                case "어색한 사이":
-                                  return "😐";
                                 default:
                                   return "🤝";
                               }
@@ -1196,12 +1194,10 @@ export default function HomePage() {
 
                             const getRelationshipColor = (type: string) => {
                               switch (type) {
-                                case "친구":
+                                case "동료":
                                   return "text-green-700 bg-green-100";
-                                case "상사":
+                                case "상사-부하":
                                   return "text-blue-700 bg-blue-100";
-                                case "어색한 사이":
-                                  return "text-orange-700 bg-orange-100";
                                 default:
                                   return "text-gray-700 bg-gray-100";
                               }

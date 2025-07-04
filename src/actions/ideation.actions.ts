@@ -165,7 +165,7 @@ async function updateMemoryAfterEvaluation(
   // Long-term memory 업데이트
   // 1. 자기 성찰 추가
   const reflection = {
-    reflection: `I evaluated ${authorId}'s idea with comprehensive scores: Insightful ${evaluation.scores.insightful}/5, Feasible ${evaluation.scores.feasible}/5, Impactful ${evaluation.scores.impactful}/5. Comment: ${evaluation.comment || 'No additional comments provided'}`,
+    reflection: `I evaluated ${authorId}'s idea with comprehensive scores: Novelty ${evaluation.scores.novelty}/7, Completeness ${evaluation.scores.completeness}/7, Quality ${evaluation.scores.quality}/7. Comment: ${evaluation.comment || 'No additional comments provided'}`,
     triggeringEvent: "evaluated_idea",
     relatedIdeaId: ideaId,
     timestamp: new Date().toISOString(),
@@ -189,7 +189,7 @@ async function updateMemoryAfterEvaluation(
   if (memory.longTerm.relations[relationKey]) {
     const interactionRecord = {
       action: "evaluated_their_idea",
-      content: `Evaluated their idea with full assessment: Insightful ${evaluation.scores.insightful}/5, Feasible ${evaluation.scores.feasible}/5, Impactful ${evaluation.scores.impactful}/5. Comment: ${evaluation.comment || 'No additional comments provided'}`,
+      content: `Evaluated their idea with full assessment: Novelty ${evaluation.scores.novelty}/7, Completeness ${evaluation.scores.completeness}/7, Quality ${evaluation.scores.quality}/7. Comment: ${evaluation.comment || 'No additional comments provided'}`,
       timestamp: new Date().toISOString(),
     };
     memory.longTerm.relations[relationKey].interactionHistory.push(
@@ -199,8 +199,8 @@ async function updateMemoryAfterEvaluation(
 
     // 3. 관계에 대한 의견 업데이트 (간단한 예시)
     const newOpinion = `최근 그의 아이디어를 평가했다. ${
-      evaluation.scores.insightful > 3
-        ? "꽤나 통찰력 있는 아이디어를 내는 것 같다."
+      evaluation.scores.novelty > 4
+        ? "꽤나 창의적인 아이디어를 내는 것 같다."
         : "조금 더 분발해야 할 것 같다."
     }`;
     memory.longTerm.relations[relationKey].myOpinion = newOpinion;
@@ -221,7 +221,7 @@ async function updateMemoryAfterEvaluation(
         personality: "알 수 없음",
         skills: "알 수 없음",
       },
-      relationship: "AWKWARD",
+      relationship: "NULL",
       interactionHistory: [
         {
           action: "evaluated_their_idea",
@@ -232,8 +232,8 @@ async function updateMemoryAfterEvaluation(
         },
       ],
       myOpinion: `최근 그의 아이디어를 평가했다. ${
-        evaluation.scores.insightful > 3
-          ? "꽤나 통찰력 있는 아이디어를 내는 것 같다."
+        evaluation.scores.novelty > 4
+          ? "꽤나 창의적인 아이디어를 내는 것 같다."
           : "조금 더 분발해야 할 것 같다."
       }`,
     };

@@ -466,9 +466,9 @@ async function performIdeaEvaluation(
         body: JSON.stringify({
           evaluator: agentId,
           scores: {
-            insightful: evaluation.scores.insightful,
-            actionable: evaluation.scores.actionable,
-            relevance: evaluation.scores.relevance,
+            novelty: evaluation.scores.novelty,
+            completeness: evaluation.scores.completeness,
+            quality: evaluation.scores.quality,
           },
           comment: evaluation.comment,
         }),

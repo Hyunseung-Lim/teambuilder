@@ -42,7 +42,15 @@ export async function createAgentAction(formData: FormData) {
     !agentData.skills ||
     !agentData.autonomy
   ) {
-    throw new Error("필수 정보를 모두 입력해주세요.");
+    const missingFields = [];
+    if (!agentData.name) missingFields.push("이름");
+    if (!agentData.age) missingFields.push("나이");
+    if (!agentData.gender) missingFields.push("성별");
+    if (!agentData.professional) missingFields.push("전문분야");
+    if (!agentData.skills) missingFields.push("스킬");
+    if (!agentData.autonomy) missingFields.push("자율성");
+    
+    throw new Error(`팀원 생성 정보가 부족합니다. (3단계)\n누락된 정보: ${missingFields.join(", ")}`);
   }
 
   if (agentData.age < 1 || agentData.age > 100) {

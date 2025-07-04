@@ -62,7 +62,7 @@ export class Agent {
                 this.team.relationships.find(
                   (r) =>
                     r.from === this.agentInfo.name && r.to === fellowAgent.name
-                )?.type || "FRIEND",
+                )?.type || "NULL",
               interactionHistory: [],
               myOpinion: "A neutral colleague.",
             };

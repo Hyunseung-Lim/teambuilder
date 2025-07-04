@@ -575,7 +575,7 @@ async function updateMemoryForIdeaEvaluation(
     const relationKey = getRelationKey(ideaAuthorId);
     if (memory.longTerm.relations[relationKey]) {
       // Generate full evaluation summary instead of just insights
-      const evaluationSummary = `Evaluated their idea with scores: Insightful ${evaluation.scores.insightful}/5, Feasible ${evaluation.scores.feasible}/5, Impactful ${evaluation.scores.impactful}/5. Comment: ${evaluation.comment || 'No additional comments'}`;
+      const evaluationSummary = `Evaluated their idea with scores: Novelty ${evaluation.scores.novelty}/7, Completeness ${evaluation.scores.completeness}/7, Quality ${evaluation.scores.quality}/7. Comment: ${evaluation.comment || 'No additional comments'}`;
       
       memory.longTerm.relations[relationKey].interactionHistory.push({
         action: "evaluated_their_idea",
@@ -614,7 +614,7 @@ async function updateMemoryForIdeaEvaluation(
     const relationKey = getRelationKey(evaluatorId);
     if (memory.longTerm.relations[relationKey]) {
       // Generate full evaluation summary instead of just insights
-      const receivedEvaluationSummary = `Received evaluation on my idea with scores: Insightful ${evaluation.scores.insightful}/5, Feasible ${evaluation.scores.feasible}/5, Impactful ${evaluation.scores.impactful}/5. Comment: ${evaluation.comment || 'No additional comments'}`;
+      const receivedEvaluationSummary = `Received evaluation on my idea with scores: Novelty ${evaluation.scores.novelty}/7, Completeness ${evaluation.scores.completeness}/7, Quality ${evaluation.scores.quality}/7. Comment: ${evaluation.comment || 'No additional comments'}`;
       
       memory.longTerm.relations[relationKey].interactionHistory.push({
         action: "received_evaluation_from",
@@ -967,7 +967,7 @@ async function createInitialMemory(
     const relationKey = member.isUser ? "나" : otherAgentId;
     relations[relationKey] = {
       agentInfo: otherAgentProfile,
-      relationship: relationship ? relationship.type : "AWKWARD",
+      relationship: relationship ? relationship.type : "NULL",
       interactionHistory: [],
       myOpinion: "아직 상호작용이 없어 의견이 없습니다.",
     };
@@ -1189,7 +1189,7 @@ async function handleFeedbackSessionEnded(payload: {
                 personality: otherAgent?.personality || "",
                 skills: otherAgent?.skills || "",
               },
-              relationship: "FRIEND",
+              relationship: "NULL",
               interactionHistory: [],
               myOpinion: "",
             };

@@ -176,6 +176,21 @@ async function executeEvaluateIdeaAction(
   agentProfile: any,
   skipChatMessage: boolean = false
 ) {
+  // Helper function to get author name
+  const getAuthorName = (authorId: string) => {
+    if (authorId === "나") return "나";
+    
+    const member = team?.members.find((m: any) => m.agentId === authorId);
+    if (member && !member.isUser) {
+      // Find agent profile in team members or use the current agentProfile if it matches
+      return agentProfile?.id === authorId ? agentProfile.name : `에이전트 ${authorId}`;
+    }
+    
+    return authorId;
+  };
+  
+  // Get agent memory for context
+  const memory = await getAgentMemory(agentId);
   const ideas = await getIdeas(teamId);
 
   if (ideas.length === 0) {
@@ -224,46 +239,33 @@ async function executeEvaluateIdeaAction(
     `📊 ${agentProfile.name} → ${randomIdea.content.object} 평가 시작`
   );
 
-  const finalPrompt = `
-최종 사용자 프롬프트: 
-You are an AI agent in a team ideation session. Your task is to evaluate the provided idea objectively.
-Rate the idea on a scale of 1-5 for relevance, actionable, and insightfulness. Provide a brief comment in Korean.
-
-IMPORTANT: You should only evaluate ideas created by other team members, not your own ideas.
-
-The idea to evaluate: ${JSON.stringify(randomIdea, null, 2)}`;
-
-  // 공유 멘탈 모델 추가
-  let extendedPrompt = finalPrompt;
-  if (team?.sharedMentalModel) {
-    extendedPrompt += `
-
-**팀의 공유 멘탈 모델:**
-${team.sharedMentalModel}
-
-위 공유 멘탈 모델을 바탕으로 팀의 방향성과 가치관에 맞는 평가를 해주세요.`;
-  }
-
-  extendedPrompt += `
-Your evaluation should be in the following JSON format:
-{
-  "scores": {
-    "relevance": <1-5>,
-    "actionable": <1-5>,
-    "insightful": <1-5>
-  },
-  "comment": "Your concise, constructive feedback in Korean."
-}
-
-Additional context for evaluation: "${agentProfile.name}"`;
+  // Use the established executeEvaluationPrompt pattern for consistency
+  const executeEvaluationPrompt = (await import("@/core/prompts")).executeEvaluationPrompt;
+  
+  const evaluationStrategy = "Provide objective evaluation focusing on team contribution and innovation potential";
+  const selectedIdea = {
+    ...randomIdea,
+    authorName: getAuthorName(randomIdea.author)
+  };
+  
+  const extendedPrompt = executeEvaluationPrompt(
+    selectedIdea,
+    evaluationStrategy,
+    memory || undefined,
+    agentProfile,
+    team?.sharedMentalModel
+  );
 
   console.log(extendedPrompt);
 
   try {
-    const evaluation = await evaluateIdeaAction(
-      randomIdea,
-      agentProfile.name,
-      team
+    // 새로운 평가 시스템 사용 (executeEvaluationAction)
+    const evaluation = await (await import("@/lib/openai")).executeEvaluationAction(
+      selectedIdea,
+      evaluationStrategy,
+      agentProfile,
+      memory || undefined,
+      team?.sharedMentalModel
     );
 
     const response = await fetch(
@@ -279,9 +281,9 @@ Additional context for evaluation: "${agentProfile.name}"`;
         body: JSON.stringify({
           evaluator: agentId,
           scores: {
-            insightful: evaluation.scores.insightful,
-            actionable: evaluation.scores.actionable,
-            relevance: evaluation.scores.relevance,
+            novelty: evaluation.scores.novelty,
+            completeness: evaluation.scores.completeness,
+            quality: evaluation.scores.quality,
           },
           comment: evaluation.comment,
         }),
@@ -727,13 +729,60 @@ async function executeMakeRequestAction(
       },
     });
 
-    // 팀원 정보 준비
-    const teamMembers = team.members.map((member: any) => ({
-      name: member.isUser ? "나" : member.agentId || "Unknown",
-      roles: member.roles.map((role: any) => role.toString()),
-      isUser: member.isUser,
-      agentId: member.agentId || undefined,
+    // 팀원 정보 준비 (에이전트 이름을 실제 이름으로 가져오기, 자기 자신 제외)
+    const allTeamMembers = await Promise.all(team.members.map(async (member: any) => {
+      if (member.isUser) {
+        return {
+          name: "나",
+          roles: member.roles.map((role: any) => role.toString()),
+          isUser: true,
+          agentId: undefined,
+        };
+      } else {
+        // AI 에이전트인 경우 실제 이름 가져오기
+        try {
+          const agentData = await getAgentById(member.agentId);
+          return {
+            name: agentData?.name || member.agentId || "Unknown",
+            roles: member.roles.map((role: any) => role.toString()),
+            isUser: false,
+            agentId: member.agentId || undefined,
+          };
+        } catch (error) {
+          console.warn(`⚠️ 에이전트 ${member.agentId} 정보 로딩 실패:`, error);
+          return {
+            name: member.agentId || "Unknown",
+            roles: member.roles.map((role: any) => role.toString()),
+            isUser: false,
+            agentId: member.agentId || undefined,
+          };
+        }
+      }
     }));
+
+    // 자기 자신을 제외한 팀원들만 요청 대상으로 선택
+    const teamMembers = allTeamMembers.filter(member => {
+      // 사용자는 제외하지 않음 (AI가 사용자에게 요청할 수 있음)
+      if (member.isUser) return true;
+      // AI 에이전트인 경우 자기 자신은 제외
+      return member.agentId !== agentId;
+    });
+
+    // 요청할 수 있는 팀원이 없는 경우 중단
+    if (teamMembers.length === 0) {
+      console.log(`⚠️ ${agentProfile.name} 요청할 수 있는 팀원이 없음 (자기 자신 제외)`);
+      
+      // 상태를 idle로 되돌리기
+      await setAgentState(teamId, agentId, {
+        agentId,
+        currentState: "idle",
+        lastStateChange: new Date().toISOString(),
+        isProcessing: false,
+        requestQueue: [],
+      });
+      
+      return;
+    }
 
     // 현재 아이디어 정보 가져오기
     const ideas = await getIdeas(teamId);

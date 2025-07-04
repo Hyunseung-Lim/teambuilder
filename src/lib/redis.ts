@@ -1140,7 +1140,7 @@ async function initializeAgentMemoryLegacy(
 
     relations[relationKey] = {
       agentInfo: otherAgentProfile,
-      relationship: relationship ? relationship.type : "AWKWARD", // 기본값
+      relationship: relationship ? relationship.type : "NULL", // 기본값
       interactionHistory: [],
       myOpinion: "아직 상호작용이 없어 의견이 없습니다.", // 초기 의견
     };

@@ -1070,19 +1070,31 @@ export default function NewTeamPage() {
                                   currentMember.agent.professional ===
                                     agent.professional;
 
+                                // Check if this agent is already used by another member
+                                const usedByMember = memberSlots.find(
+                                  (member) =>
+                                    member.id !== currentMember.id &&
+                                    member.agentId === agent.id
+                                );
+                                const isUsedByOtherMember = !!usedByMember;
+
                                 return (
                                   <button
                                     key={agent.id}
                                     type="button"
                                     onClick={() =>
+                                      !isUsedByOtherMember &&
                                       updateMemberAgent(
                                         currentMember.id,
                                         { ...agent },
                                         agent.id
                                       )
                                     }
+                                    disabled={isUsedByOtherMember}
                                     className={`p-4 border-2 rounded-lg text-left transition-all ${
-                                      isSelected
+                                      isUsedByOtherMember
+                                        ? "border-gray-200 bg-gray-100 opacity-50 cursor-not-allowed"
+                                        : isSelected
                                         ? "border-blue-500 bg-blue-50"
                                         : "border-gray-200 hover:border-gray-300"
                                     }`}
@@ -1101,9 +1113,17 @@ export default function NewTeamPage() {
                                         <p className="text-xs text-gray-500">
                                           {agent.age}세, {agent.gender}
                                         </p>
+                                        {isUsedByOtherMember && (
+                                          <p className="text-xs text-red-500 mt-1">
+                                            이미 {usedByMember?.isUser ? "나" : usedByMember?.id}에서 사용 중
+                                          </p>
+                                        )}
                                       </div>
-                                      {isSelected && (
+                                      {isSelected && !isUsedByOtherMember && (
                                         <CheckCircle className="h-6 w-6 text-blue-500 flex-shrink-0" />
+                                      )}
+                                      {isUsedByOtherMember && (
+                                        <X className="h-6 w-6 text-red-400 flex-shrink-0" />
                                       )}
                                     </div>
                                   </button>
@@ -1148,7 +1168,7 @@ export default function NewTeamPage() {
 
               {error && (
                 <div className="text-sm text-red-600 bg-red-50 p-4 rounded-lg mt-6">
-                  {error}
+                  <div className="whitespace-pre-line">{error}</div>
                 </div>
               )}
 
@@ -1268,7 +1288,7 @@ export default function NewTeamPage() {
 
             {error && (
               <div className="text-sm text-red-600 bg-red-50 p-4 rounded-lg">
-                {error}
+                <div className="whitespace-pre-line">{error}</div>
               </div>
             )}
 

@@ -62,20 +62,20 @@ export async function POST(
     }
 
     if (
-      !scores.insightful ||
-      !scores.actionable ||
-      !scores.relevance ||
-      scores.insightful < 1 ||
-      scores.insightful > 7 ||
-      scores.actionable < 1 ||
-      scores.actionable > 7 ||
-      scores.relevance < 1 ||
-      scores.relevance > 7
+      !scores.novelty ||
+      !scores.completeness ||
+      !scores.quality ||
+      scores.novelty < 1 ||
+      scores.novelty > 7 ||
+      scores.completeness < 1 ||
+      scores.completeness > 7 ||
+      scores.quality < 1 ||
+      scores.quality > 7
     ) {
       console.error(`❌ 점수 범위 오류:`, {
-        insightful: scores.insightful,
-        actionable: scores.actionable,
-        relevance: scores.relevance,
+        novelty: scores.novelty,
+        completeness: scores.completeness,
+        quality: scores.quality,
       });
       return NextResponse.json(
         { error: "모든 점수는 1-7 사이의 값이어야 합니다." },
@@ -123,9 +123,9 @@ export async function POST(
       evaluator,
       timestamp: new Date().toISOString(),
       scores: {
-        insightful: scores.insightful,
-        actionable: scores.actionable,
-        relevance: scores.relevance,
+        novelty: scores.novelty,
+        completeness: scores.completeness,
+        quality: scores.quality,
       },
       comment: comment || "",
     };

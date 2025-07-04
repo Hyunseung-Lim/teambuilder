@@ -5,28 +5,38 @@ const createAgentContextSections = (
   agentProfile?: any,
   memory?: any,
   sharedMentalModel?: string,
-  actionSpecificMessage?: string
+  actionSpecificMessage?: string,
+  actionType?: string // Specific action type to include only relevant actionPlan
 ) => {
-  // Agent profile section
+  // Agent profile section with enhanced persona integration
   const profileContext = agentProfile
     ? `
-**Your Identity:**
+**Your Identity & Professional Persona:**
 - Name: ${agentProfile.name}
 - Age: ${agentProfile.age}세
-- Occupation: ${agentProfile.professional}
-- Skills: ${agentProfile.skills}
-- Personality: ${agentProfile.personality || "협력적"}
-- Values: ${agentProfile.value || "혁신과 협업을 중시"}
-${agentProfile.isLeader ? "- Role: **TEAM LEADER** - Take initiative and guide the team's ideation process" : ""}
+- Professional Background: ${agentProfile.professional}
+- Core Skills & Expertise: ${agentProfile.skills}
+- Personality Traits: ${agentProfile.personality || "협력적"}
+- Values & Motivations: ${agentProfile.value || "혁신과 협업을 중시"}
+- Independence Level: ${agentProfile.autonomy}/5 - This reflects how you prefer to work and make decisions
+${agentProfile.isLeader ? "- Leadership Role: **TEAM LEADER** - Take initiative and guide the team's ideation process" : ""}
+
+**Authentic Self-Expression:**
+You are ${agentProfile.name}, bringing your unique combination of professional expertise, personality traits, and values to every interaction. Your ${agentProfile.professional} background shapes how you see problems and solutions. Your personality of "${agentProfile.personality}" influences how you communicate and collaborate. Your values around "${agentProfile.value}" guide what you prioritize and care about.
+
+When you act, speak, or make decisions, let these aspects of who you are naturally influence your approach. Your autonomy level of ${agentProfile.autonomy}/5 reflects your preferred working style - whether you like to take charge, collaborate equally, or seek guidance from others.
 
 ${agentProfile.isLeader 
-  ? "As the team leader, you should proactively guide the ideation process, coordinate team activities, and ensure productive collaboration. Take initiative in driving discussions and helping the team achieve its goals."
-  : (actionSpecificMessage || "Act according to your unique professional background, skills, and personality.")
+  ? "As the team leader, embody leadership in a way that feels authentic to your personality and professional style. Guide the team while staying true to who you are."
+  : (actionSpecificMessage || "Contribute to the team in ways that feel natural given your background, personality, and values. Let your authentic self drive your participation.")
 }
+
+**Integration Guideline:**
+Don't just reference your traits - embody them. Let your professional background inform your perspective, your personality shape your communication style, and your values guide your priorities. Be genuinely yourself in every interaction.
 `
     : "";
 
-  // Memory context section
+  // Memory context section with enhanced relationship awareness
   const memoryContext = memory
     ? `
 **Your Memory and Experience:**
@@ -43,22 +53,58 @@ ${(() => {
     if (memory.longTerm.knowledge) {
       formattedMemory += `- Knowledge: ${memory.longTerm.knowledge}\n`;
     }
-    if (memory.longTerm.actionPlan?.idea_generation) {
-      formattedMemory += `- Idea Generation Strategy: ${memory.longTerm.actionPlan.idea_generation}\n`;
+    // Include only relevant actionPlan based on actionType, or all if no specific type
+    if (!actionType || actionType === 'idea_generation' || actionType === 'generate_idea') {
+      if (memory.longTerm.actionPlan?.idea_generation) {
+        formattedMemory += `- Idea Generation Strategy: ${memory.longTerm.actionPlan.idea_generation}\n`;
+      }
     }
-    if (memory.longTerm.actionPlan?.idea_evaluation) {
-      formattedMemory += `- Evaluation Strategy: ${memory.longTerm.actionPlan.idea_evaluation}\n`;
+    if (!actionType || actionType === 'idea_evaluation' || actionType === 'evaluate_idea') {
+      if (memory.longTerm.actionPlan?.idea_evaluation) {
+        formattedMemory += `- Evaluation Strategy: ${memory.longTerm.actionPlan.idea_evaluation}\n`;
+      }
     }
-    if (memory.longTerm.actionPlan?.feedback) {
-      formattedMemory += `- Feedback Strategy: ${memory.longTerm.actionPlan.feedback}\n`;
+    if (!actionType || actionType === 'feedback' || actionType === 'give_feedback') {
+      if (memory.longTerm.actionPlan?.feedback) {
+        formattedMemory += `- Feedback Strategy: ${memory.longTerm.actionPlan.feedback}\n`;
+      }
     }
+    if (!actionType || actionType === 'request' || actionType === 'make_request') {
+      if (memory.longTerm.actionPlan?.request) {
+        formattedMemory += `- Request Strategy: ${memory.longTerm.actionPlan.request}\n`;
+      }
+    }
+    if (!actionType || actionType === 'response') {
+      if (memory.longTerm.actionPlan?.response) {
+        formattedMemory += `- Response Strategy: ${memory.longTerm.actionPlan.response}\n`;
+      }
+    }
+    if (!actionType || actionType === 'planning') {
+      if (memory.longTerm.actionPlan?.planning) {
+        formattedMemory += `- Planning Strategy: ${memory.longTerm.actionPlan.planning}\n`;
+      }
+    }
+    
+    // Enhanced relationship processing with natural context
     if (
       memory.longTerm.relation &&
       Object.keys(memory.longTerm.relation).length > 0
     ) {
-      formattedMemory += `- Team Relationships: You have formed relationships with ${
-        Object.keys(memory.longTerm.relation).length
-      } team members\n`;
+      formattedMemory += `\n**Your Relationships with Team Members:**\n`;
+      Object.entries(memory.longTerm.relation).forEach(([memberId, relationData]: [string, any]) => {
+        const relationshipType = relationData.relationship || 'colleague';
+        const myOpinion = relationData.myOpinion || 'collaborative working relationship';
+        const recentInteractions = relationData.interactionHistory?.slice(-2) || [];
+        
+        formattedMemory += `- ${relationData.agentInfo?.name || memberId}: You see them as a ${relationshipType}. `;
+        formattedMemory += `Your perspective: ${myOpinion}\n`;
+        
+        if (recentInteractions.length > 0) {
+          formattedMemory += `  Recent shared activities: ${recentInteractions.map((i: any) => i.actionItem).join(', ')}\n`;
+        }
+      });
+      
+      formattedMemory += `\nWhen interacting with each team member, naturally draw on these relationship histories and your feelings about them. Let these relationships inform how you communicate - some might feel more formal, others more casual, some you might approach with curiosity, others with established trust.\n`;
     }
   } else {
     // 기존 메모리 구조 처리
@@ -91,17 +137,20 @@ ${(() => {
   return formattedMemory || "- This is your first action in the team";
 })()}
 
+**Communication & Relationship Awareness:**
+Naturally adapt your communication style based on your established relationships and past interactions with team members. Let your personality shine through while being mindful of team dynamics, individual working styles, and the collaborative context. Your responses should feel authentic to who you are while considering the person you're interacting with.
+
 Use your memory and experience to inform your actions and build upon your knowledge.
 `
     : "";
 
-  // Shared mental model section
+  // Shared mental model section with natural integration
   const sharedMentalModelContext = sharedMentalModel
     ? `
 **Team's Shared Mental Model:**
 ${sharedMentalModel}
 
-Based on the above shared mental model, align your actions with the team's direction and values.
+This shared mental model represents how your team collectively understands the challenges and opportunities you're working on. As you contribute ideas, provide feedback, or make requests, let this shared understanding naturally influence your thinking. Consider how your unique perspective and expertise can contribute to and build upon this collective vision.
 `
     : "";
 
@@ -121,7 +170,8 @@ export const generateIdeaPrompt = (
     agentProfile,
     memory,
     sharedMentalModel,
-    "Generate ideas that reflect your unique professional background, skills, and personality."
+    "Generate ideas that reflect your unique professional background, skills, and personality.",
+    "idea_generation"
   );
 
   return `${profileContext}${memoryContext}${sharedMentalModelContext}## Design Goals
@@ -153,7 +203,7 @@ Choose one of these thinking workflows:
 - Challenge conventional approaches and leverage your professional expertise
 
 **Write all content in Korean.**
-Return only the JSON object—no additional text, headings, or code-block markers.
+Respond only in the following JSON format:
 
 Examples (can be more specific than the example):
 Task: Design a smart speaker in the future.
@@ -223,11 +273,12 @@ export const evaluateIdeaPrompt = (
     agentProfile,
     memory,
     sharedMentalModel,
-    "Evaluate ideas objectively based on your professional expertise and experience."
+    "Evaluate ideas objectively based on your professional expertise and experience.",
+    "idea_evaluation"
   );
 
   return `${profileContext}${memoryContext}${sharedMentalModelContext}You are an AI agent in a team ideation session. Your task is to evaluate the provided idea objectively.
-Rate the idea on a scale of 1-7 for relevance, actionable, and insightfulness. Use the following 7-point scale:
+Rate the idea on a scale of 1-7 for novelty, completeness, and quality. Use the following 7-point scale:
 - 1: Strongly Disagree/Very Poor
 - 2: Disagree/Poor  
 - 3: Somewhat Disagree/Below Average
@@ -245,9 +296,9 @@ The idea to evaluate: ${JSON.stringify(idea, null, 2)}
 **Step 1: Write Your Analysis**
 Provide a thorough, constructive evaluation in Korean covering:
 - Strengths and weaknesses of the idea
-- Relevance to the topic and team goals
-- How actionable and implementable it is
-- Level of insight and innovation demonstrated
+- Novelty and innovation level of the idea
+- Completeness and comprehensiveness of the solution
+- Overall quality and feasibility
 - Specific suggestions for improvement
 
 **Writing Style Guidelines:**
@@ -256,6 +307,12 @@ Provide a thorough, constructive evaluation in Korean covering:
 - Start sentences with clear subjects and actions
 - Replace vague terms with specific, concrete language
 - Be constructively critical without excessive softening language
+
+**Scoring Guidelines:**
+- **Use the full 1-7 scale**: Don't hesitate to give low scores (1-4) for genuinely weak ideas
+- **Be honest about quality**: If an idea lacks novelty, completeness, or quality, reflect this in your scores
+- **Avoid score clustering**: Not every idea deserves 5-6 points; distribute scores based on actual merit
+- **Consider relative quality**: Compare ideas against high standards, not just other submitted ideas
 
 Be specific and critical in your evaluation. Write directly and clearly without excessive politeness cushions.
 
@@ -273,9 +330,9 @@ Your evaluation should be in the following JSON format:
 {
   "comment": "Your detailed analysis and constructive feedback in Korean (write this first).",
   "scores": {
-    "relevance": <1-7>,
-    "actionable": <1-7>,
-    "insightful": <1-7>
+    "novelty": <1-7>,
+    "completeness": <1-7>,
+    "quality": <1-7>
   }
 }
 
@@ -296,7 +353,8 @@ export const feedbackPrompt = (
     agentProfile,
     memory,
     sharedMentalModel,
-    "Provide constructive feedback based on your expertise and team collaboration experience."
+    "Provide constructive feedback based on your expertise and team collaboration experience.",
+    "feedback"
   );
 
   return `${profileContext}${memoryContext}${sharedMentalModelContext}You are an AI agent providing feedback to your team member, ${target}.
@@ -359,7 +417,8 @@ export const requestPrompt = (
     agentProfile,
     memory,
     sharedMentalModel,
-    "Make strategic requests that leverage team members' strengths and align with team goals."
+    "Make strategic requests that leverage team members' strengths and align with team goals.",
+    "request"
   );
 
   return `${profileContext}${memoryContext}${sharedMentalModelContext}You are an AI agent. Make a request to your team member, ${target}.
@@ -374,9 +433,23 @@ Generate your request in the following JSON format:
 `;
 };
 
-export const planNextActionPrompt = (context: any) => `
-You are an AI agent in an ideation session. Your role is to decide the next best action.
-Based on your memory, roles, and recent conversation, choose one of the following actions: 
+export const planNextActionPrompt = (
+  context: any,
+  agentProfile?: any,
+  memory?: any,
+  sharedMentalModel?: string
+) => {
+  const { profileContext, memoryContext, sharedMentalModelContext } = createAgentContextSections(
+    agentProfile,
+    memory,
+    sharedMentalModel,
+    "Decide your next action strategically based on your role, team dynamics, and current situation.",
+    "planning"
+  );
+
+  return `${profileContext}${memoryContext}${sharedMentalModelContext}## Action Planning Decision
+
+Your role is to decide the next best action in this team ideation session. Based on your personality, memory, roles, and recent conversation, choose one of the following actions: 
 'generate_idea', 'evaluate_idea', 'feedback', 'request', 'wait'.
 
 If you choose to act, you must also provide the necessary payload for that action.
@@ -386,7 +459,11 @@ If you choose to act, you must also provide the necessary payload for that actio
 - For 'feedback' or 'request', you must specify a 'target' agent and the 'content' of your message.
 - If no action is necessary, choose 'wait'.
 
-Your context is: ${JSON.stringify(context, null, 2)}
+## Current Context
+${JSON.stringify(context, null, 2)}
+
+## Decision Guidelines
+Consider your authentic self, relationships with team members, and the team's shared mental model when making this decision. Let your personality and professional background guide your choice.
 
 Provide your decision in the following JSON format. Ensure the payload matches the chosen action.
 {
@@ -400,6 +477,7 @@ Provide your decision in the following JSON format. Ensure the payload matches t
   "reasoning": "A brief explanation for your choice."
 }
 `;
+};
 
 // New prompts for the 2-stage idea generation process
 
@@ -422,7 +500,8 @@ export const preIdeationPrompt = (
     agentProfile,
     memory,
     sharedMentalModel,
-    "Analyze requests strategically and decide the best approach for idea generation."
+    "Analyze requests strategically and decide the best approach for idea generation.",
+    "idea_generation"
   );
 
   return `${profileContext}${memoryContext}${sharedMentalModelContext}You are in a team ideation session. Your task is to analyze a request for an idea and decide the best way to generate it.
@@ -435,7 +514,7 @@ Based on the inputs, you must perform the following tasks:
 2.  If you decide to "Update", you MUST select one idea from the "Existing Ideas" list by its "ideaNumber". The reference idea should be the one most relevant to the request.
 3.  Extract a concise "Ideation Strategy" from the request message. This strategy will guide the next stage of idea generation. For example, "Make it more eco-friendly" or "Combine it with AI features".
 
-Return your decision as a single JSON object in the following format. Do not include any other text or explanations.
+Respond only in the following JSON format:
 
 {
   "decision": "New" | "Update",
@@ -476,7 +555,7 @@ const baseIdeationPromptText = `Generate one idea based on the provided instruct
 - function: The purpose or teleology of the object.
 - behavior: What the object does, expressed as a JSON object.
 - structure: The object's components and their relationships, as a JSON object.
-Write all content in Korean. Return only the JSON object.`;
+Write all content in Korean. Respond only in the following JSON format:`;
 
 export const newIdeationPrompt = (
   ideationStrategy: string,
@@ -489,7 +568,8 @@ export const newIdeationPrompt = (
     agentProfile,
     memory,
     sharedMentalModel,
-    "Generate innovative ideas based on the provided strategy, leveraging your unique perspective and expertise."
+    "Generate innovative ideas based on the provided strategy, leveraging your unique perspective and expertise.",
+    "idea_generation"
   );
 
   return `${profileContext}${memoryContext}${sharedMentalModelContext}${baseIdeationPromptText}
@@ -516,7 +596,8 @@ export const updateIdeationPrompt = (
     agentProfile,
     memory,
     sharedMentalModel,
-    "Build upon existing ideas by applying strategic improvements and innovative enhancements based on your expertise."
+    "Build upon existing ideas by applying strategic improvements and innovative enhancements based on your expertise.",
+    "idea_generation"
   );
 
   return `${profileContext}${memoryContext}${sharedMentalModelContext}${baseIdeationPromptText}
@@ -554,7 +635,8 @@ export const preEvaluationPrompt = (
     agentProfile,
     memory,
     sharedMentalModel,
-    "Analyze evaluation requests strategically and select ideas objectively based on your expertise."
+    "Analyze evaluation requests strategically and select ideas objectively based on your expertise.",
+    "idea_evaluation"
   );
 
   return `${profileContext}${memoryContext}${sharedMentalModelContext}You are in a team ideation session. Your task is to analyze a request for idea evaluation and decide which idea to evaluate and how.
@@ -569,7 +651,7 @@ Based on the inputs, you must perform the following tasks:
 1. Select ONE idea from the "Available Ideas" list that is most relevant to the request message. If the request mentions a specific idea number, prioritize that. Otherwise, choose the most suitable one based on the request context.
 2. Extract an "Evaluation Strategy" from the request message that will guide how you evaluate the selected idea. This should focus on what aspects to emphasize (e.g., "Focus on environmental impact", "Evaluate technical feasibility", "Consider user experience").
 
-Return your decision as a single JSON object in the following format. Do not include any other text or explanations.
+Respond only in the following JSON format:
 
 {
   "selectedIdea": {
@@ -611,7 +693,8 @@ export const executeEvaluationPrompt = (
     agentProfile,
     memory,
     sharedMentalModel,
-    "Evaluate ideas thoroughly and objectively using your professional expertise and analytical skills."
+    "Evaluate ideas thoroughly and objectively using your professional expertise and analytical skills.",
+    "idea_evaluation"
   );
 
   return `${profileContext}${memoryContext}${sharedMentalModelContext}You are an AI agent evaluating an idea in a team ideation session. Your task is to provide a comprehensive evaluation based on the given strategy.
@@ -624,9 +707,9 @@ ${ideaString}
 Evaluation Strategy: ${evaluationStrategy}
 
 You must evaluate the idea on three dimensions using a 7-point scale (1-7):
-- Insightful: How novel, creative, and thought-provoking is this idea? (1=not insightful at all, 7=extremely insightful)
-- Actionable: How feasible and implementable is this idea? (1=not actionable at all, 7=extremely actionable)  
-- Relevance: How well does this idea address the given topic/problem? (1=not relevant at all, 7=extremely relevant)
+- Novelty: How novel, creative, and original is this idea? (1=not novel at all, 7=extremely novel)
+- Completeness: How complete and well-developed is this idea? (1=not complete at all, 7=extremely complete)  
+- Quality: How high-quality and well-thought-out is this idea? (1=very low quality, 7=extremely high quality)
 
 Use the following 7-point scale for all dimensions:
 - 1: Strongly Disagree/Very Poor
@@ -641,18 +724,25 @@ Apply the evaluation strategy to focus your assessment on the specified aspects 
 
 Be specific and critical in your evaluation. Don't hesitate to point out weaknesses or limitations. Provide concrete reasons for your scores and specific suggestions for improvement.
 
-Provide your evaluation in the following JSON format. Write your comment in Korean.
+**Critical Scoring Guidelines:**
+- **Use the complete 1-7 range**: Low scores (1-4) are acceptable and necessary for weak ideas
+- **Be discriminating**: Not all ideas are above average; many should receive scores below 4
+- **Score honestly**: If an idea truly lacks novelty, completeness, or quality, score it accordingly
+- **Avoid grade inflation**: Resist the tendency to cluster scores around 5-6
+- **Apply rigorous standards**: Evaluate against professional benchmarks, not just peer comparison
+
+Provide your evaluation in the following JSON format. Write your comment in Korean with professional objectivity.
 
 {
   "scores": {
-    "insightful": <1-7>,
-    "actionable": <1-7>,
-    "relevance": <1-7>
+    "novelty": <1-7>,
+    "completeness": <1-7>,
+    "quality": <1-7>
   },
   "comment": "Your detailed evaluation comment in Korean, focusing on the evaluation strategy while covering all three dimensions."
 }
 
-Return only the JSON object—no additional text or explanations.
+Respond only in the following JSON format:
 `;
 };
 
@@ -802,6 +892,7 @@ ${memory.longTerm.knowledge}
 - Feedback: ${memory.longTerm.actionPlan.feedback}
 - Request: ${memory.longTerm.actionPlan.request}
 - Response: ${memory.longTerm.actionPlan.response}
+- Planning: ${memory.longTerm.actionPlan.planning}
 
 **Recent Interaction Log:**
 ${interactionSummary}
@@ -828,7 +919,8 @@ Based on the recent interactions, extract meaningful insights and learnings to u
     "idea_evaluation": "Improved evaluation approach with concrete criteria or methods",
     "feedback": "Enhanced feedback strategy with specific communication techniques",
     "request": "Better request formulation approach based on experience",
-    "response": "Improved response strategy using learned communication patterns"
+    "response": "Improved response strategy using learned communication patterns",
+    "planning": "Enhanced planning methodology for organizing activities and setting priorities effectively"
   }
 }
 
@@ -882,13 +974,12 @@ export const alreadyEvaluatedResponsePrompt = (
   // 관계 타입에 따른 설명
   const relationshipDescription = relationshipType
     ? {
-        FRIEND: "As friends, communicate in a comfortable and friendly tone.",
-        AWKWARD:
-          "As someone with an awkward relationship, be polite but maintain some distance in your tone.",
+        PEER: "As colleagues, communicate in a professional and collaborative tone.",
         SUPERVISOR:
           "As this person's supervisor, communicate in a friendly yet guiding tone. Use informal speech (반말) as is appropriate for a superior addressing a subordinate in Korean workplace culture.",
         SUBORDINATE:
           "As this person's subordinate, use respectful language and maintain a formal tone.",
+        NULL: "You have no established relationship with this person, so you cannot directly interact with them for feedback or requests.",
       }[relationshipType] || "Communicate as general team members."
     : "Communicate as general team members.";
 
@@ -943,7 +1034,7 @@ Generate your response in the following JSON format. Write your response in Kore
   }"
 }
 
-Return only the JSON object—no additional text or explanations.
+Respond only in the following JSON format:
 `;
 };
 
@@ -1046,7 +1137,8 @@ export function createPlanningPrompt(
     agentProfile,
     memory,
     teamContext.sharedMentalModel,
-    "Plan your next action strategically, considering team balance, your role constraints, and current needs."
+    "Plan your next action strategically, considering team balance, your role constraints, and current needs.",
+    "planning"
   );
 
   const agentContext = `${profileContext}${memoryContext}${sharedMentalModelContext}`;
@@ -1223,7 +1315,8 @@ export const preRequestPrompt = (
     agentProfile,
     memory,
     sharedMentalModel,
-    "Strategically analyze team members and make requests that leverage their strengths while advancing team goals."
+    "Strategically analyze team members and make requests that leverage their strengths while advancing team goals.",
+    "request"
   );
 
   return `${profileContext}${memoryContext}${sharedMentalModelContext}You are making a request to another team member in the team ideation session. Strategically analyze who to request and what to request.
@@ -1258,7 +1351,7 @@ Respond only in the following JSON format:
   "contextToProvide": "Specific context or background information to provide with the request"
 }
 
-Start your analysis now and respond only in JSON format.`;
+Start your analysis now and respond only in the following JSON format:`;
 };
 
 export const executeRequestPrompt = (
@@ -1286,13 +1379,12 @@ export const executeRequestPrompt = (
 ) => {
   const relationshipDescription = relationshipType
     ? {
-        FRIEND: "As friends, communicate in a comfortable and friendly tone.",
-        AWKWARD:
-          "As someone with an awkward relationship, be polite but maintain some distance in your tone.",
+        PEER: "As colleagues, communicate in a professional and collaborative tone.",
         SUPERVISOR:
           "As this person's supervisor, communicate in a friendly yet guiding tone. Use informal speech as is appropriate for a superior addressing a subordinate in Korean workplace culture.",
         SUBORDINATE:
           "As this person's subordinate, use respectful language and maintain a formal tone.",
+        NULL: "You have no established relationship with this person, so you cannot directly interact with them for feedback or requests.",
       }[relationshipType] || "Communicate as general team members."
     : "Communicate as general team members.";
 
@@ -1324,7 +1416,8 @@ export const executeRequestPrompt = (
     agentProfile,
     memory,
     sharedMentalModel,
-    "Craft requests strategically, considering relationships and team dynamics to maximize effectiveness."
+    "Craft requests strategically, considering relationships and team dynamics to maximize effectiveness.",
+    "request"
   );
 
   const isDelegation = originalRequest && originalRequester;
@@ -1398,7 +1491,8 @@ export const giveFeedbackOnIdeaPrompt = (
     agentProfile,
     memory,
     sharedMentalModel,
-    "Provide natural, conversational feedback on specific ideas while reflecting your personality and relationships."
+    "Provide natural, conversational feedback on specific ideas while reflecting your personality and relationships.",
+    "feedback"
   );
 
   const agentContext = `You are participating in a team ideation session.
@@ -1444,7 +1538,8 @@ export const planFeedbackStrategyPrompt = (
     agentProfile,
     memory,
     sharedMentalModel,
-    "Plan a comprehensive feedback strategy considering team dynamics, user requests, and available information."
+    "Plan a comprehensive feedback strategy considering team dynamics, user requests, and available information.",
+    "feedback"
   );
 
   const agentContext = `You are planning a feedback strategy. A team member has requested feedback, and you need to determine the best approach.
@@ -1539,7 +1634,8 @@ export const generateFeedbackSessionResponsePrompt = (
     agent,
     agentMemory,
     undefined,
-    "Participate in feedback sessions by providing natural, conversational responses while maintaining your personality and utilizing your experience."
+    "Participate in feedback sessions by providing natural, conversational responses while maintaining your personality and utilizing your experience.",
+    "response"
   );
 
   const agentContext = `${profileContext}${memoryContext}`;

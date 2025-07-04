@@ -14,9 +14,9 @@ interface IdeaDetailModalProps {
   team: Team | null;
   agents: AIAgent[];
   onSubmitEvaluation?: (evaluationData: {
-    insightful: number;
-    actionable: number;
-    relevance: number;
+    novelty: number;
+    completeness: number;
+    quality: number;
     comment: string;
   }) => Promise<void>;
   isSubmittingEvaluation?: boolean;
@@ -50,9 +50,9 @@ export default function IdeaDetailModal({
     Array<{ key: string; value: string }>
   >([]);
   const [evaluationFormData, setEvaluationFormData] = useState({
-    insightful: 0,
-    actionable: 0,
-    relevance: 0,
+    novelty: 0,
+    completeness: 0,
+    quality: 0,
     comment: "",
   });
 
@@ -217,9 +217,9 @@ export default function IdeaDetailModal({
     if (!onSubmitEvaluation || !idea) return;
 
     if (
-      !evaluationFormData.insightful ||
-      !evaluationFormData.actionable ||
-      !evaluationFormData.relevance ||
+      !evaluationFormData.novelty ||
+      !evaluationFormData.completeness ||
+      !evaluationFormData.quality ||
       !evaluationFormData.comment.trim()
     ) {
       alert("모든 평가 항목을 완료해주세요.");
@@ -231,9 +231,9 @@ export default function IdeaDetailModal({
 
       // 성공 시 폼 초기화 및 숨기기
       setEvaluationFormData({
-        insightful: 0,
-        actionable: 0,
-        relevance: 0,
+        novelty: 0,
+        completeness: 0,
+        quality: 0,
         comment: "",
       });
       setShowEvaluationForm(false);
@@ -611,26 +611,26 @@ export default function IdeaDetailModal({
                       <div className="grid grid-cols-3 gap-2 mb-3">
                         <div className="text-center">
                           <div className="text-xs text-gray-500 mb-1">
-                            Relevance
+                            Novelty
                           </div>
                           <div className="text-lg font-bold text-gray-900">
-                            {evaluation.scores.relevance}
+                            {evaluation.scores.novelty}
                           </div>
                         </div>
                         <div className="text-center">
                           <div className="text-xs text-gray-500 mb-1">
-                            actionable
+                            Completeness
                           </div>
                           <div className="text-lg font-bold text-gray-900">
-                            {evaluation.scores.actionable}
+                            {evaluation.scores.completeness}
                           </div>
                         </div>
                         <div className="text-center">
                           <div className="text-xs text-gray-500 mb-1">
-                            Insightful
+                            Quality
                           </div>
                           <div className="text-lg font-bold text-gray-900">
-                            {evaluation.scores.insightful}
+                            {evaluation.scores.quality}
                           </div>
                         </div>
                       </div>
@@ -667,10 +667,10 @@ export default function IdeaDetailModal({
                       새 평가 작성
                     </h4>
 
-                    {/* Insightful */}
+                    {/* Novelty */}
                     <div className="mb-4">
                       <label className="text-sm font-medium text-gray-700 mb-2 block">
-                        Insightful (1=매우 나쁨 ~ 7=매우 좋음)
+                        Novelty (1=매우 나쁨 ~ 7=매우 좋음)
                       </label>
                       <div className="flex justify-between gap-1">
                         {[1, 2, 3, 4, 5, 6, 7].map((value) => (
@@ -679,11 +679,11 @@ export default function IdeaDetailModal({
                             onClick={() =>
                               setEvaluationFormData({
                                 ...evaluationFormData,
-                                insightful: value,
+                                novelty: value,
                               })
                             }
                             className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all ${
-                              evaluationFormData.insightful === value
+                              evaluationFormData.novelty === value
                                 ? "border-blue-500 bg-blue-500 text-white"
                                 : "border-gray-300 text-gray-600 hover:border-blue-300"
                             }`}
@@ -694,10 +694,10 @@ export default function IdeaDetailModal({
                       </div>
                     </div>
 
-                    {/* actionable */}
+                    {/* Completeness */}
                     <div className="mb-4">
                       <label className="text-sm font-medium text-gray-700 mb-2 block">
-                        Actionable (1=매우 나쁨 ~ 7=매우 좋음)
+                        Completeness (1=매우 나쁨 ~ 7=매우 좋음)
                       </label>
                       <div className="flex justify-between gap-1">
                         {[1, 2, 3, 4, 5, 6, 7].map((value) => (
@@ -706,11 +706,11 @@ export default function IdeaDetailModal({
                             onClick={() =>
                               setEvaluationFormData({
                                 ...evaluationFormData,
-                                actionable: value,
+                                completeness: value,
                               })
                             }
                             className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all ${
-                              evaluationFormData.actionable === value
+                              evaluationFormData.completeness === value
                                 ? "border-blue-500 bg-blue-500 text-white"
                                 : "border-gray-300 text-gray-600 hover:border-blue-300"
                             }`}
@@ -721,10 +721,10 @@ export default function IdeaDetailModal({
                       </div>
                     </div>
 
-                    {/* Relevance */}
+                    {/* Quality */}
                     <div className="mb-4">
                       <label className="text-sm font-medium text-gray-700 mb-2 block">
-                        Relevance (1=매우 나쁨 ~ 7=매우 좋음)
+                        Quality (1=매우 나쁨 ~ 7=매우 좋음)
                       </label>
                       <div className="flex justify-between gap-1">
                         {[1, 2, 3, 4, 5, 6, 7].map((value) => (
@@ -733,11 +733,11 @@ export default function IdeaDetailModal({
                             onClick={() =>
                               setEvaluationFormData({
                                 ...evaluationFormData,
-                                relevance: value,
+                                quality: value,
                               })
                             }
                             className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all ${
-                              evaluationFormData.relevance === value
+                              evaluationFormData.quality === value
                                 ? "border-blue-500 bg-blue-500 text-white"
                                 : "border-gray-300 text-gray-600 hover:border-blue-300"
                             }`}
@@ -773,9 +773,9 @@ export default function IdeaDetailModal({
                         onClick={handleEvaluationSubmit}
                         disabled={
                           isSubmittingEvaluation ||
-                          !evaluationFormData.insightful ||
-                          !evaluationFormData.actionable ||
-                          !evaluationFormData.relevance ||
+                          !evaluationFormData.novelty ||
+                          !evaluationFormData.completeness ||
+                          !evaluationFormData.quality ||
                           !evaluationFormData.comment.trim()
                         }
                         className="flex-1 bg-blue-600 text-white py-2 px-3 rounded text-sm font-medium disabled:bg-gray-400 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
@@ -786,9 +786,9 @@ export default function IdeaDetailModal({
                         onClick={() => {
                           setShowEvaluationForm(false);
                           setEvaluationFormData({
-                            insightful: 0,
-                            actionable: 0,
-                            relevance: 0,
+                            novelty: 0,
+                            completeness: 0,
+                            quality: 0,
                             comment: "",
                           });
                         }}

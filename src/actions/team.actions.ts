@@ -28,13 +28,22 @@ export async function createTeamAction(formData: FormData) {
     const sharedMentalModel = formData.get("sharedMentalModel") as string;
 
     if (!teamName || !topic || !members || !relationships) {
-      return { success: false, error: "필수 정보가 누락되었습니다." };
+      const missingItems = [];
+      if (!teamName) missingItems.push("팀 이름 (1단계)");
+      if (!topic) missingItems.push("아이디에이션 주제 (1단계)");
+      if (!members) missingItems.push("팀원 정보 (3단계)");
+      if (!relationships) missingItems.push("팀원 관계 (4단계)");
+      
+      return { 
+        success: false, 
+        error: `필수 정보가 누락되었습니다.\n누락된 정보: ${missingItems.join(", ")}` 
+      };
     }
 
     // 각 멤버가 최소 하나의 역할을 가지는지 확인
     for (const member of members) {
       if (!member.roles || member.roles.length === 0) {
-        throw new Error("모든 팀원에게 최소 하나의 역할을 할당해주세요.");
+        throw new Error("모든 팀원에게 최소 하나의 역할을 할당해주세요. (2단계에서 역할 설정)");
       }
     }
 

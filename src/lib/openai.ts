@@ -28,7 +28,7 @@ if (!process.env.OPENAI_API_KEY) {
 
 const llm = new ChatOpenAI({
   model: "gpt-4o",
-  temperature: 0.5,
+  temperature: 0.8,
 });
 
 const openai = new OpenAI({

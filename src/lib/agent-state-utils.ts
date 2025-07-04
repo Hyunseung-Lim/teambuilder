@@ -138,8 +138,8 @@ export function createNewIdleTimer(): {
   remainingTime: number;
 } {
   // 랜덤 타이머로 에이전트들이 서로 다른 시간에 활동하도록 함
-  // 50초 ~ 70초 범위로 더 빠른 반응성 제공
-  const duration = Math.floor(Math.random() * 31) + 45; // 45-75초
+  // 30초 ~ 60초 범위로 더 빠른 반응성 제공
+  const duration = Math.floor(Math.random() * 31) + 30; // 30-60초
   return {
     startTime: new Date().toISOString(),
     plannedDuration: duration,

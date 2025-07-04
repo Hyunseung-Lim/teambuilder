@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { AIAgent } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Send, X, Users, Clock, MessageCircle } from "lucide-react";
 
 interface FeedbackSessionMessage {
@@ -61,6 +62,32 @@ export default function FeedbackSessionModal({
   const [sessionEnded, setSessionEnded] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Auto-resize textarea with max 4 lines
+  const adjustTextareaHeight = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      // Reset height to calculate scrollHeight correctly
+      textarea.style.height = 'auto';
+      
+      // Calculate the height needed for the content
+      const scrollHeight = textarea.scrollHeight;
+      const lineHeight = 20; // Approximate line height in pixels
+      const maxLines = 4;
+      const minHeight = lineHeight * 1.2; // Minimum height for 1 line
+      const maxHeight = lineHeight * maxLines;
+      
+      // Set height based on content, but constrained by min/max
+      const newHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
+      textarea.style.height = `${newHeight}px`;
+    }
+  }, []);
+
+  // Adjust height whenever newMessage changes
+  useEffect(() => {
+    adjustTextareaHeight();
+  }, [newMessage, adjustTextareaHeight]);
 
   // 메시지 끝으로 스크롤
   useEffect(() => {
@@ -467,19 +494,24 @@ export default function FeedbackSessionModal({
 
         {/* 메시지 입력 */}
         <div className="p-4 border-t border-gray-200 bg-white">
-          <div className="flex gap-2">
-            <input
-              type="text"
+          <div className="flex gap-2 items-end">
+            <Textarea
+              ref={textareaRef}
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendMessage();
+                }
+              }}
               placeholder={
                 sessionEnded
                   ? "세션이 종료되었습니다."
                   : `${sessionData.mentionedAgent.name}에게 메시지를 보내세요...`
               }
               disabled={isLoading || sessionEnded}
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+              className="flex-1 min-h-[40px] max-h-[80px] resize-none overflow-y-auto focus:ring-blue-500"
             />
             <Button
               onClick={handleSendMessage}

@@ -1,7 +1,8 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import { MessageCircle, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Team, AIAgent, ChatMessage, Idea } from "@/lib/types";
 import FeedbackTabContent from "@/components/FeedbackTabContent";
 import {
@@ -89,6 +90,49 @@ export default function ChatArea({
   onIdeaClick,
 }: ChatAreaProps) {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Auto-resize textarea with responsive max lines
+  const adjustTextareaHeight = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      // Reset height to calculate scrollHeight correctly
+      textarea.style.height = 'auto';
+      
+      // Calculate the height needed for the content
+      const scrollHeight = textarea.scrollHeight;
+      const lineHeight = 20; // Approximate line height in pixels
+      
+      // Responsive max lines based on screen size
+      const screenWidth = window.innerWidth;
+      let maxLines = 4; // Default for mobile
+      if (screenWidth >= 1024) maxLines = 6; // lg screens
+      else if (screenWidth >= 768) maxLines = 5; // md screens  
+      else if (screenWidth >= 640) maxLines = 4.5; // sm screens
+      
+      const minHeight = lineHeight * 2.4; // Minimum height for responsive sizing
+      const maxHeight = lineHeight * maxLines;
+      
+      // Set height based on content, but constrained by min/max
+      const newHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
+      textarea.style.height = `${newHeight}px`;
+    }
+  }, []);
+
+  // Adjust height whenever newMessage changes
+  useEffect(() => {
+    adjustTextareaHeight();
+  }, [newMessage, adjustTextareaHeight]);
+
+  // Adjust height when screen size changes
+  useEffect(() => {
+    const handleResize = () => {
+      adjustTextareaHeight();
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [adjustTextareaHeight]);
 
   useEffect(() => {
     scrollToBottom();
@@ -910,7 +954,7 @@ export default function ChatArea({
 
       {/* 메시지 입력 */}
       {activeTab === "main" && (
-        <div className="p-4 border-t border-gray-200">
+        <div className="p-3 sm:p-4 md:p-5 lg:p-6 border-t border-gray-200">
           {/* 아이디어 생성 제한 알림 */}
           {isChatDisabled() && (
             <div className="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -1070,8 +1114,9 @@ export default function ChatArea({
           </div>
 
           {/* 메시지 입력창 */}
-          <div className="flex gap-2">
-            <Input
+          <div className="flex gap-2 sm:gap-3 md:gap-4 items-end">
+            <Textarea
+              ref={textareaRef}
               value={newMessage}
               onChange={(e) => onNewMessageChange(e.target.value)}
               placeholder={
@@ -1087,13 +1132,15 @@ export default function ChatArea({
                       mentionedAgent ? mentionedAgent.name : "팀원"
                     }에게 요청할 내용을 입력하세요...`
               }
-              onKeyPress={(e) =>
-                e.key === "Enter" &&
-                activeTab === "main" &&
-                !isChatDisabled() &&
-                onSendMessage()
-              }
-              className="flex-1"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (activeTab === "main" && !isChatDisabled()) {
+                    onSendMessage();
+                  }
+                }
+              }}
+              className="flex-1 min-h-[48px] max-h-[96px] sm:min-h-[52px] sm:max-h-[104px] md:min-h-[56px] md:max-h-[112px] lg:min-h-[60px] lg:max-h-[120px] resize-none overflow-y-auto"
               disabled={
                 isChatDisabled() ||
                 isAutoGenerating ||
@@ -1112,9 +1159,9 @@ export default function ChatArea({
                 !mentionedAgent ||
                 (chatMode === "make_request" && !requestType)
               }
-              className="self-center"
+              className="self-center h-10 w-10 sm:h-11 sm:w-11 md:h-12 md:w-12"
             >
-              <Send className="w-4" />
+              <Send className="w-4 h-4 sm:w-5 sm:h-5 md:w-5 md:h-5" />
             </Button>
           </div>
         </div>

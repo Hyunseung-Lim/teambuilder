@@ -197,7 +197,7 @@ export default function IdeationPage() {
     }
     
     const totalScores = idea.evaluations.reduce((sum, evaluation) => {
-      return sum + evaluation.scores.insightful + evaluation.scores.actionable + evaluation.scores.relevance;
+      return sum + evaluation.scores.novelty + evaluation.scores.completeness + evaluation.scores.quality;
     }, 0);
     
     const totalEvaluations = idea.evaluations.length * 3; // 3가지 평가 항목
@@ -252,6 +252,20 @@ export default function IdeationPage() {
       if (agentState?.currentState === "feedback_session") {
         return false;
       }
+      
+      // Check if user has a non-NULL relationship with this agent
+      if (team && team.relationships) {
+        const relationship = team.relationships.find(rel => 
+          (rel.from === "나" && (rel.to === agent.id || rel.to === agent.name || rel.to === `${agent.name}봇`)) ||
+          (rel.to === "나" && (rel.from === agent.id || rel.from === agent.name || rel.from === `${agent.name}봇`))
+        );
+        
+        // If no relationship exists or relationship is NULL, prevent direct interaction
+        if (!relationship || relationship.type === "NULL") {
+          return false;
+        }
+      }
+      
       return true;
     });
   };
@@ -596,9 +610,9 @@ export default function IdeationPage() {
 
   // 아이디어 평가 제출 핸들러
   const handleSubmitEvaluationNew = async (evaluationData: {
-    insightful: number;
-    actionable: number;
-    relevance: number;
+    novelty: number;
+    completeness: number;
+    quality: number;
     comment: string;
   }) => {
     if (!team || !ideaDetailModalData) return;
@@ -612,9 +626,9 @@ export default function IdeationPage() {
           body: JSON.stringify({
             evaluator: "나",
             scores: {
-              insightful: evaluationData.insightful,
-              actionable: evaluationData.actionable,
-              relevance: evaluationData.relevance,
+              novelty: evaluationData.novelty,
+              completeness: evaluationData.completeness,
+              quality: evaluationData.quality,
             },
             comment: evaluationData.comment || "",
           }),
