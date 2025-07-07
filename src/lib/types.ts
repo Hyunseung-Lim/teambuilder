@@ -19,7 +19,9 @@ export interface AIAgent {
   autonomy: number;
   personality?: string;
   value?: string;
-  designStyle?: string;
+  workStyle?: string;
+  preferences?: string;
+  dislikes?: string;
   createdAt: Date;
   updatedAt: Date;
   userId: string;
@@ -32,6 +34,7 @@ export interface Team {
   teamName: string;
   members: TeamMember[];
   relationships: Relationship[];
+  nodePositions?: { [key: string]: { x: number; y: number } }; // 관계 그래프 노드 위치
   topic?: string; // 아이디에이션 주제
   sharedMentalModel?: string; // 공유 멘탈 모델
   createdAt: Date;
@@ -101,7 +104,9 @@ export interface TeamMemberSlot {
     autonomy: number;
     personality?: string;
     value?: string;
-    designStyle?: string;
+    workStyle?: string;
+    preferences?: string;
+    dislikes?: string;
   };
 }
 
@@ -127,7 +132,9 @@ export interface CreateAgentData {
   autonomy: number;
   personality?: string;
   value?: string;
-  designStyle?: string;
+  workStyle?: string;
+  preferences?: string;
+  dislikes?: string;
   ownerId: string;
 }
 

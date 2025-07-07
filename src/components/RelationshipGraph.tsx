@@ -14,11 +14,17 @@ export function RelationshipGraph({
   relationships,
   onAddRelationship,
   onRemoveRelationship,
+  readOnly = false,
+  initialNodePositions = {},
+  onNodePositionChange,
 }: {
   members: TeamMemberSlot[];
   relationships: Relationship[];
   onAddRelationship: (from: string, to: string, type: RelationshipType) => void;
   onRemoveRelationship: (from: string, to: string) => void;
+  readOnly?: boolean;
+  initialNodePositions?: { [key: string]: { x: number; y: number } };
+  onNodePositionChange?: (positions: { [key: string]: { x: number; y: number } }) => void;
 }) {
   const [nodes, setNodes] = useState<{
     [key: string]: { x: number; y: number };
@@ -37,7 +43,7 @@ export function RelationshipGraph({
   } | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // 노드 위치 초기화 (원형 배치)
+  // 노드 위치 초기화 (저장된 위치 우선, 없으면 원형 배치)
   useEffect(() => {
     if (!svgRef.current) return;
     const { width, height } = svgRef.current.getBoundingClientRect();
@@ -48,14 +54,19 @@ export function RelationshipGraph({
 
     const newNodes: { [key: string]: { x: number; y: number } } = {};
     members.forEach((member, index) => {
-      const angle = index * angleStep - Math.PI / 2;
-      newNodes[member.id] = {
-        x: centerX + radius * Math.cos(angle),
-        y: centerY + radius * Math.sin(angle),
-      };
+      // 저장된 위치가 있으면 사용, 없으면 원형 배치
+      if (initialNodePositions[member.id]) {
+        newNodes[member.id] = initialNodePositions[member.id];
+      } else {
+        const angle = index * angleStep - Math.PI / 2;
+        newNodes[member.id] = {
+          x: centerX + radius * Math.cos(angle),
+          y: centerY + radius * Math.sin(angle),
+        };
+      }
     });
     setNodes(newNodes);
-  }, [members]);
+  }, [members, initialNodePositions]);
 
   const getRelativeMousePos = (e: React.MouseEvent) => {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -64,7 +75,7 @@ export function RelationshipGraph({
   };
 
   const handleNodeClick = (nodeId: string) => {
-    if (!isConnecting) return;
+    if (readOnly || !isConnecting) return;
 
     if (!connectingFrom) {
       setConnectingFrom(nodeId);
@@ -87,7 +98,7 @@ export function RelationshipGraph({
   };
 
   const handleNodeMouseDown = (e: React.MouseEvent, nodeId: string) => {
-    if (isConnecting) return;
+    if (readOnly || isConnecting) return;
     const pos = getRelativeMousePos(e);
     setDragOffset({
       x: pos.x - nodes[nodeId].x,
@@ -112,6 +123,10 @@ export function RelationshipGraph({
   };
 
   const handleMouseUp = () => {
+    // 드래그가 끝나면 위치 변경을 부모에게 알림
+    if (draggedNode && onNodePositionChange) {
+      onNodePositionChange(nodes);
+    }
     // 클릭과 드래그를 구분하기 위해 약간의 딜레이 후 초기화
     setTimeout(() => setDraggedNode(null), 50);
   };
@@ -139,27 +154,30 @@ export function RelationshipGraph({
   return (
     <div className="relative">
       {/* 사용법 안내 */}
-      <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-        <h4 className="text-sm font-semibold text-blue-900 mb-2">📋 관계 설정 사용법</h4>
-        <div className="text-sm text-blue-800 space-y-1">
-          <p>• <strong>동료 관계:</strong> 서로 대등한 관계로 피드백과 요청이 가능합니다</p>
-          <p>• <strong>상사-부하 관계:</strong> 화살표가 가리키는 방향이 중요합니다</p>
-          <div className="ml-4 space-y-1 text-xs">
-            <p>→ 화살표가 가리키는 사람이 <span className="font-semibold text-blue-900">부하</span></p>
-            <p>→ 화살표 시작점이 <span className="font-semibold text-blue-900">상사</span></p>
-            <p>→ 예: A → B (A가 상사, B가 부하)</p>
+      {!readOnly && (
+        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <h4 className="text-sm font-semibold text-blue-900 mb-2">📋 관계 설정 사용법</h4>
+          <div className="text-sm text-blue-800 space-y-1">
+            <p>• <strong>동료 관계:</strong> 서로 대등한 관계로 피드백과 요청이 가능합니다</p>
+            <p>• <strong>상사-부하 관계:</strong> 화살표가 가리키는 방향이 중요합니다</p>
+            <div className="ml-4 space-y-1 text-xs">
+              <p>→ 화살표가 가리키는 사람이 <span className="font-semibold text-blue-900">부하</span></p>
+              <p>→ 화살표 시작점이 <span className="font-semibold text-blue-900">상사</span></p>
+              <p>→ 예: A → B (A가 상사, B가 부하)</p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
       
-      <div className="flex gap-2 mb-4 p-3 bg-gray-50 rounded-lg items-center justify-between">
-        <div>
-          {!isConnecting && !connectionCandidate && (
-            <Button variant="outline" onClick={startConnecting}>
-              <Plus className="h-4 w-4 mr-2" />
-              관계 연결하기
-            </Button>
-          )}
+      {!readOnly && (
+        <div className="flex gap-2 mb-4 p-3 bg-gray-50 rounded-lg items-center justify-between">
+          <div>
+            {!isConnecting && !connectionCandidate && (
+              <Button variant="outline" onClick={startConnecting}>
+                <Plus className="h-4 w-4 mr-2" />
+                관계 연결하기
+              </Button>
+            )}
           {(isConnecting || connectionCandidate) && (
             <div className="flex items-center gap-2">
               <p className="text-sm text-blue-700 bg-blue-100 px-3 py-2 rounded-md">
@@ -200,7 +218,8 @@ export function RelationshipGraph({
             ))}
           </div>
         )}
-      </div>
+        </div>
+      )}
 
       <svg
         ref={svgRef}
@@ -230,16 +249,16 @@ export function RelationshipGraph({
 
         {/* 관계 엣지 */}
         {relationships.filter(rel => rel.type !== "NULL").map((rel, index) => {
-          // 이름으로 멤버를 찾아서 member.id로 노드 위치 가져오기
+          // 이름이나 ID로 멤버를 찾아서 member.id로 노드 위치 가져오기
           const fromMember = members.find(
             (m) =>
               (m.isUser && rel.from === "나") ||
-              (!m.isUser && m.agent?.name === rel.from)
+              (!m.isUser && (m.agent?.name === rel.from || m.id === rel.from))
           );
           const toMember = members.find(
             (m) =>
               (m.isUser && rel.to === "나") ||
-              (!m.isUser && m.agent?.name === rel.to)
+              (!m.isUser && (m.agent?.name === rel.to || m.id === rel.to))
           );
 
           if (!fromMember || !toMember) return null;
@@ -313,10 +332,11 @@ export function RelationshipGraph({
                 {relType.label}
               </text>
               {/* 관계 제거 버튼 */}
-              <g
-                className="cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={() => onRemoveRelationship(fromMember.id, toMember.id)}
-              >
+              {!readOnly && (
+                <g
+                  className="cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={() => onRemoveRelationship(fromMember.id, toMember.id)}
+                >
                 <rect
                   x={(startX + endX) / 2 - 12}
                   y={(startY + endY) / 2 - 12}
@@ -334,7 +354,8 @@ export function RelationshipGraph({
                 >
                   <XIcon className="h-4 w-4 text-red-600" />
                 </foreignObject>
-              </g>
+                </g>
+              )}
             </g>
           );
         })}

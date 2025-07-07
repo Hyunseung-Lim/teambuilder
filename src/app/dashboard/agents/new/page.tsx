@@ -217,11 +217,31 @@ export default function NewAgentPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="designStyle">추구하는 디자인</Label>
+              <Label htmlFor="workStyle">업무 방식(스타일)</Label>
               <Textarea
-                id="designStyle"
-                name="designStyle"
-                placeholder="예: 미니멀하고 깔끔한 디자인을 선호하며, 타이포그래피와 여백을 중시합니다."
+                id="workStyle"
+                name="workStyle"
+                placeholder="예: 체계적이고 계획적인 업무 방식을 선호함"
+                disabled={isLoading}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="preferences">선호하는 것</Label>
+              <Textarea
+                id="preferences"
+                name="preferences"
+                placeholder="예: 미니멀하면서도 감각적인 디자인, 협업적인 환경"
+                disabled={isLoading}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="dislikes">싫어하는 것</Label>
+              <Textarea
+                id="dislikes"
+                name="dislikes"
+                placeholder="예: 지나치게 복잡한 인터페이스, 비효율적인 프로세스"
                 disabled={isLoading}
               />
             </div>

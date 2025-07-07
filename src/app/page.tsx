@@ -886,13 +886,35 @@ export default function HomePage() {
                   </div>
                 )}
 
-                {selectedAgent.designStyle && (
+                {selectedAgent.workStyle && (
                   <div>
                     <h4 className="text-sm font-semibold text-gray-900 mb-2">
-                      추구하는 디자인
+                      업무 방식
                     </h4>
                     <p className="text-sm text-gray-600">
-                      {selectedAgent.designStyle}
+                      {selectedAgent.workStyle}
+                    </p>
+                  </div>
+                )}
+
+                {selectedAgent.preferences && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-2">
+                      선호하는 것
+                    </h4>
+                    <p className="text-sm text-gray-600">
+                      {selectedAgent.preferences}
+                    </p>
+                  </div>
+                )}
+
+                {selectedAgent.dislikes && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-2">
+                      싫어하는 것
+                    </h4>
+                    <p className="text-sm text-gray-600">
+                      {selectedAgent.dislikes}
                     </p>
                   </div>
                 )}

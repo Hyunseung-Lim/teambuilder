@@ -1,7 +1,7 @@
 import { AgentMemory } from "@/lib/types";
 
 // Common function to generate agent context sections
-const createAgentContextSections = (
+export const createAgentContextSections = (
   agentProfile?: any,
   memory?: any,
   sharedMentalModel?: string,
@@ -307,12 +307,6 @@ Provide a thorough, constructive evaluation in Korean covering:
 - Start sentences with clear subjects and actions
 - Replace vague terms with specific, concrete language
 - Be constructively critical without excessive softening language
-
-**Scoring Guidelines:**
-- **Use the full 1-7 scale**: Don't hesitate to give low scores (1-4) for genuinely weak ideas
-- **Be honest about quality**: If an idea lacks novelty, completeness, or quality, reflect this in your scores
-- **Avoid score clustering**: Not every idea deserves 5-6 points; distribute scores based on actual merit
-- **Consider relative quality**: Compare ideas against high standards, not just other submitted ideas
 
 Be specific and critical in your evaluation. Write directly and clearly without excessive politeness cushions.
 
@@ -724,14 +718,7 @@ Apply the evaluation strategy to focus your assessment on the specified aspects 
 
 Be specific and critical in your evaluation. Don't hesitate to point out weaknesses or limitations. Provide concrete reasons for your scores and specific suggestions for improvement.
 
-**Critical Scoring Guidelines:**
-- **Use the complete 1-7 range**: Low scores (1-4) are acceptable and necessary for weak ideas
-- **Be discriminating**: Not all ideas are above average; many should receive scores below 4
-- **Score honestly**: If an idea truly lacks novelty, completeness, or quality, score it accordingly
-- **Avoid grade inflation**: Resist the tendency to cluster scores around 5-6
-- **Apply rigorous standards**: Evaluate against professional benchmarks, not just peer comparison
-
-Provide your evaluation in the following JSON format. Write your comment in Korean with professional objectivity.
+Provide your evaluation in the following JSON format. Write your comment in Korean.
 
 {
   "scores": {

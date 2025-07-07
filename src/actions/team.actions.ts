@@ -25,6 +25,7 @@ export async function createTeamAction(formData: FormData) {
     const topic = formData.get("topic") as string;
     const members = JSON.parse(formData.get("members") as string);
     const relationships = JSON.parse(formData.get("relationships") as string);
+    const nodePositions = JSON.parse(formData.get("nodePositions") as string || "{}");
     const sharedMentalModel = formData.get("sharedMentalModel") as string;
 
     if (!teamName || !topic || !members || !relationships) {
@@ -58,6 +59,7 @@ export async function createTeamAction(formData: FormData) {
       topic,
       members,
       relationships,
+      nodePositions,
       sharedMentalModel,
       ownerId: user.id,
     });

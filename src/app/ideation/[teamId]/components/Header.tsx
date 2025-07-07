@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, FileText } from "lucide-react";
 import { Team } from "@/lib/types";
 
 interface HeaderProps {
@@ -59,6 +59,18 @@ export default function Header({
               </span>
             </div>
           )}
+
+          {/* 피드백 리뷰 버튼 */}
+          <Link href={`/ideation/${team.id}/review`}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs"
+            >
+              <FileText className="h-3 w-3 mr-1" />
+              피드백 리뷰
+            </Button>
+          </Link>
 
           {/* 디버그 버튼 */}
           <Button

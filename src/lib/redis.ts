@@ -107,7 +107,9 @@ export async function createAgent(
     autonomy,
     personality,
     value,
-    designStyle,
+    workStyle,
+    preferences,
+    dislikes,
     ownerId,
   } = agentData;
 
@@ -125,7 +127,9 @@ export async function createAgent(
     autonomy: autonomy?.toString() || "",
     personality: personality || "",
     value: value || "",
-    designStyle: designStyle || "",
+    workStyle: workStyle || "",
+    preferences: preferences || "",
+    dislikes: dislikes || "",
     createdAt: new Date().toISOString(),
     userId: ownerId,
   };
@@ -144,7 +148,9 @@ export async function createAgent(
     autonomy,
     personality,
     value,
-    designStyle,
+    workStyle,
+    preferences,
+    dislikes,
     createdAt: new Date(),
     userId: ownerId,
   } as AIAgent;
@@ -195,6 +201,7 @@ export async function createTeam(
     topic,
     members,
     relationships,
+    nodePositions,
     sharedMentalModel,
     ownerId,
   } = teamData;
@@ -206,6 +213,7 @@ export async function createTeam(
     topic: topic || "",
     members: JSON.stringify(members || []),
     relationships: JSON.stringify(relationships || []),
+    nodePositions: JSON.stringify(nodePositions || {}),
     sharedMentalModel: sharedMentalModel || "",
     createdAt: new Date().toISOString(),
   };
@@ -236,6 +244,7 @@ export async function createTeam(
     topic: topic || "",
     members: members || [],
     relationships: relationships || [],
+    nodePositions: nodePositions || {},
     sharedMentalModel,
     createdAt: new Date(),
   } as Team;
@@ -259,9 +268,10 @@ export async function getTeamById(id: string): Promise<Team | null> {
     ownerId = teamData.owner;
   }
 
-  // members와 relationships도 안전하게 파싱
+  // members, relationships, nodePositions 안전하게 파싱
   let members = [];
   let relationships = [];
+  let nodePositions = {};
 
   try {
     if (typeof teamData.members === "string") {
@@ -285,11 +295,23 @@ export async function getTeamById(id: string): Promise<Team | null> {
     relationships = [];
   }
 
+  try {
+    if (typeof teamData.nodePositions === "string") {
+      nodePositions = JSON.parse(teamData.nodePositions);
+    } else if (typeof teamData.nodePositions === "object" && teamData.nodePositions !== null) {
+      nodePositions = teamData.nodePositions;
+    }
+  } catch (error) {
+    console.error("NodePositions 파싱 오류:", error);
+    nodePositions = {};
+  }
+
   return {
     ...teamData,
     ownerId: ownerId as string,
     members,
     relationships,
+    nodePositions,
     sharedMentalModel: teamData.sharedMentalModel || undefined,
     topic: teamData.topic || undefined,
   };
@@ -787,7 +809,6 @@ export async function updateAgentMemory(
               : existingV2Memory.longTerm.knowledge,
           relation: Object.entries(memory.longTerm.relations).reduce(
             (acc, [key, rel]) => {
-              const existingRel = existingV2Memory.longTerm.relation[key];
               acc[key] = {
                 agentInfo: rel.agentInfo,
                 relationship: rel.relationship,

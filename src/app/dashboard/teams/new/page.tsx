@@ -44,10 +44,42 @@ const AVAILABLE_ROLES: AgentRole[] = [
   "요청하기",
 ];
 
+const PROFESSION_OPTIONS = [
+  "프로덕트 매니저",
+  "UX/UI 디자이너",
+  "소프트웨어 엔지니어",
+  "데이터 분석가",
+  "마케팅 전문가",
+  "비즈니스 분석가",
+  "그래픽 디자이너",
+  "콘텐츠 전략가",
+  "프로젝트 매니저",
+  "연구원"
+];
+
+const SKILL_OPTIONS = [
+  "창의 기획",
+  "브레인스토밍",
+  "문제 해결 분석",
+  "디자인 씽킹 방법론",
+  "기획 및 전략 수립",
+  "컨셉 설계",
+  "콘텐츠 스토리텔링",
+  "시각화 및 인포그래픽",
+  "프로젝트 관리",
+  "데이터 분석",
+  "UI/UX 디자인",
+  "사용자 리서치",
+  "프로토타이핑",
+  "팀 리더십",
+  "커뮤니케이션",
+  "프레젠테이션"
+];
+
 export default function NewTeamPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState(0); // 0: 팀 생성 방식 선택, 1: 팀정보, 2: 역할설계, 3: 팀원생성, 4: 관계설정, 5: 공유 멘탈 모델
+  const [step, setStep] = useState(0); // 0: 팀 생성 방식 선택, 1: 팀정보, 2: 관계설정, 3: 역할설계, 4: 팀원생성, 5: 공유 멘탈 모델
   const [existingAgents, setExistingAgents] = useState<AIAgent[]>([]);
   const [existingTeams, setExistingTeams] = useState<Team[]>([]);
   const [useTemplate, setUseTemplate] = useState(false); // 기존 팀 템플릿 사용 여부
@@ -62,8 +94,11 @@ export default function NewTeamPage() {
   // 2-4단계: 팀원 슬롯
   const [memberSlots, setMemberSlots] = useState<TeamMemberSlot[]>([]);
 
-  // 4단계: 관계 설정
+  // 2단계: 관계 설정
   const [relationships, setRelationships] = useState<Relationship[]>([]);
+  const [nodePositions, setNodePositions] = useState<{
+    [key: string]: { x: number; y: number };
+  }>({});
 
   // 5단계: 공유 멘탈 모델
   const [sharedMentalModel, setSharedMentalModel] = useState("");
@@ -301,6 +336,7 @@ export default function NewTeamPage() {
       teamFormData.append("topic", topic.trim());
       teamFormData.append("members", JSON.stringify(teamMembers));
       teamFormData.append("relationships", JSON.stringify(relationships));
+      teamFormData.append("nodePositions", JSON.stringify(nodePositions));
       teamFormData.append("sharedMentalModel", sharedMentalModel.trim());
 
       const result = await createTeamAction(teamFormData);
@@ -383,9 +419,9 @@ export default function NewTeamPage() {
           <div className="flex items-center space-x-2">
           {[
             { num: 1, label: "팀 정보" },
-            { num: 2, label: "역할 & 리더" },
-            { num: 3, label: "팀원 생성" },
-            { num: 4, label: "관계 설정" },
+            { num: 2, label: "관계 설정" },
+            { num: 3, label: "역할 & 리더" },
+            { num: 4, label: "팀원 생성" },
             { num: 5, label: "공유 멘탈 모델" },
           ].map((stepInfo, index) => (
             <div key={stepInfo.num} className="flex items-center">
@@ -656,20 +692,20 @@ export default function NewTeamPage() {
                 이전: 생성 방식 선택
               </Button>
               <Button onClick={() => setStep(2)} disabled={!canProceedToStep2}>
-                다음: 역할 & 리더 설정
+                다음: 관계 설정
               </Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* 2단계: 역할 설계 & 리더 선택 */}
-      {step === 2 && (
+      {/* 3단계: 역할 설계 & 리더 선택 */}
+      {step === 3 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <User className="h-5 w-5" />
-              2단계: 역할 설계 & 리더 선택
+              3단계: 역할 설계 & 리더 선택
             </CardTitle>
             <CardDescription>
               팀원들의 역할을 할당하고 리더를 선택해주세요. (리더는
@@ -677,6 +713,26 @@ export default function NewTeamPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-8">
+            {/* 팀 관계 네트워크 미리보기 */}
+            {relationships.length > 0 && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900 mb-4">
+                  <Users className="h-5 w-5 text-blue-600" />
+                  설정된 팀 관계
+                </h3>
+                <div className="scale-75 origin-top">
+                  <RelationshipGraph
+                    members={memberSlots}
+                    relationships={relationships}
+                    onAddRelationship={() => {}} // 읽기 전용
+                    onRemoveRelationship={() => {}} // 읽기 전용
+                    readOnly={true}
+                    initialNodePositions={nodePositions}
+                  />
+                </div>
+              </div>
+            )}
+
             {/* 리더 선택 섹션 */}
             <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6">
               <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900 mb-4">
@@ -821,8 +877,8 @@ export default function NewTeamPage() {
             </div>
 
             <div className="flex justify-between pt-4">
-              <Button variant="outline" onClick={() => setStep(1)}>
-                이전: 팀 정보
+              <Button variant="outline" onClick={() => setStep(2)}>
+                이전: 관계 설정
               </Button>
               <div className="text-right">
                 {!hasIdeaGenerator && (
@@ -831,7 +887,7 @@ export default function NewTeamPage() {
                   </p>
                 )}
                 <Button
-                  onClick={() => setStep(3)}
+                  onClick={() => setStep(4)}
                   disabled={!canProceedToStep3}
                 >
                   다음: 팀원 생성
@@ -842,14 +898,14 @@ export default function NewTeamPage() {
         </Card>
       )}
 
-      {/* 3단계: AI 팀원 생성 */}
-      {step === 3 && (
+      {/* 4단계: AI 팀원 생성 */}
+      {step === 4 && (
         <div className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Plus className="h-5 w-5" />
-                3단계: AI 팀원 생성
+                4단계: AI 팀원 생성
               </CardTitle>
               <CardDescription>
                 새로운 AI 팀원을 생성하거나 기존 팀원을 가져와서 팀을
@@ -857,6 +913,26 @@ export default function NewTeamPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
+              {/* 팀 관계 네트워크 미리보기 */}
+              {relationships.length > 0 && (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+                  <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900 mb-4">
+                    <Users className="h-5 w-5 text-blue-600" />
+                    설정된 팀 관계
+                  </h3>
+                  <div className="scale-75 origin-top">
+                    <RelationshipGraph
+                      members={memberSlots}
+                      relationships={relationships}
+                      onAddRelationship={() => {}} // 읽기 전용
+                      onRemoveRelationship={() => {}} // 읽기 전용
+                      readOnly={true}
+                      initialNodePositions={nodePositions}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* 사용자 본인 정보 입력 */}
               {memberSlots
                 .filter((member) => member.isUser)
@@ -1175,17 +1251,17 @@ export default function NewTeamPage() {
               <div className="flex justify-between pt-6 border-t border-gray-200">
                 <Button
                   variant="outline"
-                  onClick={() => setStep(2)}
+                  onClick={() => setStep(3)}
                   disabled={isLoading}
                 >
                   이전: 역할 설계 & 리더 선택
                 </Button>
                 <Button
-                  onClick={() => setStep(4)}
+                  onClick={() => setStep(5)}
                   disabled={isLoading || !canProceedToStep4}
                 >
                   {canProceedToStep4
-                    ? "다음: 관계 설정"
+                    ? "다음: 공유 멘탈 모델"
                     : "팀원 생성을 완료해주세요"}
                 </Button>
               </div>
@@ -1194,13 +1270,13 @@ export default function NewTeamPage() {
         </div>
       )}
 
-      {/* 4단계: 관계 설정 */}
-      {step === 4 && (
+      {/* 2단계: 관계 설정 */}
+      {step === 2 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Users className="h-5 w-5" />
-              4단계: 팀원 관계 설정
+              2단계: 팀원 관계 설정
             </CardTitle>
             <CardDescription>
               팀원들 간의 관계를 설정해서 더 현실적인 팀 다이나믹을
@@ -1222,21 +1298,23 @@ export default function NewTeamPage() {
               relationships={relationships}
               onAddRelationship={addRelationship}
               onRemoveRelationship={removeRelationship}
+              initialNodePositions={nodePositions}
+              onNodePositionChange={setNodePositions}
             />
 
             <div className="flex justify-between pt-6 border-t border-gray-200">
               <Button
                 variant="outline"
+                onClick={() => setStep(1)}
+                disabled={isLoading}
+              >
+                이전: 팀 정보
+              </Button>
+              <Button
                 onClick={() => setStep(3)}
                 disabled={isLoading}
               >
-                이전: 팀원 생성
-              </Button>
-              <Button
-                onClick={() => setStep(5)}
-                disabled={isLoading || !canProceedToStep5}
-              >
-                다음: 공유 멘탈 모델
+                다음: 역할 & 리더
               </Button>
             </div>
           </CardContent>
@@ -1298,7 +1376,7 @@ export default function NewTeamPage() {
                 onClick={() => setStep(4)}
                 disabled={isLoading}
               >
-                이전: 관계 설정
+                이전: 팀원 생성
               </Button>
               <Button onClick={handleSubmit} disabled={isLoading || !canSubmit}>
                 {isLoading ? "팀 생성 중..." : "팀 생성 완료"}
@@ -1327,10 +1405,17 @@ function UserInfoForm({
     professional: initialData?.professional || "",
     skills: initialData?.skills || "",
     personality: initialData?.personality || "",
-    value: initialData?.value || "",
-    designStyle: initialData?.designStyle || "",
+    workStyle: initialData?.workStyle || "",
+    preferences: initialData?.preferences || initialData?.designStyle || "",
+    dislikes: initialData?.dislikes || "",
   });
 
+  const [isCustomProfessional, setIsCustomProfessional] = useState(
+    initialData?.professional ? !PROFESSION_OPTIONS.includes(initialData.professional) : false
+  );
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [customSkills, setCustomSkills] = useState<string[]>([]);
+  const [newSkillInput, setNewSkillInput] = useState("");
   const [isCompleted, setIsCompleted] = useState(!!initialData);
 
   // initialData가 변경될 때 폼 데이터 업데이트
@@ -1344,16 +1429,53 @@ function UserInfoForm({
         professional: initialData.professional || "",
         skills: initialData.skills || "",
         personality: initialData.personality || "",
-        value: initialData.value || "",
-        designStyle: initialData.designStyle || "",
+        workStyle: initialData.workStyle || "",
+        preferences: initialData.preferences || initialData.designStyle || "",
+        dislikes: initialData.dislikes || "",
       });
+      
+      // 기존 스킬 파싱
+      if (initialData.skills) {
+        const skillsArray = initialData.skills.split(",").map(s => s.trim()).filter(s => s);
+        const predefinedSkills = skillsArray.filter(skill => SKILL_OPTIONS.includes(skill));
+        const customSkillsArray = skillsArray.filter(skill => !SKILL_OPTIONS.includes(skill));
+        
+        setSelectedSkills(predefinedSkills);
+        setCustomSkills(customSkillsArray);
+      }
+      
       setIsCompleted(true);
     }
   }, [initialData]);
 
+  // 스킬 배열을 문자열로 변환하여 formData 업데이트
+  useEffect(() => {
+    const allSkills = [...selectedSkills, ...customSkills];
+    setFormData(prev => ({ ...prev, skills: allSkills.join(", ") }));
+  }, [selectedSkills, customSkills]);
+
+  const toggleSkill = (skill: string) => {
+    setSelectedSkills(prev => 
+      prev.includes(skill) 
+        ? prev.filter(s => s !== skill)
+        : [...prev, skill]
+    );
+  };
+
+  const addCustomSkill = () => {
+    if (newSkillInput.trim() && !customSkills.includes(newSkillInput.trim()) && !SKILL_OPTIONS.includes(newSkillInput.trim())) {
+      setCustomSkills(prev => [...prev, newSkillInput.trim()]);
+      setNewSkillInput("");
+    }
+  };
+
+  const removeCustomSkill = (skill: string) => {
+    setCustomSkills(prev => prev.filter(s => s !== skill));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.professional || !formData.skills) {
+    if (!formData.name || !formData.professional || (selectedSkills.length === 0 && customSkills.length === 0)) {
       return;
     }
 
@@ -1383,8 +1505,9 @@ function UserInfoForm({
       skills: formData.skills,
       autonomy: 3, // 사용자는 기본 자율성 3으로 설정
       personality: formData.personality || undefined,
-      value: formData.value || undefined,
-      designStyle: formData.designStyle || undefined,
+      workStyle: formData.workStyle || undefined,
+      preferences: formData.preferences || undefined,
+      dislikes: formData.dislikes || undefined,
     };
 
     onSubmit(agentData);
@@ -1482,28 +1605,145 @@ function UserInfoForm({
 
       <div className="space-y-2">
         <Label htmlFor="user-professional">직업/전문성 *</Label>
-        <Input
-          id="user-professional"
-          value={formData.professional}
-          onChange={(e) =>
-            setFormData((prev) => ({ ...prev, professional: e.target.value }))
-          }
-          placeholder="예: 프로덕트 매니저"
-          required
-        />
+        <div className="space-y-2">
+          <Select
+            id="user-professional"
+            value={isCustomProfessional ? "직접입력" : formData.professional}
+            onChange={(e) => {
+              if (e.target.value === "직접입력") {
+                setIsCustomProfessional(true);
+                setFormData((prev) => ({ ...prev, professional: "" }));
+              } else {
+                setIsCustomProfessional(false);
+                setFormData((prev) => ({ ...prev, professional: e.target.value }));
+              }
+            }}
+          >
+            <option value="">선택해주세요</option>
+            {PROFESSION_OPTIONS.map((profession) => (
+              <option key={profession} value={profession}>
+                {profession}
+              </option>
+            ))}
+            <option value="직접입력">직접 입력</option>
+          </Select>
+          {isCustomProfessional && (
+            <Input
+              id="user-professional-custom"
+              value={formData.professional}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, professional: e.target.value }))
+              }
+              placeholder="직업/전문성을 직접 입력해주세요"
+              required
+              autoFocus
+            />
+          )}
+        </div>
       </div>
 
       <div className="space-y-2">
         <Label htmlFor="user-skills">스킬셋 *</Label>
-        <Textarea
-          id="user-skills"
-          value={formData.skills}
-          onChange={(e) =>
-            setFormData((prev) => ({ ...prev, skills: e.target.value }))
-          }
-          placeholder="예: 프로젝트 관리, 데이터 분석, 팀 리더십"
-          required
-        />
+        <div className="space-y-4">
+          {/* 미리 정의된 스킬 옵션들 */}
+          <div>
+            <p className="text-sm text-gray-600 mb-3">아래 스킬 중에서 선택하세요 (클릭하여 선택/해제)</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {SKILL_OPTIONS.map((skill) => {
+                const isSelected = selectedSkills.includes(skill);
+                return (
+                  <button
+                    key={skill}
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      toggleSkill(skill);
+                    }}
+                    className={`p-2 text-sm rounded-lg border-2 transition-all text-left relative ${
+                      isSelected
+                        ? "border-blue-500 bg-blue-50 text-blue-700"
+                        : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                    }`}
+                  >
+                    {skill}
+                    {isSelected && (
+                      <span className="absolute top-1 right-1 text-blue-500 text-xs">✓</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 커스텀 스킬 추가 */}
+          <div>
+            <p className="text-sm text-gray-600 mb-2">또는 직접 스킬을 추가하세요</p>
+            <div className="flex gap-2">
+              <Input
+                value={newSkillInput}
+                onChange={(e) => setNewSkillInput(e.target.value)}
+                placeholder="새로운 스킬 입력"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addCustomSkill();
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                onClick={addCustomSkill}
+                variant="outline"
+                size="sm"
+              >
+                추가
+              </Button>
+            </div>
+          </div>
+
+          {/* 선택된 스킬들 표시 */}
+          {(selectedSkills.length > 0 || customSkills.length > 0) && (
+            <div>
+              <p className="text-sm text-gray-600 mb-2">선택된 스킬:</p>
+              <div className="flex flex-wrap gap-2">
+                {selectedSkills.map((skill) => (
+                  <span
+                    key={skill}
+                    className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm"
+                  >
+                    {skill}
+                    <button
+                      type="button"
+                      onClick={() => toggleSkill(skill)}
+                      className="text-blue-600 hover:text-blue-800"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                {customSkills.map((skill) => (
+                  <span
+                    key={skill}
+                    className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm"
+                  >
+                    {skill}
+                    <button
+                      type="button"
+                      onClick={() => removeCustomSkill(skill)}
+                      className="text-green-600 hover:text-green-800"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(selectedSkills.length === 0 && customSkills.length === 0) && (
+            <p className="text-sm text-red-600">최소 1개 스킬을 선택하거나 추가해주세요</p>
+          )}
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -1518,27 +1758,40 @@ function UserInfoForm({
         />
       </div>
 
+
       <div className="space-y-2">
-        <Label htmlFor="user-value">가치관</Label>
+        <Label htmlFor="user-workStyle">업무 방식(스타일)</Label>
         <Textarea
-          id="user-value"
-          value={formData.value}
+          id="user-workStyle"
+          value={formData.workStyle}
           onChange={(e) =>
-            setFormData((prev) => ({ ...prev, value: e.target.value }))
+            setFormData((prev) => ({ ...prev, workStyle: e.target.value }))
           }
-          placeholder="예: 효율성과 투명성을 중시하며 팀워크를 통한 성장을 추구"
+          placeholder="예: 체계적이고 계획적인 업무 방식을 선호함"
         />
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="user-designStyle">추구하는 디자인</Label>
+        <Label htmlFor="user-preferences">선호하는 것</Label>
         <Textarea
-          id="user-designStyle"
-          value={formData.designStyle}
+          id="user-preferences"
+          value={formData.preferences}
           onChange={(e) =>
-            setFormData((prev) => ({ ...prev, designStyle: e.target.value }))
+            setFormData((prev) => ({ ...prev, preferences: e.target.value }))
           }
-          placeholder="예: 미니멀하면서도 감각적인 디자인"
+          placeholder="예: 미니멀하면서도 감각적인 디자인, 협업적인 환경"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="user-dislikes">싫어하는 것</Label>
+        <Textarea
+          id="user-dislikes"
+          value={formData.dislikes}
+          onChange={(e) =>
+            setFormData((prev) => ({ ...prev, dislikes: e.target.value }))
+          }
+          placeholder="예: 지나치게 복잡한 인터페이스, 비효율적인 프로세스"
         />
       </div>
 
@@ -1572,10 +1825,15 @@ function AgentCreateForm({
     skills: "",
     autonomy: "",
     personality: "",
-    value: "",
-    designStyle: "",
+    workStyle: "",
+    preferences: "",
+    dislikes: "",
   });
 
+  const [isCustomProfessional, setIsCustomProfessional] = useState(false);
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [customSkills, setCustomSkills] = useState<string[]>([]);
+  const [newSkillInput, setNewSkillInput] = useState("");
   const [isCompleted, setIsCompleted] = useState(false);
 
   // memberKey나 initialData가 변경될 때만 폼 데이터 업데이트
@@ -1590,9 +1848,22 @@ function AgentCreateForm({
         skills: initialData.skills || "",
         autonomy: initialData.autonomy?.toString() || "",
         personality: initialData.personality || "",
-        value: initialData.value || "",
-        designStyle: initialData.designStyle || "",
+        workStyle: initialData.workStyle || "",
+        preferences: initialData.preferences || initialData.designStyle || "",
+        dislikes: initialData.dislikes || "",
       });
+      setIsCustomProfessional(initialData.professional ? !PROFESSION_OPTIONS.includes(initialData.professional) : false);
+      
+      // 기존 스킬 파싱
+      if (initialData.skills) {
+        const skillsArray = initialData.skills.split(",").map(s => s.trim()).filter(s => s);
+        const predefinedSkills = skillsArray.filter(skill => SKILL_OPTIONS.includes(skill));
+        const customSkillsArray = skillsArray.filter(skill => !SKILL_OPTIONS.includes(skill));
+        
+        setSelectedSkills(predefinedSkills);
+        setCustomSkills(customSkillsArray);
+      }
+      
       setIsCompleted(true);
     } else {
       // 새로운 멤버로 변경될 때 폼 초기화
@@ -1605,19 +1876,49 @@ function AgentCreateForm({
         skills: "",
         autonomy: "",
         personality: "",
-        value: "",
-        designStyle: "",
+        workStyle: "",
+        preferences: "",
+        dislikes: "",
       });
+      setIsCustomProfessional(false);
+      setSelectedSkills([]);
+      setCustomSkills([]);
+      setNewSkillInput("");
       setIsCompleted(false);
     }
   }, [memberKey, initialData]);
+
+  // 스킬 배열을 문자열로 변환하여 formData 업데이트
+  useEffect(() => {
+    const allSkills = [...selectedSkills, ...customSkills];
+    setFormData(prev => ({ ...prev, skills: allSkills.join(", ") }));
+  }, [selectedSkills, customSkills]);
+
+  const toggleSkill = (skill: string) => {
+    setSelectedSkills(prev => 
+      prev.includes(skill) 
+        ? prev.filter(s => s !== skill)
+        : [...prev, skill]
+    );
+  };
+
+  const addCustomSkill = () => {
+    if (newSkillInput.trim() && !customSkills.includes(newSkillInput.trim()) && !SKILL_OPTIONS.includes(newSkillInput.trim())) {
+      setCustomSkills(prev => [...prev, newSkillInput.trim()]);
+      setNewSkillInput("");
+    }
+  };
+
+  const removeCustomSkill = (skill: string) => {
+    setCustomSkills(prev => prev.filter(s => s !== skill));
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (
       !formData.name ||
       !formData.professional ||
-      !formData.skills ||
+      (selectedSkills.length === 0 && customSkills.length === 0) ||
       !formData.autonomy
     ) {
       return;
@@ -1649,8 +1950,9 @@ function AgentCreateForm({
       skills: formData.skills,
       autonomy: parseInt(formData.autonomy),
       personality: formData.personality || undefined,
-      value: formData.value || undefined,
-      designStyle: formData.designStyle || undefined,
+      workStyle: formData.workStyle || undefined,
+      preferences: formData.preferences || undefined,
+      dislikes: formData.dislikes || undefined,
     };
 
     onSubmit(agentData, null);
@@ -1748,28 +2050,145 @@ function AgentCreateForm({
 
       <div className="space-y-2">
         <Label htmlFor={`professional-${memberKey}`}>직업/전문성 *</Label>
-        <Input
-          id={`professional-${memberKey}`}
-          value={formData.professional}
-          onChange={(e) =>
-            setFormData((prev) => ({ ...prev, professional: e.target.value }))
-          }
-          placeholder="예: 프로덕트 매니저"
-          required
-        />
+        <div className="space-y-2">
+          <Select
+            id={`professional-${memberKey}`}
+            value={isCustomProfessional ? "직접입력" : formData.professional}
+            onChange={(e) => {
+              if (e.target.value === "직접입력") {
+                setIsCustomProfessional(true);
+                setFormData((prev) => ({ ...prev, professional: "" }));
+              } else {
+                setIsCustomProfessional(false);
+                setFormData((prev) => ({ ...prev, professional: e.target.value }));
+              }
+            }}
+          >
+            <option value="">선택해주세요</option>
+            {PROFESSION_OPTIONS.map((profession) => (
+              <option key={profession} value={profession}>
+                {profession}
+              </option>
+            ))}
+            <option value="직접입력">직접 입력</option>
+          </Select>
+          {isCustomProfessional && (
+            <Input
+              id={`professional-custom-${memberKey}`}
+              value={formData.professional}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, professional: e.target.value }))
+              }
+              placeholder="직업/전문성을 직접 입력해주세요"
+              required
+              autoFocus
+            />
+          )}
+        </div>
       </div>
 
       <div className="space-y-2">
         <Label htmlFor={`skills-${memberKey}`}>스킬셋 *</Label>
-        <Textarea
-          id={`skills-${memberKey}`}
-          value={formData.skills}
-          onChange={(e) =>
-            setFormData((prev) => ({ ...prev, skills: e.target.value }))
-          }
-          placeholder="예: 브랜딩, 컨셉 기획, 팀 리더십, Adobe Creative Suite"
-          required
-        />
+        <div className="space-y-4">
+          {/* 미리 정의된 스킬 옵션들 */}
+          <div>
+            <p className="text-sm text-gray-600 mb-3">아래 스킬 중에서 선택하세요 (클릭하여 선택/해제)</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {SKILL_OPTIONS.map((skill) => {
+                const isSelected = selectedSkills.includes(skill);
+                return (
+                  <button
+                    key={skill}
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      toggleSkill(skill);
+                    }}
+                    className={`p-2 text-sm rounded-lg border-2 transition-all text-left relative ${
+                      isSelected
+                        ? "border-blue-500 bg-blue-50 text-blue-700"
+                        : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                    }`}
+                  >
+                    {skill}
+                    {isSelected && (
+                      <span className="absolute top-1 right-1 text-blue-500 text-xs">✓</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 커스텀 스킬 추가 */}
+          <div>
+            <p className="text-sm text-gray-600 mb-2">또는 직접 스킬을 추가하세요</p>
+            <div className="flex gap-2">
+              <Input
+                value={newSkillInput}
+                onChange={(e) => setNewSkillInput(e.target.value)}
+                placeholder="새로운 스킬 입력"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addCustomSkill();
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                onClick={addCustomSkill}
+                variant="outline"
+                size="sm"
+              >
+                추가
+              </Button>
+            </div>
+          </div>
+
+          {/* 선택된 스킬들 표시 */}
+          {(selectedSkills.length > 0 || customSkills.length > 0) && (
+            <div>
+              <p className="text-sm text-gray-600 mb-2">선택된 스킬:</p>
+              <div className="flex flex-wrap gap-2">
+                {selectedSkills.map((skill) => (
+                  <span
+                    key={skill}
+                    className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm"
+                  >
+                    {skill}
+                    <button
+                      type="button"
+                      onClick={() => toggleSkill(skill)}
+                      className="text-blue-600 hover:text-blue-800"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                {customSkills.map((skill) => (
+                  <span
+                    key={skill}
+                    className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm"
+                  >
+                    {skill}
+                    <button
+                      type="button"
+                      onClick={() => removeCustomSkill(skill)}
+                      className="text-green-600 hover:text-green-800"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(selectedSkills.length === 0 && customSkills.length === 0) && (
+            <p className="text-sm text-red-600">최소 1개 스킬을 선택하거나 추가해주세요</p>
+          )}
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -1815,27 +2234,40 @@ function AgentCreateForm({
         />
       </div>
 
+
       <div className="space-y-2">
-        <Label htmlFor={`value-${memberKey}`}>가치관</Label>
+        <Label htmlFor={`workStyle-${memberKey}`}>업무 방식(스타일)</Label>
         <Textarea
-          id={`value-${memberKey}`}
-          value={formData.value}
+          id={`workStyle-${memberKey}`}
+          value={formData.workStyle}
           onChange={(e) =>
-            setFormData((prev) => ({ ...prev, value: e.target.value }))
+            setFormData((prev) => ({ ...prev, workStyle: e.target.value }))
           }
-          placeholder="예: 혁신과 창의성을 중시하며 사용자 중심의 사고를 추구"
+          placeholder="예: 체계적이고 계획적인 업무 방식을 선호함"
         />
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor={`designStyle-${memberKey}`}>추구하는 디자인</Label>
+        <Label htmlFor={`preferences-${memberKey}`}>선호하는 것</Label>
         <Textarea
-          id={`designStyle-${memberKey}`}
-          value={formData.designStyle}
+          id={`preferences-${memberKey}`}
+          value={formData.preferences}
           onChange={(e) =>
-            setFormData((prev) => ({ ...prev, designStyle: e.target.value }))
+            setFormData((prev) => ({ ...prev, preferences: e.target.value }))
           }
-          placeholder="예: 미니멀하면서도 감각적인 디자인"
+          placeholder="예: 미니멀하면서도 감각적인 디자인, 협업적인 환경"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`dislikes-${memberKey}`}>싫어하는 것</Label>
+        <Textarea
+          id={`dislikes-${memberKey}`}
+          value={formData.dislikes}
+          onChange={(e) =>
+            setFormData((prev) => ({ ...prev, dislikes: e.target.value }))
+          }
+          placeholder="예: 지나치게 복잡한 인터페이스, 비효율적인 프로세스"
         />
       </div>
 

@@ -132,13 +132,35 @@ export default async function AgentsPage() {
                   </div>
                 )}
 
-                {agent.designStyle && (
+                {agent.workStyle && (
                   <div>
                     <h4 className="text-sm font-semibold text-gray-900 mb-1">
-                      디자인 스타일
+                      업무 방식
                     </h4>
                     <p className="text-sm text-gray-600 line-clamp-2">
-                      {agent.designStyle}
+                      {agent.workStyle}
+                    </p>
+                  </div>
+                )}
+
+                {agent.preferences && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-1">
+                      선호하는 것
+                    </h4>
+                    <p className="text-sm text-gray-600 line-clamp-2">
+                      {agent.preferences}
+                    </p>
+                  </div>
+                )}
+
+                {agent.dislikes && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-900 mb-1">
+                      싫어하는 것
+                    </h4>
+                    <p className="text-sm text-gray-600 line-clamp-2">
+                      {agent.dislikes}
                     </p>
                   </div>
                 )}

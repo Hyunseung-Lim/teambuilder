@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
-import { createAgent, getUserAgents } from "@/lib/redis";
+import { createAgent, getUserAgents, getAgentById } from "@/lib/redis";
 import { CreateAgentData } from "@/lib/types";
 
 // API route에서 authOptions를 가져와야 합니다
@@ -30,7 +30,9 @@ export async function createAgentAction(formData: FormData) {
     autonomy: parseInt(formData.get("autonomy") as string),
     personality: (formData.get("personality") as string) ?? undefined,
     value: (formData.get("value") as string) ?? undefined,
-    designStyle: (formData.get("designStyle") as string) ?? undefined,
+    workStyle: (formData.get("workStyle") as string) ?? undefined,
+    preferences: (formData.get("preferences") as string) ?? undefined,
+    dislikes: (formData.get("dislikes") as string) ?? undefined,
   };
 
   // 유효성 검사
@@ -87,5 +89,20 @@ export async function getUserAgentsAction() {
   } catch (error) {
     console.error("에이전트 조회 오류:", error);
     return [];
+  }
+}
+
+export async function getAgentByIdAction(agentId: string) {
+  const session = await getServerSession();
+
+  if (!session?.user?.email) {
+    return null;
+  }
+
+  try {
+    return await getAgentById(agentId);
+  } catch (error) {
+    console.error("에이전트 조회 오류:", error);
+    return null;
   }
 }
