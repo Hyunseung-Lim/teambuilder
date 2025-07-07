@@ -16,7 +16,6 @@ export interface AIAgent {
   education?: "고졸" | "대졸" | "석사" | "박사" | "기타";
   professional: string;
   skills: string;
-  autonomy: number;
   personality?: string;
   value?: string;
   workStyle?: string;
@@ -101,7 +100,6 @@ export interface TeamMemberSlot {
     education?: "고졸" | "대졸" | "석사" | "박사" | "기타";
     professional: string;
     skills: string;
-    autonomy: number;
     personality?: string;
     value?: string;
     workStyle?: string;
@@ -129,7 +127,6 @@ export interface CreateAgentData {
   education?: "고졸" | "대졸" | "석사" | "박사" | "기타";
   professional: string;
   skills: string;
-  autonomy: number;
   personality?: string;
   value?: string;
   workStyle?: string;

@@ -838,19 +838,6 @@ export default function HomePage() {
                       {selectedAgent.professional}
                     </p>
                   </div>
-                  <div>
-                    <h4 className="text-sm font-semibold text-gray-900 mb-2">
-                      자율성
-                    </h4>
-                    <p className="text-sm text-gray-600">
-                      {selectedAgent.autonomy}/5
-                      {selectedAgent.autonomy === 1 && " (매우 낮음)"}
-                      {selectedAgent.autonomy === 2 && " (낮음)"}
-                      {selectedAgent.autonomy === 3 && " (보통)"}
-                      {selectedAgent.autonomy === 4 && " (높음)"}
-                      {selectedAgent.autonomy === 5 && " (매우 높음)"}
-                    </p>
-                  </div>
                 </div>
 
                 {selectedAgent.skills && (
@@ -1135,31 +1122,6 @@ export default function HomePage() {
                                 </div>
                               )}
 
-                              {/* 자율성 (AI 팀원만) */}
-                              {!member.isUser && agent && (
-                                <div>
-                                  <p className="text-xs font-medium text-gray-700 mb-1">
-                                    자율성
-                                  </p>
-                                  <div className="flex items-center gap-2">
-                                    <div className="flex gap-1">
-                                      {[1, 2, 3, 4, 5].map((level) => (
-                                        <div
-                                          key={level}
-                                          className={`w-2 h-2 rounded-full ${
-                                            level <= agent.autonomy
-                                              ? "bg-blue-500"
-                                              : "bg-gray-300"
-                                          }`}
-                                        />
-                                      ))}
-                                    </div>
-                                    <span className="text-xs text-gray-600">
-                                      {agent.autonomy}/5
-                                    </span>
-                                  </div>
-                                </div>
-                              )}
 
                               {/* 에이전트를 찾을 수 없는 경우 경고 메시지 */}
                               {!member.isUser && !agent && (

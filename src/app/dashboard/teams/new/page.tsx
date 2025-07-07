@@ -1430,7 +1430,7 @@ function UserInfoForm({
         skills: initialData.skills || "",
         personality: initialData.personality || "",
         workStyle: initialData.workStyle || "",
-        preferences: initialData.preferences || initialData.designStyle || "",
+        preferences: initialData.preferences || "",
         dislikes: initialData.dislikes || "",
       });
       
@@ -1503,7 +1503,6 @@ function UserInfoForm({
         | undefined,
       professional: formData.professional,
       skills: formData.skills,
-      autonomy: 3, // 사용자는 기본 자율성 3으로 설정
       personality: formData.personality || undefined,
       workStyle: formData.workStyle || undefined,
       preferences: formData.preferences || undefined,
@@ -1823,7 +1822,6 @@ function AgentCreateForm({
     education: "",
     professional: "",
     skills: "",
-    autonomy: "",
     personality: "",
     workStyle: "",
     preferences: "",
@@ -1846,10 +1844,9 @@ function AgentCreateForm({
         education: initialData.education || "",
         professional: initialData.professional || "",
         skills: initialData.skills || "",
-        autonomy: initialData.autonomy?.toString() || "",
         personality: initialData.personality || "",
         workStyle: initialData.workStyle || "",
-        preferences: initialData.preferences || initialData.designStyle || "",
+        preferences: initialData.preferences || "",
         dislikes: initialData.dislikes || "",
       });
       setIsCustomProfessional(initialData.professional ? !PROFESSION_OPTIONS.includes(initialData.professional) : false);
@@ -1874,7 +1871,6 @@ function AgentCreateForm({
         education: "",
         professional: "",
         skills: "",
-        autonomy: "",
         personality: "",
         workStyle: "",
         preferences: "",
@@ -1918,8 +1914,7 @@ function AgentCreateForm({
     if (
       !formData.name ||
       !formData.professional ||
-      (selectedSkills.length === 0 && customSkills.length === 0) ||
-      !formData.autonomy
+      (selectedSkills.length === 0 && customSkills.length === 0)
     ) {
       return;
     }
@@ -1948,7 +1943,6 @@ function AgentCreateForm({
         | undefined,
       professional: formData.professional,
       skills: formData.skills,
-      autonomy: parseInt(formData.autonomy),
       personality: formData.personality || undefined,
       workStyle: formData.workStyle || undefined,
       preferences: formData.preferences || undefined,
@@ -2191,36 +2185,6 @@ function AgentCreateForm({
         </div>
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor={`autonomy-${memberKey}`}>자율성 *</Label>
-        <div className="grid grid-cols-5 gap-2">
-          {[1, 2, 3, 4, 5].map((level) => (
-            <button
-              key={level}
-              type="button"
-              onClick={() =>
-                setFormData((prev) => ({ ...prev, autonomy: level.toString() }))
-              }
-              className={`p-2 text-sm rounded border-2 transition-all ${
-                formData.autonomy === level.toString()
-                  ? "border-blue-500 bg-blue-50 text-blue-700"
-                  : "border-gray-200 hover:border-gray-300"
-              }`}
-            >
-              <div className="font-bold">{level}</div>
-              <div className="text-xs">
-                {level === 1
-                  ? "낮음"
-                  : level === 3
-                  ? "보통"
-                  : level === 5
-                  ? "높음"
-                  : ""}
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
 
       <div className="space-y-2">
         <Label htmlFor={`personality-${memberKey}`}>성격</Label>

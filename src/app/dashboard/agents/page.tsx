@@ -94,21 +94,6 @@ export default async function AgentsPage() {
                   </div>
                 )}
 
-                {agent.autonomy && (
-                  <div>
-                    <h4 className="text-sm font-semibold text-gray-900 mb-1">
-                      자율성
-                    </h4>
-                    <p className="text-sm text-gray-600">
-                      {agent.autonomy}/5
-                      {agent.autonomy === 1 && " (매우 낮음)"}
-                      {agent.autonomy === 2 && " (낮음)"}
-                      {agent.autonomy === 3 && " (보통)"}
-                      {agent.autonomy === 4 && " (높음)"}
-                      {agent.autonomy === 5 && " (매우 높음)"}
-                    </p>
-                  </div>
-                )}
 
                 {agent.personality && (
                   <div>
