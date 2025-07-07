@@ -773,36 +773,40 @@ export default function ReviewPage() {
             return;
           }
           
-          // from과 to를 실제 멤버 ID로 변환
+          // from과 to를 실제 멤버 ID로 변환 (팀빌딩 변경 형식에 맞게)
           let fromId = relationship.from;
           let toId = relationship.to;
           
           // "나"는 그대로 두고, 에이전트는 ID로 변환
           if (fromId !== "나") {
-            const fromMember = team.members.find(m => 
-              !m.isUser && (
-                m.agentId === fromId ||
-                getAgentName(m.agentId || "") === fromId ||
-                getAgentName(m.agentId || "") === fromId.replace("봇", "") ||
-                fromId === `${getAgentName(m.agentId || "")}봇`
-              )
-            );
-            if (fromMember) {
-              fromId = fromMember.agentId!;
+            // 먼저 agentId로 직접 매칭 시도
+            const directMatch = team.members.find(m => !m.isUser && m.agentId === fromId);
+            if (directMatch) {
+              fromId = directMatch.agentId!;
+            } else {
+              // A, B, C, D 같은 임시 ID인 경우 에이전트 이름으로 매핑 시도
+              const nameMatch = team.members.find(m => 
+                !m.isUser && getAgentName(m.agentId || "") === fromId
+              );
+              if (nameMatch) {
+                fromId = nameMatch.agentId!;
+              }
             }
           }
           
           if (toId !== "나") {
-            const toMember = team.members.find(m => 
-              !m.isUser && (
-                m.agentId === toId ||
-                getAgentName(m.agentId || "") === toId ||
-                getAgentName(m.agentId || "") === toId.replace("봇", "") ||
-                toId === `${getAgentName(m.agentId || "")}봇`
-              )
-            );
-            if (toMember) {
-              toId = toMember.agentId!;
+            // 먼저 agentId로 직접 매칭 시도
+            const directMatch = team.members.find(m => !m.isUser && m.agentId === toId);
+            if (directMatch) {
+              toId = directMatch.agentId!;
+            } else {
+              // A, B, C, D 같은 임시 ID인 경우 에이전트 이름으로 매핑 시도
+              const nameMatch = team.members.find(m => 
+                !m.isUser && getAgentName(m.agentId || "") === toId
+              );
+              if (nameMatch) {
+                toId = nameMatch.agentId!;
+              }
             }
           }
           

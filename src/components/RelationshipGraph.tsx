@@ -125,6 +125,9 @@ export function RelationshipGraph({
   const handleMouseUp = () => {
     // 드래그가 끝나면 위치 변경을 부모에게 알림
     if (draggedNode && onNodePositionChange) {
+      console.log("=== 노드 위치 업데이트 ===");
+      console.log("드래그된 노드:", draggedNode);
+      console.log("업데이트될 전체 노드 위치:", JSON.stringify(nodes, null, 2));
       onNodePositionChange(nodes);
     }
     // 클릭과 드래그를 구분하기 위해 약간의 딜레이 후 초기화

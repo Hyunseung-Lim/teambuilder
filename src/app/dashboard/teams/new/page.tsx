@@ -331,6 +331,11 @@ export default function NewTeamPage() {
       }));
 
       // 4. 팀 생성 액션 호출
+      console.log("=== 팀 저장 전 데이터 구조 확인 ===");
+      console.log("relationships:", JSON.stringify(relationships, null, 2));
+      console.log("nodePositions:", JSON.stringify(nodePositions, null, 2));
+      console.log("teamMembers:", JSON.stringify(teamMembers, null, 2));
+
       const teamFormData = new FormData();
       teamFormData.append("teamName", teamName.trim());
       teamFormData.append("topic", topic.trim());
@@ -362,42 +367,42 @@ export default function NewTeamPage() {
     to: string,
     type: RelationshipType
   ) => {
-    // member.id를 실제 이름으로 변환
+    // member.id를 agentId 또는 "나"로 변환 (일관성 유지)
     const fromMember = memberSlots.find((m) => m.id === from);
     const toMember = memberSlots.find((m) => m.id === to);
 
-    const fromName = fromMember?.isUser
+    const fromId = fromMember?.isUser
       ? "나"
-      : fromMember?.agent?.name || from;
-    const toName = toMember?.isUser ? "나" : toMember?.agent?.name || to;
+      : fromMember?.agentId || from; // agentId가 있으면 사용, 없으면 원래 ID(A,B,C,D)
+    const toId = toMember?.isUser ? "나" : toMember?.agentId || to;
 
     setRelationships((prev) => {
       // 같은 방향의 관계가 이미 있으면 타입만 업데이트
       const existingIndex = prev.findIndex(
-        (rel) => rel.from === fromName && rel.to === toName
+        (rel) => rel.from === fromId && rel.to === toId
       );
       if (existingIndex >= 0) {
         const newRels = [...prev];
-        newRels[existingIndex] = { from: fromName, to: toName, type };
+        newRels[existingIndex] = { from: fromId, to: toId, type };
         return newRels;
       }
       // 새 관계 추가
-      return [...prev, { from: fromName, to: toName, type }];
+      return [...prev, { from: fromId, to: toId, type }];
     });
   };
 
   const removeRelationship = (from: string, to: string) => {
-    // member.id를 실제 이름으로 변환
+    // member.id를 agentId 또는 "나"로 변환 (일관성 유지)
     const fromMember = memberSlots.find((m) => m.id === from);
     const toMember = memberSlots.find((m) => m.id === to);
 
-    const fromName = fromMember?.isUser
+    const fromId = fromMember?.isUser
       ? "나"
-      : fromMember?.agent?.name || from;
-    const toName = toMember?.isUser ? "나" : toMember?.agent?.name || to;
+      : fromMember?.agentId || from;
+    const toId = toMember?.isUser ? "나" : toMember?.agentId || to;
 
     setRelationships((prev) =>
-      prev.filter((rel) => !(rel.from === fromName && rel.to === toName))
+      prev.filter((rel) => !(rel.from === fromId && rel.to === toId))
     );
   };
 

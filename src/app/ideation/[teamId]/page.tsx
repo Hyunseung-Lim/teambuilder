@@ -678,6 +678,12 @@ export default function IdeationPage() {
           getTeamAction(teamId),
           getUserAgentsAction(),
         ]);
+        
+        console.log("=== 아이디에이션 페이지 팀 데이터 로드 ===");
+        console.log("teamData.relationships:", JSON.stringify(teamData.relationships, null, 2));
+        console.log("teamData.nodePositions:", JSON.stringify(teamData.nodePositions, null, 2));
+        console.log("teamData.members:", JSON.stringify(teamData.members, null, 2));
+        
         setTeam(teamData);
         setAgents(agentsData);
         await Promise.all([loadIdeas(teamId), loadMessages(teamId)]);

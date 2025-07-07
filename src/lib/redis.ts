@@ -202,6 +202,12 @@ export async function createTeam(
     ownerId,
   } = teamData;
 
+  console.log("=== createTeam in redis.ts ===");
+  console.log("팀 ID:", teamId);
+  console.log("relationships (저장 전):", JSON.stringify(relationships, null, 2));
+  console.log("nodePositions (저장 전):", JSON.stringify(nodePositions, null, 2));
+  console.log("members (저장 전):", JSON.stringify(members, null, 2));
+
   const newTeam = {
     id: teamId,
     ownerId: ownerId,
@@ -213,6 +219,10 @@ export async function createTeam(
     sharedMentalModel: sharedMentalModel || "",
     createdAt: new Date().toISOString(),
   };
+
+  console.log("=== Redis 저장용 데이터 ===");
+  console.log("relationships (문자열):", newTeam.relationships);
+  console.log("nodePositions (문자열):", newTeam.nodePositions);
 
   await redis.hset(keys.team(teamId), newTeam);
   await redis.sadd(keys.userTeams(ownerId), teamId);
@@ -286,6 +296,7 @@ export async function getTeamById(id: string): Promise<Team | null> {
     } else if (Array.isArray(teamData.relationships)) {
       relationships = teamData.relationships;
     }
+    console.log("Relationships 로드 완료:", relationships);
   } catch (error) {
     console.error("Relationships 파싱 오류:", error);
     relationships = [];

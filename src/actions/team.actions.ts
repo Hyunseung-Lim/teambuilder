@@ -28,6 +28,10 @@ export async function createTeamAction(formData: FormData) {
     const nodePositions = JSON.parse(formData.get("nodePositions") as string || "{}");
     const sharedMentalModel = formData.get("sharedMentalModel") as string;
 
+    console.log("=== createTeamAction에서 받은 데이터 ===");
+    console.log("relationships:", JSON.stringify(relationships, null, 2));
+    console.log("nodePositions:", JSON.stringify(nodePositions, null, 2));
+
     if (!teamName || !topic || !members || !relationships) {
       const missingItems = [];
       if (!teamName) missingItems.push("팀 이름 (1단계)");

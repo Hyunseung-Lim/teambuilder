@@ -23,16 +23,27 @@ export default function MiniRelationshipNetwork({
       ? "나" 
       : getAgentName(member.agentId || "") || `팀원 ${member.id}`;
     
-    return {
+    const node = {
       id: member.isUser ? "나" : member.agentId || `slot-${index}`,
       name: memberName,
       isUser: member.isUser,
       isLeader: member.isLeader,
     };
+    
+    console.log("노드 생성:", node);
+    return node;
   });
+  
+  console.log("전체 노드:", nodes);
 
   // Create edges from relationships - using the same logic as review page
   const edges: any[] = [];
+  
+  console.log("=== MiniRelationshipNetwork 관계 분석 ===");
+  console.log("팀 ID:", team.id);
+  console.log("팀 관계 데이터:", JSON.stringify(team.relationships, null, 2));
+  console.log("팀 멤버 데이터:", JSON.stringify(team.members, null, 2));
+  console.log("에이전트 데이터:", JSON.stringify(agents.map(a => ({id: a.id, name: a.name})), null, 2));
   
   if (team.relationships && team.relationships.length > 0) {
     team.relationships.forEach((relationship) => {
@@ -45,32 +56,47 @@ export default function MiniRelationshipNetwork({
       let fromId = relationship.from;
       let toId = relationship.to;
       
-      // Keep "나" as is, convert agents to IDs
+      console.log("관계 처리 중:", relationship);
+      console.log("fromId:", fromId, "toId:", toId);
+      
+      // from과 to가 agentId인 경우 그대로 사용, A,B,C,D인 경우 매핑 필요
       if (fromId !== "나") {
-        const fromMember = team.members.find(m => 
-          !m.isUser && (
-            m.agentId === fromId ||
-            getAgentName(m.agentId || "") === fromId ||
-            getAgentName(m.agentId || "") === fromId.replace("봇", "") ||
-            fromId === `${getAgentName(m.agentId || "")}봇`
-          )
-        );
-        if (fromMember) {
-          fromId = fromMember.agentId!;
+        // 먼저 agentId로 직접 매칭 시도
+        const directMatch = team.members.find(m => !m.isUser && m.agentId === fromId);
+        if (directMatch) {
+          fromId = directMatch.agentId!;
+          console.log("fromId 직접 매핑 완료:", fromId);
+        } else {
+          // A, B, C, D 같은 임시 ID인 경우 에이전트 이름으로 매핑 시도
+          const nameMatch = team.members.find(m => 
+            !m.isUser && getAgentName(m.agentId || "") === fromId
+          );
+          if (nameMatch) {
+            fromId = nameMatch.agentId!;
+            console.log("fromId 이름 매핑 완료:", fromId);
+          } else {
+            console.log("fromMember 찾지 못함:", fromId);
+          }
         }
       }
       
       if (toId !== "나") {
-        const toMember = team.members.find(m => 
-          !m.isUser && (
-            m.agentId === toId ||
-            getAgentName(m.agentId || "") === toId ||
-            getAgentName(m.agentId || "") === toId.replace("봇", "") ||
-            toId === `${getAgentName(m.agentId || "")}봇`
-          )
-        );
-        if (toMember) {
-          toId = toMember.agentId!;
+        // 먼저 agentId로 직접 매칭 시도
+        const directMatch = team.members.find(m => !m.isUser && m.agentId === toId);
+        if (directMatch) {
+          toId = directMatch.agentId!;
+          console.log("toId 직접 매핑 완료:", toId);
+        } else {
+          // A, B, C, D 같은 임시 ID인 경우 에이전트 이름으로 매핑 시도
+          const nameMatch = team.members.find(m => 
+            !m.isUser && getAgentName(m.agentId || "") === toId
+          );
+          if (nameMatch) {
+            toId = nameMatch.agentId!;
+            console.log("toId 이름 매핑 완료:", toId);
+          } else {
+            console.log("toMember 찾지 못함:", toId);
+          }
         }
       }
       
@@ -78,14 +104,20 @@ export default function MiniRelationshipNetwork({
       const fromNode = nodes.find(n => n.id === fromId);
       const toNode = nodes.find(n => n.id === toId);
       
+      console.log("fromNode:", fromNode, "toNode:", toNode);
+      
       if (fromNode && toNode) {
-        edges.push({
+        const edge = {
           from: fromId,
           to: toId,
           type: relationship.type,
           color: RELATIONSHIP_TYPES[relationship.type]?.color || "#9ca3af",
           isHierarchical: relationship.type === "SUPERVISOR",
-        });
+        };
+        console.log("엣지 추가:", edge);
+        edges.push(edge);
+      } else {
+        console.log("노드를 찾지 못해 엣지 추가 실패");
       }
     });
   }
