@@ -12,11 +12,16 @@ export default function MiniRelationshipNetwork({
   agents,
   className = "",
 }: MiniRelationshipNetworkProps) {
+  // Helper function to get agent name by ID
+  const getAgentName = (agentId: string) => {
+    return agents.find(a => a.id === agentId)?.name || "";
+  };
+
   // Create nodes for each team member
   const nodes = team.members.map((member, index) => {
     const memberName = member.isUser 
       ? "나" 
-      : agents.find(a => a.id === member.agentId)?.name || `팀원 ${member.id}`;
+      : getAgentName(member.agentId || "") || `팀원 ${member.id}`;
     
     return {
       id: member.isUser ? "나" : member.agentId || `slot-${index}`,
@@ -26,50 +31,64 @@ export default function MiniRelationshipNetwork({
     };
   });
 
-  // Create edges from relationships
-  const edges = team.relationships
-    ?.filter(rel => rel.type !== "NULL")
-    .map(rel => {
-      // Find the actual member IDs for the relationship
-      const fromMember = team.members.find(m => {
-        if (m.isUser && rel.from === "나") return true;
-        if (!m.isUser) {
-          const agent = agents.find(a => a.id === m.agentId);
-          return agent && (
-            agent.name === rel.from || 
-            agent.id === rel.from || 
-            rel.from === `${agent.name}봇`
-          );
+  // Create edges from relationships - using the same logic as review page
+  const edges: any[] = [];
+  
+  if (team.relationships && team.relationships.length > 0) {
+    team.relationships.forEach((relationship) => {
+      // Skip NULL relationships
+      if (relationship.type === "NULL") {
+        return;
+      }
+      
+      // Convert from and to to actual member IDs
+      let fromId = relationship.from;
+      let toId = relationship.to;
+      
+      // Keep "나" as is, convert agents to IDs
+      if (fromId !== "나") {
+        const fromMember = team.members.find(m => 
+          !m.isUser && (
+            m.agentId === fromId ||
+            getAgentName(m.agentId || "") === fromId ||
+            getAgentName(m.agentId || "") === fromId.replace("봇", "") ||
+            fromId === `${getAgentName(m.agentId || "")}봇`
+          )
+        );
+        if (fromMember) {
+          fromId = fromMember.agentId!;
         }
-        return false;
-      });
-
-      const toMember = team.members.find(m => {
-        if (m.isUser && rel.to === "나") return true;
-        if (!m.isUser) {
-          const agent = agents.find(a => a.id === m.agentId);
-          return agent && (
-            agent.name === rel.to || 
-            agent.id === rel.to || 
-            rel.to === `${agent.name}봇`
-          );
+      }
+      
+      if (toId !== "나") {
+        const toMember = team.members.find(m => 
+          !m.isUser && (
+            m.agentId === toId ||
+            getAgentName(m.agentId || "") === toId ||
+            getAgentName(m.agentId || "") === toId.replace("봇", "") ||
+            toId === `${getAgentName(m.agentId || "")}봇`
+          )
+        );
+        if (toMember) {
+          toId = toMember.agentId!;
         }
-        return false;
-      });
-
-      if (!fromMember || !toMember) return null;
-
-      const fromId = fromMember.isUser ? "나" : fromMember.agentId!;
-      const toId = toMember.isUser ? "나" : toMember.agentId!;
-
-      return {
-        from: fromId,
-        to: toId,
-        type: rel.type,
-        color: RELATIONSHIP_TYPES[rel.type]?.color || "#9ca3af",
-        isHierarchical: rel.type === "SUPERVISOR",
-      };
-    }).filter(Boolean) || [];
+      }
+      
+      // Add edge if both nodes exist
+      const fromNode = nodes.find(n => n.id === fromId);
+      const toNode = nodes.find(n => n.id === toId);
+      
+      if (fromNode && toNode) {
+        edges.push({
+          from: fromId,
+          to: toId,
+          type: relationship.type,
+          color: RELATIONSHIP_TYPES[relationship.type]?.color || "#9ca3af",
+          isHierarchical: relationship.type === "SUPERVISOR",
+        });
+      }
+    });
+  }
 
   // Position nodes in a small circle
   const centerX = 75;
