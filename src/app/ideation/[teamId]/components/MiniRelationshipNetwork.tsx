@@ -72,9 +72,9 @@ export default function MiniRelationshipNetwork({
     }).filter(Boolean) || [];
 
   // Position nodes in a small circle
-  const centerX = 60;
+  const centerX = 75;
   const centerY = 50;
-  const radius = 35;
+  const radius = 45;
   
   const positionedNodes = nodes.map((node, index) => {
     // Use saved positions if available, otherwise use circular layout
@@ -96,7 +96,7 @@ export default function MiniRelationshipNetwork({
   return (
     <div className={`bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 ${className}`}>
       <h3 className="text-xs font-medium text-gray-700 mb-2">팀 관계 네트워크</h3>
-      <svg width="120" height="100" className="mx-auto">
+      <svg width="150" height="100" className="mx-auto">
         <defs>
           <marker
             id="mini-arrow"
@@ -134,16 +134,17 @@ export default function MiniRelationshipNetwork({
           const endY = toNode.y - unitY * (nodeRadius + (edge.isHierarchical ? 3 : 0));
 
           return (
-            <line
-              key={index}
-              x1={startX}
-              y1={startY}
-              x2={endX}
-              y2={endY}
-              stroke={edge.color}
-              strokeWidth={edge.isHierarchical ? 1.5 : 1}
-              markerEnd={edge.isHierarchical ? "url(#mini-arrow)" : undefined}
-            />
+            <g key={index}>
+              <line
+                x1={startX}
+                y1={startY}
+                x2={endX}
+                y2={endY}
+                stroke={edge.color}
+                strokeWidth={edge.isHierarchical ? 1.5 : 1}
+                markerEnd={edge.isHierarchical ? "url(#mini-arrow)" : undefined}
+              />
+            </g>
           );
         })}
 
