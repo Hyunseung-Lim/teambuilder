@@ -3,6 +3,7 @@ import { User, Crown, Users } from "lucide-react";
 import { Team, AIAgent, RELATIONSHIP_TYPES } from "@/lib/types";
 import { AgentStateInfo } from "../hooks/useAgentStates";
 import AgentStateIndicator from "./AgentStateIndicator";
+import MiniRelationshipNetwork from "./MiniRelationshipNetwork";
 
 interface TeamMembersListProps {
   team: Team;
@@ -34,6 +35,10 @@ export default function TeamMembersList({
           </div>
         )}
       </div>
+      
+      {/* Mini Relationship Network */}
+      <MiniRelationshipNetwork team={team} agents={agents} />
+      
       <div className="space-y-2">
         {team.members.map((member, index) => {
           const agent = member.isUser
@@ -163,24 +168,6 @@ export default function TeamMembersList({
                           </div>
                         )}
                         
-                        <div className="flex justify-between items-center pt-2 border-t border-gray-100">
-                          <span className="text-gray-600 text-xs">자율성:</span>
-                          <div className="flex items-center gap-1">
-                            <div className="flex gap-1">
-                              {[1, 2, 3, 4, 5].map((level) => (
-                                <div
-                                  key={level}
-                                  className={`w-2 h-2 rounded-full ${
-                                    level <= agent.autonomy
-                                      ? "bg-purple-500"
-                                      : "bg-gray-200"
-                                  }`}
-                                />
-                              ))}
-                            </div>
-                            <span className="text-xs font-medium ml-1">{agent.autonomy}/5</span>
-                          </div>
-                        </div>
                       </div>
 
                       {/* Relationships Section */}
