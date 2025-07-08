@@ -101,6 +101,8 @@ export async function createAgent(
     name,
     age,
     gender,
+    nationality,
+    major,
     education,
     professional,
     skills,
@@ -120,6 +122,8 @@ export async function createAgent(
     name: uniqueName,
     age: age?.toString() || "",
     gender: gender || "",
+    nationality: nationality || "",
+    major: major || "",
     education: education || "",
     professional,
     skills,
@@ -140,6 +144,8 @@ export async function createAgent(
     name: uniqueName,
     age,
     gender,
+    nationality,
+    major,
     education,
     professional,
     skills,
@@ -187,6 +193,17 @@ export async function getUserAgents(userId: string): Promise<AIAgent[]> {
   return agents.filter((agent): agent is AIAgent => agent !== null);
 }
 
+// 에이전트 페르소나 요약 업데이트
+export async function updateAgentPersonaSummary(
+  agentId: string, 
+  personaSummary: string
+): Promise<void> {
+  await redis.hset(keys.agent(agentId), {
+    personaSummary: personaSummary,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
 // 팀 관련 함수들
 export async function createTeam(
   teamData: Omit<Team, "id" | "createdAt"> & { ownerId: string }
@@ -207,6 +224,49 @@ export async function createTeam(
   console.log("relationships (저장 전):", JSON.stringify(relationships, null, 2));
   console.log("nodePositions (저장 전):", JSON.stringify(nodePositions, null, 2));
   console.log("members (저장 전):", JSON.stringify(members, null, 2));
+
+  // Generate individual persona summaries for each AI agent using GPT-4o
+  try {
+    const { generateAgentPersonaSummary } = await import("@/lib/openai");
+    
+    for (const member of members || []) {
+      if (!member.isUser && member.agentId) {
+        try {
+          const agentProfile = await getAgentById(member.agentId);
+          if (agentProfile) {
+            // Generate persona summary for this agent
+            const personaSummary = await generateAgentPersonaSummary(
+              {
+                name: agentProfile.name,
+                skills: agentProfile.skills,
+                personality: agentProfile.personality,
+                workStyle: agentProfile.workStyle,
+                preferences: agentProfile.preferences,
+                dislikes: agentProfile.dislikes,
+                professional: agentProfile.professional,
+                age: agentProfile.age,
+                gender: agentProfile.gender,
+                value: agentProfile.value,
+              },
+              {
+                teamName: teamName || "",
+                topic: topic,
+                sharedMentalModel: sharedMentalModel,
+              }
+            );
+            
+            // Update agent with persona summary
+            await updateAgentPersonaSummary(member.agentId, personaSummary);
+            console.log(`🤖 ${agentProfile.name} 페르소나 요약 생성 완료:`, personaSummary.substring(0, 100) + "...");
+          }
+        } catch (error) {
+          console.warn("에이전트 페르소나 요약 생성 실패:", member.agentId, error);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("페르소나 요약 생성 실패:", error);
+  }
 
   const newTeam = {
     id: teamId,
@@ -296,7 +356,6 @@ export async function getTeamById(id: string): Promise<Team | null> {
     } else if (Array.isArray(teamData.relationships)) {
       relationships = teamData.relationships;
     }
-    console.log("Relationships 로드 완료:", relationships);
   } catch (error) {
     console.error("Relationships 파싱 오류:", error);
     relationships = [];
@@ -320,6 +379,7 @@ export async function getTeamById(id: string): Promise<Team | null> {
     relationships,
     nodePositions,
     sharedMentalModel: teamData.sharedMentalModel || undefined,
+    teamSummary: teamData.teamSummary || undefined,
     topic: teamData.topic || undefined,
   };
 }

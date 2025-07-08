@@ -1,16 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { createAgent, getUserAgents, getAgentById } from "@/lib/redis";
 import { CreateAgentData } from "@/lib/types";
-
-// API route에서 authOptions를 가져와야 합니다
-async function getAuthOptions() {
-  const { authOptions } = await import("@/app/api/auth/[...nextauth]/route");
-  return authOptions;
-}
 
 export async function createAgentAction(formData: FormData) {
   // NextAuth 기본 방식으로 세션 가져오기
@@ -27,12 +20,12 @@ export async function createAgentAction(formData: FormData) {
     education: formData.get("education") as any,
     professional: formData.get("professional") as string,
     skills: formData.get("skills") as string,
-    autonomy: parseInt(formData.get("autonomy") as string),
     personality: (formData.get("personality") as string) ?? undefined,
     value: (formData.get("value") as string) ?? undefined,
     workStyle: (formData.get("workStyle") as string) ?? undefined,
     preferences: (formData.get("preferences") as string) ?? undefined,
     dislikes: (formData.get("dislikes") as string) ?? undefined,
+    ownerId: session.user.email, // 이메일을 ID로 사용
   };
 
   // 유효성 검사
@@ -41,8 +34,7 @@ export async function createAgentAction(formData: FormData) {
     !agentData.age ||
     !agentData.gender ||
     !agentData.professional ||
-    !agentData.skills ||
-    !agentData.autonomy
+    !agentData.skills
   ) {
     const missingFields = [];
     if (!agentData.name) missingFields.push("이름");
@@ -50,7 +42,6 @@ export async function createAgentAction(formData: FormData) {
     if (!agentData.gender) missingFields.push("성별");
     if (!agentData.professional) missingFields.push("전문분야");
     if (!agentData.skills) missingFields.push("스킬");
-    if (!agentData.autonomy) missingFields.push("자율성");
     
     throw new Error(`팀원 생성 정보가 부족합니다. (3단계)\n누락된 정보: ${missingFields.join(", ")}`);
   }
@@ -59,14 +50,11 @@ export async function createAgentAction(formData: FormData) {
     throw new Error("나이는 1-100 사이의 값이어야 합니다.");
   }
 
-  if (agentData.autonomy < 1 || agentData.autonomy > 5) {
-    throw new Error("자율성은 1-5 사이의 값이어야 합니다.");
-  }
-
   try {
     const createdAgent = await createAgent({
       ...agentData,
-      ownerId: session.user.email, // 이메일을 ID로 사용
+      updatedAt: new Date(),
+      userId: session.user.email, // 이메일을 ID로 사용
     });
 
     revalidatePath("/");

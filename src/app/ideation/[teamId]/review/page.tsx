@@ -30,8 +30,14 @@ export default function ReviewPage() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [showFeedbackMode, setShowFeedbackMode] = useState(false);
   const [showRequestMode, setShowRequestMode] = useState(false);
+  const [useOriginalLayout, setUseOriginalLayout] = useState(false);
   const [selectedIdea, setSelectedIdea] = useState<Idea | null>(null);
   const [showIdeaDetail, setShowIdeaDetail] = useState(false);
+  const [ideaFilter, setIdeaFilter] = useState<string>("전체");
+  const [ideaSortBy, setIdeaSortBy] = useState<"latest" | "rating">("latest");
+  const [activityFilter, setActivityFilter] = useState<string>("전체");
+  const [selectedActivity, setSelectedActivity] = useState<ActionLog | null>(null);
+  const [showActivityDetail, setShowActivityDetail] = useState(false);
 
   useEffect(() => {
     const loadReviewData = async () => {
@@ -128,6 +134,35 @@ export default function ReviewPage() {
             description: description,
           });
         }
+      } else if (message.type === "make_request") {
+        // 요청 메시지 처리
+        const requester = getAgentName(message.sender);
+        const target = message.payload?.mention ? getAgentName(message.payload.mention) : "팀원";
+        const requestType = message.payload?.requestType;
+        
+        let requestDescription = `${requester}이 ${target}에게 `;
+        if (requestType === "generate") {
+          requestDescription += "아이디어 생성을 요청했습니다.";
+        } else if (requestType === "evaluate") {
+          requestDescription += "아이디어 평가를 요청했습니다.";
+        } else if (requestType === "give_feedback") {
+          requestDescription += "피드백을 요청했습니다.";
+        } else {
+          requestDescription += "요청을 했습니다.";
+        }
+        
+        // 실제 요청 내용이 있다면 추가
+        if (message.content || message.payload?.content) {
+          const requestContent = message.content || message.payload?.content;
+          requestDescription += ` 내용: "${requestContent}"`;
+        }
+
+        logs.push({
+          timestamp: message.timestamp,
+          agentName: requester,
+          action: "요청하기",
+          description: requestDescription,
+        });
       } else if (message.type === "feedback_session_summary") {
         // 피드백 세션 참여자 정보 추출
         let feedbackGiver = "";
@@ -145,18 +180,38 @@ export default function ReviewPage() {
             messageCount = payload.turnCount;
           }
           
-          // 피드백 제공자와 수신자 식별
-          if (payload.from && payload.to) {
-            feedbackGiver = getAgentName(payload.from);
-            feedbackReceiver = getAgentName(payload.to);
-          } else if (payload.sender && payload.receiver) {
-            feedbackGiver = getAgentName(payload.sender);
-            feedbackReceiver = getAgentName(payload.receiver);
-          } else if (payload.participants && Array.isArray(payload.participants)) {
-            // participants에서 첫 번째를 제공자로 간주
-            if (payload.participants.length >= 2) {
-              feedbackGiver = getAgentName(payload.participants[0]);
-              feedbackReceiver = getAgentName(payload.participants[1]);
+          // 먼저 sessionMessages에서 실제 참여자 추출 시도
+          if (payload.sessionMessages && Array.isArray(payload.sessionMessages)) {
+            const actualParticipants = new Set<string>();
+            payload.sessionMessages.forEach((sessionMsg: any) => {
+              if (sessionMsg.sender && sessionMsg.type !== "system") {
+                actualParticipants.add(sessionMsg.sender);
+              }
+            });
+            
+            const participantsList = Array.from(actualParticipants);
+            if (participantsList.length >= 2) {
+              feedbackGiver = getAgentName(participantsList[0]);
+              feedbackReceiver = getAgentName(participantsList[1]);
+            } else if (participantsList.length === 1) {
+              feedbackGiver = getAgentName(participantsList[0]);
+            }
+          }
+          
+          // sessionMessages가 없으면 기존 방식 사용
+          if (!feedbackGiver) {
+            if (payload.from && payload.to) {
+              feedbackGiver = getAgentName(payload.from);
+              feedbackReceiver = getAgentName(payload.to);
+            } else if (payload.sender && payload.receiver) {
+              feedbackGiver = getAgentName(payload.sender);
+              feedbackReceiver = getAgentName(payload.receiver);
+            } else if (payload.participants && Array.isArray(payload.participants)) {
+              // participants에서 첫 번째를 제공자로 간주
+              if (payload.participants.length >= 2) {
+                feedbackGiver = getAgentName(payload.participants[0]);
+                feedbackReceiver = getAgentName(payload.participants[1]);
+              }
             }
           }
           
@@ -186,7 +241,7 @@ export default function ReviewPage() {
         if (feedbackGiver && feedbackReceiver) {
           displayName = `${feedbackGiver} → ${feedbackReceiver}`;
           if (messageCount > 0) {
-            displayName += ` (${messageCount})`;
+            displayName += ` (${messageCount}회)`;
           }
           actionDescription = `${feedbackGiver}와 ${feedbackReceiver}이 피드백을 진행했습니다.`;
           if (messageCount > 0) {
@@ -206,7 +261,7 @@ export default function ReviewPage() {
       }
     });
 
-    return logs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    return logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   };
 
   const getAgentName = (senderId: string): string => {
@@ -663,17 +718,14 @@ export default function ReviewPage() {
       // 요청 모드
       if (showRequestMode) {
         const requestCounts = generateRequestData();
-        console.log("요청 데이터:", requestCounts);
         
         Object.entries(requestCounts).forEach(([key, count]) => {
-          console.log(`요청 화살표: ${key}, 횟수: ${count}`);
           const [fromId, toId] = key.split('->');
           
           // ID 정리 (괄호 제거)
           const cleanFromId = fromId.replace(/\s*\(\d+\)$/, '');
           const cleanToId = toId.replace(/\s*\(\d+\)$/, '');
           
-          console.log(`ID 정리: ${fromId} -> ${cleanFromId}, ${toId} -> ${cleanToId}`);
           
           // 팀 멤버와 매칭하여 실제 ID 찾기
           const fromMember = team?.members.find(m => {
@@ -725,7 +777,6 @@ export default function ReviewPage() {
           const finalFromId = fromMember?.isUser ? "나" : fromMember?.agentId;
           const finalToId = toMember?.isUser ? "나" : toMember?.agentId;
           
-          console.log(`매칭 결과: ${fromId} -> ${finalFromId}, ${toId} -> ${finalToId}`);
           
           // 유효한 ID가 있는 경우에만 엣지 생성
           if (finalFromId && finalToId && finalFromId !== finalToId) {
@@ -756,16 +807,13 @@ export default function ReviewPage() {
               requestCount: count,
               color: "#EA580C" // 주황색 (요청)
             });
-            
-            console.log(`요청 엣지 생성 성공: ${finalFromId} -> ${finalToId}, 굵기: ${strokeWidth}, 횟수: ${count}`);
-          } else {
-            console.log(`요청 엣지 생성 실패: 유효하지 않은 ID - ${finalFromId} -> ${finalToId}`);
           }
         });
       }
       
     } else {
       // 관계 모드: 기존 팀 관계 표시
+      
       if (team.relationships && team.relationships.length > 0) {
         team.relationships.forEach((relationship) => {
           // NULL 관계는 스킵
@@ -777,6 +825,7 @@ export default function ReviewPage() {
           let fromId = relationship.from;
           let toId = relationship.to;
           
+          
           // "나"는 그대로 두고, 에이전트는 ID로 변환
           if (fromId !== "나") {
             // 먼저 agentId로 직접 매칭 시도
@@ -784,12 +833,19 @@ export default function ReviewPage() {
             if (directMatch) {
               fromId = directMatch.agentId!;
             } else {
-              // A, B, C, D 같은 임시 ID인 경우 에이전트 이름으로 매핑 시도
-              const nameMatch = team.members.find(m => 
-                !m.isUser && getAgentName(m.agentId || "") === fromId
-              );
-              if (nameMatch) {
-                fromId = nameMatch.agentId!;
+              // A, B, C, D 같은 임시 ID인 경우 팀 멤버 순서로 매핑
+              const memberIndex = fromId.charCodeAt(0) - 65; // A=0, B=1, C=2, D=3
+              const nonUserMembers = team.members.filter(m => !m.isUser);
+              if (memberIndex >= 0 && memberIndex < nonUserMembers.length) {
+                fromId = nonUserMembers[memberIndex].agentId!;
+              } else {
+                // 에이전트 이름으로 매핑 시도 (백업)
+                const nameMatch = team.members.find(m => 
+                  !m.isUser && getAgentName(m.agentId || "") === fromId
+                );
+                if (nameMatch) {
+                  fromId = nameMatch.agentId!;
+                }
               }
             }
           }
@@ -800,12 +856,19 @@ export default function ReviewPage() {
             if (directMatch) {
               toId = directMatch.agentId!;
             } else {
-              // A, B, C, D 같은 임시 ID인 경우 에이전트 이름으로 매핑 시도
-              const nameMatch = team.members.find(m => 
-                !m.isUser && getAgentName(m.agentId || "") === toId
-              );
-              if (nameMatch) {
-                toId = nameMatch.agentId!;
+              // A, B, C, D 같은 임시 ID인 경우 팀 멤버 순서로 매핑
+              const memberIndex = toId.charCodeAt(0) - 65; // A=0, B=1, C=2, D=3
+              const nonUserMembers = team.members.filter(m => !m.isUser);
+              if (memberIndex >= 0 && memberIndex < nonUserMembers.length) {
+                toId = nonUserMembers[memberIndex].agentId!;
+              } else {
+                // 에이전트 이름으로 매핑 시도 (백업)
+                const nameMatch = team.members.find(m => 
+                  !m.isUser && getAgentName(m.agentId || "") === toId
+                );
+                if (nameMatch) {
+                  toId = nameMatch.agentId!;
+                }
               }
             }
           }
@@ -849,17 +912,78 @@ export default function ReviewPage() {
     const centerY = 200;
     const radius = 120;
     
+    
+    // 첫 번째 패스: 원본 위치 수집
+    const originalPositions = [];
+    
     nodes.forEach((node, index) => {
-      // Use saved position if available
+      let positionFound = false;
+      let originalX, originalY;
+      
       if (team.nodePositions && team.nodePositions[node.id]) {
-        node.x = team.nodePositions[node.id].x;
-        node.y = team.nodePositions[node.id].y;
-      } else {
-        // Fallback to circular layout
-        const angle = (index * 2 * Math.PI) / nodes.length;
-        node.x = centerX + radius * Math.cos(angle);
-        node.y = centerY + radius * Math.sin(angle);
+        originalX = team.nodePositions[node.id].x;
+        originalY = team.nodePositions[node.id].y;
+        positionFound = true;
+      } else if (team.nodePositions) {
+        // agentId가 아닌 A, B, C, D 형태로 저장된 경우 확인
+        const nonUserMembers = team.members.filter(m => !m.isUser);
+        const memberIndex = nonUserMembers.findIndex(m => m.agentId === node.id);
+        
+        if (memberIndex >= 0) {
+          const tempKey = String.fromCharCode(65 + memberIndex);
+          if (team.nodePositions[tempKey]) {
+            originalX = team.nodePositions[tempKey].x;
+            originalY = team.nodePositions[tempKey].y;
+            positionFound = true;
+          }
+        }
       }
+      
+      if (positionFound && !useOriginalLayout) {
+        originalPositions.push({ node, x: originalX, y: originalY });
+      } else {
+        // 기본 원형 배치 (원형 배치 모드이거나 저장된 위치가 없는 경우)
+        const angle = (index * 2 * Math.PI) / nodes.length;
+        originalPositions.push({ 
+          node, 
+          x: centerX + radius * Math.cos(angle), 
+          y: centerY + radius * Math.sin(angle) 
+        });
+      }
+    });
+    
+    // 경계 계산
+    const minX = Math.min(...originalPositions.map(p => p.x));
+    const maxX = Math.max(...originalPositions.map(p => p.x));
+    const minY = Math.min(...originalPositions.map(p => p.y));
+    const maxY = Math.max(...originalPositions.map(p => p.y));
+    
+    const originalWidth = maxX - minX;
+    const originalHeight = maxY - minY;
+    
+    // 목표 영역 (여백 30px)
+    const targetWidth = 340; // 400 - 60
+    const targetHeight = 340; // 400 - 60
+    
+    // 스케일 계산 (가로세로 비율 유지)
+    const scaleX = originalWidth > 0 ? targetWidth / originalWidth : 1;
+    const scaleY = originalHeight > 0 ? targetHeight / originalHeight : 1;
+    const scale = Math.min(scaleX, scaleY, 1); // 최대 1배까지만 스케일링
+    
+    
+    // 두 번째 패스: 정규화된 위치 적용
+    originalPositions.forEach(({node, x, y}) => {
+      // 중앙 정렬 및 스케일링
+      const scaledX = (x - minX) * scale;
+      const scaledY = (y - minY) * scale;
+      
+      // 중앙 배치
+      node.x = scaledX + (400 - originalWidth * scale) / 2;
+      node.y = scaledY + (400 - originalHeight * scale) / 2;
+      
+      // 최종 경계 체크
+      node.x = Math.max(30, Math.min(370, node.x));
+      node.y = Math.max(30, Math.min(370, node.y));
     });
 
     return { nodes, edges };
@@ -873,6 +997,609 @@ export default function ReviewPage() {
   const closeIdeaDetail = () => {
     setSelectedIdea(null);
     setShowIdeaDetail(false);
+  };
+
+  const openActivityDetail = (activity: ActionLog) => {
+    setSelectedActivity(activity);
+    setShowActivityDetail(true);
+  };
+
+  const closeActivityDetail = () => {
+    setSelectedActivity(null);
+    setShowActivityDetail(false);
+  };
+
+  // 필터링된 및 정렬된 아이디어 목록 계산
+  const getFilteredAndSortedIdeas = () => {
+    let filteredIdeas = [...ideas];
+
+    // 필터링
+    if (ideaFilter !== "전체") {
+      filteredIdeas = filteredIdeas.filter(idea => {
+        const authorName = getAgentName(idea.author);
+        return authorName === ideaFilter;
+      });
+    }
+
+    // 정렬
+    if (ideaSortBy === "latest") {
+      // 최신순 (timestamp 기준 오름차순 - 오래된 것부터 최신 것 순서)
+      filteredIdeas.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    } else if (ideaSortBy === "rating") {
+      // 평점 높은 순
+      filteredIdeas.sort((a, b) => {
+        const ratingA = calculateAverageRating(a) || 0;
+        const ratingB = calculateAverageRating(b) || 0;
+        return ratingB - ratingA;
+      });
+    }
+
+    return filteredIdeas;
+  };
+
+  // 필터 옵션 생성 (모든 아이디어 작성자 목록)
+  const getFilterOptions = () => {
+    const authors = new Set<string>();
+    ideas.forEach(idea => {
+      const authorName = getAgentName(idea.author);
+      authors.add(authorName);
+    });
+    return ["전체", ...Array.from(authors).sort()];
+  };
+
+  // 활동 로그 필터링 및 정렬
+  const getFilteredAndSortedActivityLogs = () => {
+    let filteredLogs = [...actionLogs];
+
+    // 참가자 필터링
+    if (activityFilter !== "전체") {
+      filteredLogs = filteredLogs.filter(log => {
+        // 피드백 세션의 경우 "A → B (숫자회)" 형태에서 양쪽 모두 확인
+        if (log.agentName.includes(" → ")) {
+          const [from, to] = log.agentName.split(" → ");
+          // 괄호와 숫자회 제거하여 순수한 이름만 비교
+          const cleanFrom = from.trim().replace(/\s*\(\d+회\)$/, '');
+          const cleanTo = to.trim().replace(/\s*\(\d+회\)$/, '');
+          return cleanFrom === activityFilter || cleanTo === activityFilter;
+        }
+        // 일반 활동의 경우도 괄호와 숫자회 제거
+        const cleanAgentName = log.agentName.replace(/\s*\(\d+회\)$/, '');
+        return cleanAgentName === activityFilter;
+      });
+    }
+
+    // 최신순 정렬 (최신 것부터 오래된 것 순서)
+    filteredLogs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    return filteredLogs;
+  };
+
+  // 활동 로그 필터 옵션 생성 (모든 활동 참가자 목록)
+  const getActivityFilterOptions = () => {
+    const participants = new Set<string>();
+    actionLogs.forEach(log => {
+      // 피드백 세션의 경우 "A → B (숫자회)" 형태에서 양쪽 모두 추가
+      if (log.agentName.includes(" → ")) {
+        const [from, to] = log.agentName.split(" → ");
+        // 괄호와 숫자회 제거하여 순수한 이름만 추가
+        const cleanFrom = from.trim().replace(/\s*\(\d+회\)$/, '');
+        const cleanTo = to.trim().replace(/\s*\(\d+회\)$/, '');
+        if (cleanFrom) participants.add(cleanFrom);
+        if (cleanTo) participants.add(cleanTo);
+      } else {
+        // 일반 활동의 경우도 괄호와 숫자회 제거
+        const cleanAgentName = log.agentName.replace(/\s*\(\d+회\)$/, '');
+        if (cleanAgentName) participants.add(cleanAgentName);
+      }
+    });
+    return ["전체", ...Array.from(participants).sort()];
+  };
+
+  const ActivityDetailModal = () => {
+    if (!showActivityDetail || !selectedActivity) return null;
+    
+    const [relatedContent, setRelatedContent] = useState<any>(null);
+    const [loadingContent, setLoadingContent] = useState(false);
+
+    const activity = selectedActivity;
+
+    // 관련 아이디어나 메시지 찾기
+    const getRelatedContent = async () => {
+      // 아이디어 생성 활동인 경우
+      if (activity.action === "아이디어 생성") {
+        const relatedIdea = ideas.find(idea => {
+          const ideaTime = new Date(idea.timestamp).getTime();
+          const activityTime = new Date(activity.timestamp).getTime();
+          // 활동 시간과 아이디어 생성 시간이 비슷한 경우 (5분 이내)
+          return Math.abs(ideaTime - activityTime) < 5 * 60 * 1000 &&
+                 getAgentName(idea.author) === activity.agentName;
+        });
+        return relatedIdea;
+      }
+
+      // 아이디어 평가 활동인 경우
+      if (activity.action === "아이디어 평가") {
+        const activityTime = new Date(activity.timestamp).getTime();
+        
+        // 가장 가까운 시간의 평가를 찾기
+        let closestEvaluation = null;
+        let closestTimeDiff = Infinity;
+        
+        ideas.forEach(idea => {
+          idea.evaluations?.forEach(evaluation => {
+            if (getAgentName(evaluation.evaluator) === activity.agentName) {
+              const evaluationTime = new Date(evaluation.timestamp || activity.timestamp).getTime();
+              const timeDiff = Math.abs(evaluationTime - activityTime);
+              
+              // 5분 이내이면서 가장 가까운 평가를 찾기
+              if (timeDiff < 5 * 60 * 1000 && timeDiff < closestTimeDiff) {
+                closestTimeDiff = timeDiff;
+                closestEvaluation = {
+                  ...evaluation,
+                  ideaTitle: idea.content.object || `아이디어 #${idea.id}`
+                };
+              }
+            }
+          });
+        });
+        
+        return closestEvaluation ? [closestEvaluation] : [];
+      }
+
+      // 피드백 세션인 경우
+      if (activity.action === "피드백 세션 완료") {
+        const activityTime = new Date(activity.timestamp).getTime();
+        
+        // 먼저 feedback_session_summary 메시지에서 sessionId를 찾아 실제 대화 내용 가져오기
+        const summaryMessage = chatMessages.find(message => {
+          const messageTime = new Date(message.timestamp).getTime();
+          return Math.abs(messageTime - activityTime) < 10 * 60 * 1000 && 
+                 message.type === "feedback_session_summary";
+        });
+        
+        if (summaryMessage && summaryMessage.payload && typeof summaryMessage.payload === "object") {
+          const payload = summaryMessage.payload as any;
+          
+          // sessionMessages가 payload에 포함되어 있다면 바로 사용
+          if (payload.sessionMessages && Array.isArray(payload.sessionMessages)) {
+            return payload.sessionMessages.sort((a: any, b: any) => 
+              new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+            );
+          }
+          
+          // sessionId가 있다면 API에서 실제 대화 내용 가져오기
+          if (payload.sessionId) {
+            // 비동기 함수로 변경하여 API 호출
+            const fetchSessionMessages = async () => {
+              try {
+                const response = await fetch(`/api/teams/${teamId}/feedback-sessions/${payload.sessionId}/messages`);
+                if (response.ok) {
+                  const data = await response.json();
+                  return data.messages || [];
+                }
+              } catch (error) {
+                console.error("피드백 세션 메시지 로딩 실패:", error);
+              }
+              return [];
+            };
+            
+            // Promise를 반환하여 비동기 처리 가능하게 함
+            return fetchSessionMessages();
+          }
+        }
+        
+        // 활동 이름에서 참여자 정보 추출 (예: "지피티 → 이동건봇 (6회)")
+        let feedbackGiver = "";
+        let feedbackReceiver = "";
+        
+        if (activity.agentName.includes(" → ")) {
+          const [from, to] = activity.agentName.split(" → ");
+          feedbackGiver = from.trim().replace(/\s*\(\d+회\)$/, '');
+          feedbackReceiver = to.trim().replace(/\s*\(\d+회\)$/, '');
+        }
+        
+        // 해당 피드백 세션의 실제 대화 메시지 찾기 (더 포괄적으로)
+        const relatedMessages = chatMessages.filter(message => {
+          const messageTime = new Date(message.timestamp).getTime();
+          const isInTimeWindow = Math.abs(messageTime - activityTime) < 30 * 60 * 1000; // 30분 이내로 확장
+          
+          if (!isInTimeWindow) return false;
+          
+          // 참여자가 일치하는지 확인
+          const messageSender = getAgentName(message.sender);
+          const messageReceiver = message.payload?.mention ? getAgentName(message.payload.mention) : "";
+          
+          // 피드백 세션 참여자 중 하나가 보낸 메시지인지 확인
+          const isFromParticipant = messageSender === feedbackGiver || messageSender === feedbackReceiver;
+          
+          if (!isFromParticipant) return false;
+          
+          // 다양한 메시지 타입 포함 (요약 메시지는 제외)
+          const isValidMessageType = message.type === "give_feedback" || 
+                                    message.type === "feedback" ||
+                                    message.type === "message" ||
+                                    message.type === "chat" ||
+                                    (message.content && message.content.trim() !== "");
+          
+          // feedback_session_summary는 제외
+          if (message.type === "feedback_session_summary") return false;
+          
+          return isValidMessageType;
+        });
+        
+        // 시간순으로 정렬
+        const sortedMessages = relatedMessages.sort((a, b) => 
+          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        );
+        
+        // 메시지가 없으면 훨씬 더 넓은 범위에서 찾기 (폴백)
+        if (sortedMessages.length === 0) {
+          console.log(`피드백 세션 디버그: ${feedbackGiver} → ${feedbackReceiver}, 활동시간: ${activity.timestamp}`);
+          console.log(`전체 채팅 메시지 수: ${chatMessages.length}`);
+          
+          const fallbackMessages = chatMessages.filter(message => {
+            const messageTime = new Date(message.timestamp).getTime();
+            const isInTimeWindow = Math.abs(messageTime - activityTime) < 60 * 60 * 1000; // 1시간으로 확장
+            
+            if (!isInTimeWindow) return false;
+            
+            const messageSender = getAgentName(message.sender);
+            
+            // 참여자 중 하나가 보낸 메시지인지 확인 (모든 메시지 타입 포함)
+            const isFromParticipant = messageSender === feedbackGiver || messageSender === feedbackReceiver;
+            
+            // feedback_session_summary는 여전히 제외
+            const notSummary = message.type !== "feedback_session_summary";
+            
+            // 메시지에 실제 내용이 있는지 확인
+            const hasContent = message.content || message.payload?.content || message.payload?.message;
+            
+            return isFromParticipant && notSummary && hasContent;
+          });
+          
+          console.log(`폴백으로 찾은 메시지 수: ${fallbackMessages.length}`);
+          
+          return fallbackMessages.sort((a, b) => 
+            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          );
+        }
+        
+        return sortedMessages;
+      }
+
+      // 요청 활동인 경우
+      if (activity.action === "요청하기") {
+        const activityTime = new Date(activity.timestamp).getTime();
+        const relatedMessages = chatMessages.filter(message => {
+          const messageTime = new Date(message.timestamp).getTime();
+          return Math.abs(messageTime - activityTime) < 2 * 60 * 1000 && // 2분 이내로 좁혀서 정확도 향상
+                 message.type === "make_request" &&
+                 getAgentName(message.sender) === activity.agentName;
+        });
+        return relatedMessages;
+      }
+
+      return null;
+    };
+
+    // 활동이 변경될 때마다 관련 콘텐츠 로드
+    useEffect(() => {
+      const loadContent = async () => {
+        setLoadingContent(true);
+        try {
+          const content = await getRelatedContent();
+          setRelatedContent(content);
+        } catch (error) {
+          console.error("관련 콘텐츠 로딩 실패:", error);
+          setRelatedContent(null);
+        } finally {
+          setLoadingContent(false);
+        }
+      };
+
+      if (selectedActivity) {
+        loadContent();
+      }
+    }, [selectedActivity]);
+
+    return (
+      <div className="fixed inset-0 z-50">
+        <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0, 0, 0, 0.08)' }} onClick={closeActivityDetail}></div>
+        <div className="relative z-10 flex items-center justify-center h-full p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[95vh] overflow-y-auto border border-gray-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <Clock className="h-6 w-6 text-blue-500" />
+                <h2 className="text-xl font-semibold text-gray-900">활동 상세</h2>
+              </div>
+              <button
+                onClick={closeActivityDetail}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <X className="h-5 w-5 text-gray-500" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 space-y-6">
+              {/* 기본 정보 */}
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">{activity.action}</h3>
+                  <div className="flex items-center gap-4 text-sm text-gray-600">
+                    <span>참여자: {activity.agentName}</span>
+                    <span>시간: {formatTimestamp(activity.timestamp)}</span>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h4 className="font-medium text-gray-900 mb-2">활동 설명</h4>
+                  <p className="text-gray-700">{activity.description}</p>
+                </div>
+              </div>
+
+              {/* 관련 콘텐츠 */}
+              {loadingContent && (
+                <div className="space-y-4">
+                  <h4 className="font-semibold text-gray-900">관련 내용</h4>
+                  <div className="flex justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+                  </div>
+                </div>
+              )}
+              
+              {!loadingContent && relatedContent && (
+                <div className="space-y-4">
+                  <h4 className="font-semibold text-gray-900">관련 내용</h4>
+                  
+                  {/* 아이디어 생성인 경우 */}
+                  {activity.action === "아이디어 생성" && relatedContent && typeof relatedContent === 'object' && 'content' in relatedContent && (
+                    <div className="border border-gray-200 rounded-lg p-4">
+                      <h5 className="font-medium text-gray-900 mb-3">생성된 아이디어</h5>
+                      <div className="space-y-3">
+                        {Object.entries((relatedContent as Idea).content)
+                          .filter(([key, value]) => value && value.toString().trim() !== '')
+                          .map(([key, value]) => (
+                            <div key={key}>
+                              <div className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">
+                                {key}
+                              </div>
+                              <div className="bg-gray-50 rounded p-2 text-sm text-gray-800">
+                                {typeof value === 'string' ? (
+                                  (() => {
+                                    try {
+                                      const parsed = JSON.parse(value);
+                                      if (typeof parsed === 'object' && parsed !== null) {
+                                        return Object.entries(parsed).map(([subKey, subValue]) => (
+                                          <div key={subKey} className="mb-2">
+                                            <span className="font-medium">{subKey}:</span> {String(subValue)}
+                                          </div>
+                                        ));
+                                      }
+                                      return value;
+                                    } catch {
+                                      return value;
+                                    }
+                                  })()
+                                ) : (
+                                  String(value)
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 아이디어 평가인 경우 */}
+                  {activity.action === "아이디어 평가" && Array.isArray(relatedContent) && relatedContent.length > 0 && (
+                    <div className="space-y-4">
+                      {relatedContent.map((evaluation: any, index: number) => (
+                        <div key={index} className="border border-gray-200 rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <h5 className="font-medium text-gray-900">평가한 아이디어</h5>
+                            <span className="text-sm text-gray-600">{evaluation.ideaTitle}</span>
+                          </div>
+                          
+                          <div className="grid grid-cols-3 gap-4 mb-4">
+                            <div className="text-center bg-blue-50 rounded-lg p-3">
+                              <div className="text-xs text-gray-600 mb-1">참신성 (Novelty)</div>
+                              <div className="text-2xl font-bold text-blue-600">{evaluation.scores.novelty}/7</div>
+                            </div>
+                            <div className="text-center bg-green-50 rounded-lg p-3">
+                              <div className="text-xs text-gray-600 mb-1">완성도 (Completeness)</div>
+                              <div className="text-2xl font-bold text-green-600">{evaluation.scores.completeness}/7</div>
+                            </div>
+                            <div className="text-center bg-purple-50 rounded-lg p-3">
+                              <div className="text-xs text-gray-600 mb-1">품질 (Quality)</div>
+                              <div className="text-2xl font-bold text-purple-600">{evaluation.scores.quality}/7</div>
+                            </div>
+                          </div>
+                          
+                          <div className="bg-yellow-50 rounded-lg p-3">
+                            <div className="text-xs font-medium text-gray-600 mb-2">평균 점수</div>
+                            <div className="text-xl font-bold text-gray-900">
+                              {((evaluation.scores.novelty + evaluation.scores.completeness + evaluation.scores.quality) / 3).toFixed(1)}/7
+                            </div>
+                          </div>
+
+                          {evaluation.comment && (
+                            <div className="mt-4">
+                              <div className="text-sm font-medium text-gray-700 mb-2">평가 코멘트</div>
+                              <div className="bg-gray-50 border-l-4 border-blue-500 p-3 rounded">
+                                <p className="text-sm text-gray-800 italic">"{evaluation.comment}"</p>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {evaluation.timestamp && (
+                            <div className="mt-3 text-xs text-gray-500">
+                              평가 시간: {formatTimestamp(evaluation.timestamp)}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 피드백 세션인 경우 */}
+                  {activity.action === "피드백 세션 완료" && Array.isArray(relatedContent) && relatedContent.length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <MessageSquare className="h-5 w-5 text-blue-500" />
+                        <h4 className="font-semibold text-gray-900">피드백 대화 내용</h4>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-4 max-h-96 overflow-y-auto">
+                        <div className="space-y-3">
+                          {relatedContent
+                            .filter((message: any) => message.type !== "system") // 시스템 메시지 제외
+                            .map((message: any, index: number) => {
+                            const isMyMessage = message.sender === "나";
+                            
+                            // 피드백 제공자 식별 (활동 이름에서 추출)
+                            let feedbackGiver = "";
+                            if (activity.agentName.includes(" → ")) {
+                              const [from] = activity.agentName.split(" → ");
+                              feedbackGiver = from.trim().replace(/\s*\(\d+회\)$/, '');
+                            }
+                            
+                            // 피드백 제공자이거나 "나"인 경우 오른쪽 정렬
+                            const isFeedbackGiver = getAgentName(message.sender) === feedbackGiver;
+                            const shouldAlignRight = isMyMessage || isFeedbackGiver;
+                            
+                            const displayContent = message.content || 
+                                                  message.payload?.content || 
+                                                  message.payload?.message || 
+                                                  (typeof message.payload === 'string' ? message.payload : 
+                                                   JSON.stringify(message.payload));
+                            
+                            return (
+                              <div key={index} className={`flex ${shouldAlignRight ? 'justify-end' : 'justify-start'}`}>
+                                <div className={`max-w-[80%] ${shouldAlignRight ? 'order-2' : 'order-1'}`}>
+                                  {!shouldAlignRight && (
+                                    <div className="text-xs text-gray-500 mb-1 px-3">
+                                      {getAgentName(message.sender)}
+                                    </div>
+                                  )}
+                                  {shouldAlignRight && !isMyMessage && (
+                                    <div className="text-xs text-gray-500 mb-1 px-3 text-right">
+                                      {getAgentName(message.sender)}
+                                    </div>
+                                  )}
+                                  <div className={`rounded-2xl px-4 py-3 ${
+                                    shouldAlignRight 
+                                      ? (isMyMessage ? 'bg-blue-500 text-white' : 'bg-green-500 text-white')
+                                      : 'bg-white text-gray-900 border border-gray-200'
+                                  }`}>
+                                    <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                                      {displayContent}
+                                    </p>
+                                  </div>
+                                  <div className={`text-xs text-gray-500 mt-1 px-3 ${
+                                    shouldAlignRight ? 'text-right' : 'text-left'
+                                  }`}>
+                                    {formatTimestamp(message.timestamp)}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 피드백 세션인데 관련 메시지가 없는 경우 */}
+                  {activity.action === "피드백 세션 완료" && (!relatedContent || !Array.isArray(relatedContent) || relatedContent.length === 0) && (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <MessageSquare className="h-5 w-5 text-gray-400" />
+                        <h4 className="font-semibold text-gray-900">피드백 대화 내용</h4>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-6 text-center">
+                        <MessageSquare className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                        <p className="text-gray-600 text-sm">
+                          피드백 대화 내용을 불러올 수 없습니다.
+                        </p>
+                        <p className="text-gray-500 text-xs mt-1">
+                          세션이 종료되었거나 메시지가 삭제되었을 수 있습니다.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 요청 활동인 경우 */}
+                  {activity.action.includes("요청") && Array.isArray(relatedContent) && relatedContent.length > 0 && (
+                    <div className="space-y-4">
+                      <h4 className="font-semibold text-gray-900">요청 내용</h4>
+                      <div className="space-y-3">
+                        {relatedContent.map((message: any, index: number) => (
+                          <div key={index} className="border border-gray-200 rounded-lg p-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-gray-900">
+                                  {getAgentName(message.sender)}
+                                </span>
+                                <span className="text-sm text-gray-600">→</span>
+                                <span className="font-medium text-blue-600">
+                                  {message.payload?.mention ? getAgentName(message.payload.mention) : "팀원"}
+                                </span>
+                              </div>
+                              <span className="text-xs text-gray-500">
+                                {formatTimestamp(message.timestamp)}
+                              </span>
+                            </div>
+                            
+                            {message.payload?.requestType && (
+                              <div className="mb-2">
+                                <span className="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
+                                  {message.payload.requestType === 'generate' ? '아이디어 생성 요청' :
+                                   message.payload.requestType === 'evaluate' ? '아이디어 평가 요청' :
+                                   message.payload.requestType === 'give_feedback' ? '피드백 요청' :
+                                   message.payload.requestType}
+                                </span>
+                              </div>
+                            )}
+                            
+                            <div className="bg-orange-50 border-l-4 border-orange-500 p-3 rounded">
+                              <p className="text-sm text-gray-800">
+                                {typeof message.content === 'string' ? message.content : 
+                                 typeof message.payload === 'string' ? message.payload :
+                                 message.payload?.content || message.payload?.message || 
+                                 JSON.stringify(message.payload)}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 피드백 세션이나 요청에서 관련 메시지가 없는 경우 기본 정보 표시 */}
+              {(activity.action === "피드백 세션 완료" || activity.action.includes("요청")) && 
+               (!relatedContent || !Array.isArray(relatedContent) || relatedContent.length === 0) && (
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h4 className="font-medium text-gray-900 mb-2">
+                    {activity.action === "피드백 세션 완료" ? "피드백 세션 정보" : "요청 정보"}
+                  </h4>
+                  <div className="text-sm text-gray-700">
+                    <p>{activity.description}</p>
+                    {activity.agentName.includes("(") && (
+                      <p className="mt-1">
+                        {activity.action === "피드백 세션 완료" ? "메시지 교환 횟수" : "활동 횟수"}: {activity.agentName.match(/\((\d+)회\)/)?.[1] || "정보 없음"}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const IdeaDetailModal = () => {
@@ -1042,15 +1769,15 @@ export default function ReviewPage() {
             {/* Black arrow for relationships - 소두 버전 */}
             <marker
               id="arrowhead-black"
-              markerWidth="6"
-              markerHeight="4"
-              refX="5"
-              refY="2"
+              markerWidth="8"
+              markerHeight="6"
+              refX="7"
+              refY="3"
               orient="auto"
               markerUnits="strokeWidth"
             >
               <polygon
-                points="0 0, 6 2, 0 4"
+                points="0 0, 8 3, 0 6"
                 fill="#000000"
                 stroke="#000000"
                 strokeWidth="1"
@@ -1059,15 +1786,15 @@ export default function ReviewPage() {
             {/* Purple arrow for feedback - 소두 버전 */}
             <marker
               id="arrowhead-purple"
-              markerWidth="6"
-              markerHeight="4"
-              refX="5"
-              refY="2"
+              markerWidth="8"
+              markerHeight="6"
+              refX="7"
+              refY="3"
               orient="auto"
               markerUnits="strokeWidth"
             >
               <polygon
-                points="0 0, 6 2, 0 4"
+                points="0 0, 8 3, 0 6"
                 fill="#7C3AED"
                 stroke="#7C3AED"
                 strokeWidth="1"
@@ -1076,15 +1803,15 @@ export default function ReviewPage() {
             {/* Orange arrow for requests - 소두 버전 */}
             <marker
               id="arrowhead-orange"
-              markerWidth="6"
-              markerHeight="4"
-              refX="5"
-              refY="2"
+              markerWidth="8"
+              markerHeight="6"
+              refX="7"
+              refY="3"
               orient="auto"
               markerUnits="strokeWidth"
             >
               <polygon
-                points="0 0, 6 2, 0 4"
+                points="0 0, 8 3, 0 6"
                 fill="#EA580C"
                 stroke="#EA580C"
                 strokeWidth="1"
@@ -1109,10 +1836,10 @@ export default function ReviewPage() {
             // Adjust line endpoints to not overlap with circles
             const fromNodeRadius = 16;
             const toNodeRadius = 16;
-            const startX = fromNode.x + unitX * fromNodeRadius;
-            const startY = fromNode.y + unitY * fromNodeRadius;
-            const endX = toNode.x - unitX * toNodeRadius;
-            const endY = toNode.y - unitY * toNodeRadius;
+            const startX = fromNode.x + unitX * (fromNodeRadius + 3);
+            const startY = fromNode.y + unitY * (fromNodeRadius + 3);
+            const endX = toNode.x - unitX * (toNodeRadius + 8);
+            const endY = toNode.y - unitY * (toNodeRadius + 8);
             
             // Determine color and marker based on edge type
             let strokeColor = "#000000";
@@ -1180,25 +1907,24 @@ export default function ReviewPage() {
                   strokeWidth={strokeWidth}
                 />
                 
-                {/* User 아이콘 */}
-                <foreignObject 
-                  x={node.x - 8} 
-                  y={node.y - 8} 
-                  width="16" 
-                  height="16"
-                >
-                  <User className="h-4 w-4 text-white" />
-                </foreignObject>
-                
-                {/* 리더 표시 (왕관) */}
-                {node.isLeader && (
+                {/* 리더는 왕관만, 일반 멤버는 User 아이콘 */}
+                {node.isLeader ? (
                   <foreignObject 
-                    x={node.x + 8} 
-                    y={node.y - 12} 
-                    width="12" 
-                    height="12"
+                    x={node.x - 8} 
+                    y={node.y - 8} 
+                    width="16" 
+                    height="16"
                   >
-                    <Crown className="h-3 w-3 text-yellow-300" />
+                    <Crown className="h-4 w-4 text-white" />
+                  </foreignObject>
+                ) : (
+                  <foreignObject 
+                    x={node.x - 8} 
+                    y={node.y - 8} 
+                    width="16" 
+                    height="16"
+                  >
+                    <User className="h-4 w-4 text-white" />
                   </foreignObject>
                 )}
                 
@@ -1440,26 +2166,6 @@ export default function ReviewPage() {
                             </div>
                           )}
                           
-                          {agentProfile.autonomy && (
-                            <div className="flex items-center justify-between">
-                              <span><strong>자율성:</strong></span>
-                              <div className="flex items-center gap-1">
-                                <div className="flex gap-1">
-                                  {[1, 2, 3, 4, 5].map((level) => (
-                                    <div
-                                      key={level}
-                                      className={`w-2 h-2 rounded-full ${
-                                        level <= agentProfile.autonomy
-                                          ? "bg-blue-500"
-                                          : "bg-gray-300"
-                                      }`}
-                                    />
-                                  ))}
-                                </div>
-                                <span className="font-medium ml-1">{agentProfile.autonomy}/5</span>
-                              </div>
-                            </div>
-                          )}
                         </div>
                       )}
                       
@@ -1499,17 +2205,12 @@ export default function ReviewPage() {
                             // 피드백 카운트 계산 - 여러 방법을 통해 정확한 카운트 수집
                             let feedbackCount = 0;
                             
-                            // 디버깅: 현재 멤버의 데이터 확인
-                            console.log(`=== ${memberName} 피드백 카운트 디버깅 ===`);
-                            console.log("memberId:", memberId);
-                            console.log("memberName:", memberName);
                             
                             // 1. 액션 로그에서 피드백 활동 카운트
                             const actionLogFeedbacks = actionLogs.filter(log => 
                               log.action.includes("피드백") && log.agentName === memberName
                             );
                             feedbackCount += actionLogFeedbacks.length;
-                            console.log("액션 로그 피드백:", actionLogFeedbacks.length, actionLogFeedbacks);
                             
                             // 2. 채팅 메시지에서 직접 피드백 활동 카운트
                             const directFeedbacks = chatMessages.filter(message => 
@@ -1517,33 +2218,24 @@ export default function ReviewPage() {
                               message.sender === memberId
                             );
                             feedbackCount += directFeedbacks.length;
-                            console.log("직접 피드백 메시지:", directFeedbacks.length, directFeedbacks);
                             
                             // 3. 피드백 세션 참여 카운트 (세션 요약에서)
                             let sessionFeedbacks = 0;
                             chatMessages.forEach(message => {
                               if (message.type === "feedback_session_summary" && message.payload) {
                                 const payload = message.payload as any;
-                                console.log("피드백 세션 요약 payload:", payload);
-                                console.log("참여자 배열:", payload.participants);
                                 
                                 // participants 배열에서 현재 멤버 확인
                                 if (payload.participants && Array.isArray(payload.participants)) {
                                   // 각 참여자의 ID 확인
                                   payload.participants.forEach((participant: any, index: number) => {
-                                    console.log(`참여자 ${index}:`, participant);
-                                    
                                     // 참여자가 현재 멤버와 일치하는지 확인
                                     const participantId = typeof participant === 'string' ? participant : participant.id;
                                     const participantName = typeof participant === 'string' ? participant : participant.name;
                                     
-                                    console.log(`비교 - memberId: ${memberId}, memberName: ${memberName}`);
-                                    console.log(`참여자 - participantId: ${participantId}, participantName: ${participantName}`);
-                                    
                                     if (participantId === memberId || participantName === memberName || 
                                         participantId === memberName || participantName === memberId) {
                                       sessionFeedbacks += 0.5; // 세션당 0.5씩 카운트 (피드백 주고받기)
-                                      console.log(`매칭 성공! 현재 sessionFeedbacks: ${sessionFeedbacks}`);
                                     }
                                   });
                                 }
@@ -1557,24 +2249,7 @@ export default function ReviewPage() {
                               }
                             });
                             feedbackCount += Math.round(sessionFeedbacks);
-                            console.log("세션 피드백:", sessionFeedbacks, "반올림:", Math.round(sessionFeedbacks));
                             
-                            // 4. 모든 채팅 메시지 타입 확인
-                            const messageTypes = [...new Set(chatMessages.map(m => m.type))];
-                            console.log("모든 메시지 타입:", messageTypes);
-                            
-                            // 5. 피드백 관련 메시지 모두 확인
-                            const feedbackRelatedMessages = chatMessages.filter(message => 
-                              message.type && (
-                                message.type.includes("feedback") || 
-                                message.type.includes("피드백") ||
-                                (message.payload && JSON.stringify(message.payload).includes("피드백"))
-                              )
-                            );
-                            console.log("피드백 관련 메시지:", feedbackRelatedMessages.length, feedbackRelatedMessages);
-                            
-                            console.log("총 피드백 카운트:", feedbackCount);
-                            console.log("=== 디버깅 끝 ===");
                             const requestCount = chatMessages.filter(message => 
                               message.type === "make_request" && message.sender === memberId
                             ).length;
@@ -1628,6 +2303,14 @@ export default function ReviewPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Button
+                    variant={useOriginalLayout ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setUseOriginalLayout(!useOriginalLayout)}
+                  >
+                    {useOriginalLayout ? "설정 위치" : "원형 배치"}
+                  </Button>
+                  <div className="w-px h-6 bg-gray-300"></div>
+                  <Button
                     variant={showFeedbackMode ? "default" : "outline"}
                     size="sm"
                     onClick={() => {
@@ -1654,45 +2337,125 @@ export default function ReviewPage() {
             </div>
             {/* 활동 로그 */}
             <div className="bg-white rounded-lg border border-gray-200 p-6">
-              <div className="flex items-center gap-2 mb-6">
-                <Clock className="h-5 w-5 text-blue-600" />
-                <h2 className="text-lg font-semibold text-gray-900">활동 타임라인</h2>
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-5 w-5 text-blue-600" />
+                  <h2 className="text-lg font-semibold text-gray-900">활동 타임라인</h2>
+                </div>
+                
+                {/* 참가자 필터 */}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-600">참가자:</span>
+                  <select
+                    value={activityFilter}
+                    onChange={(e) => setActivityFilter(e.target.value)}
+                    className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    {getActivityFilterOptions().map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
               
               <div className="space-y-4 max-h-96 overflow-y-auto">
-                {actionLogs.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">활동 기록이 없습니다.</p>
-                ) : (
-                  actionLogs.map((log, index) => (
-                    <div key={index} className="flex gap-3 p-3 rounded-lg bg-gray-50">
+                {(() => {
+                  const filteredAndSortedLogs = getFilteredAndSortedActivityLogs();
+                  
+                  if (actionLogs.length === 0) {
+                    return <p className="text-gray-500 text-center py-8">활동 기록이 없습니다.</p>;
+                  }
+                  
+                  if (filteredAndSortedLogs.length === 0) {
+                    return <p className="text-gray-500 text-center py-8">필터 조건에 맞는 활동이 없습니다.</p>;
+                  }
+                  
+                  return filteredAndSortedLogs.map((log, index) => (
+                    <div 
+                      key={index} 
+                      className="flex gap-3 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 hover:shadow-md transition-all cursor-pointer"
+                      onClick={() => openActivityDetail(log)}
+                    >
                       <div className="flex-shrink-0 w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="font-medium text-gray-900">{log.agentName}</span>
                           <span className="text-xs text-gray-500">{formatTimestamp(log.timestamp)}</span>
                         </div>
-                        <p className="text-sm text-gray-700 mb-1">{log.action}</p>
+                        <p className="text-sm text-gray-700 mb-1 hover:text-blue-600 transition-colors">{log.action}</p>
                         <p className="text-xs text-gray-600">{log.description}</p>
                       </div>
                     </div>
-                  ))
-                )}
+                  ));
+                })()}
               </div>
+              
+              {/* 필터링 결과 요약 */}
+              {activityFilter !== "전체" && (
+                <div className="mt-4 text-sm text-gray-600 text-center">
+                  {getFilteredAndSortedActivityLogs().length}개의 활동이 표시되고 있습니다 (전체 {actionLogs.length}개 중)
+                </div>
+              )}
             </div>
 
             {/* 아이디어 목록 */}
             <div className="bg-white rounded-lg border border-gray-200 p-6">
-              <div className="flex items-center gap-2 mb-6">
-                <Lightbulb className="h-5 w-5 text-green-600" />
-                <h2 className="text-lg font-semibold text-gray-900">생성된 아이디어</h2>
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-2">
+                  <Lightbulb className="h-5 w-5 text-green-600" />
+                  <h2 className="text-lg font-semibold text-gray-900">생성된 아이디어</h2>
+                </div>
+                
+                {/* 필터링 및 정렬 컨트롤 */}
+                <div className="flex items-center gap-3">
+                  {/* 작성자 필터 */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600">작성자:</span>
+                    <select
+                      value={ideaFilter}
+                      onChange={(e) => setIdeaFilter(e.target.value)}
+                      className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      {getFilterOptions().map(option => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div className="w-px h-4 bg-gray-300"></div>
+                  
+                  {/* 정렬 옵션 */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600">정렬:</span>
+                    <select
+                      value={ideaSortBy}
+                      onChange={(e) => setIdeaSortBy(e.target.value as "latest" | "rating")}
+                      className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="latest">최신순</option>
+                      <option value="rating">평점순</option>
+                    </select>
+                  </div>
+                </div>
               </div>
               
               <div className="space-y-4 max-h-[600px] overflow-y-auto">
-                {ideas.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">생성된 아이디어가 없습니다.</p>
-                ) : (
-                  ideas.map((idea, index) => {
+                {(() => {
+                  const filteredAndSortedIdeas = getFilteredAndSortedIdeas();
+                  
+                  if (ideas.length === 0) {
+                    return <p className="text-gray-500 text-center py-8">생성된 아이디어가 없습니다.</p>;
+                  }
+                  
+                  if (filteredAndSortedIdeas.length === 0) {
+                    return <p className="text-gray-500 text-center py-8">필터 조건에 맞는 아이디어가 없습니다.</p>;
+                  }
+                  
+                  return filteredAndSortedIdeas.map((idea, index) => {
                     const averageRating = calculateAverageRating(idea);
+                    // 전체 아이디어 목록에서의 원래 순번 계산
+                    const originalIndex = ideas.findIndex(i => i.id === idea.id);
+                    
                     return (
                       <div 
                         key={idea.id} 
@@ -1701,7 +2464,7 @@ export default function ReviewPage() {
                       >
                         <div className="flex items-start justify-between mb-2">
                           <h3 className="font-medium text-gray-900 hover:text-blue-600 transition-colors">
-                            #{index + 1} {idea.content.object}
+                            #{originalIndex + 1} {idea.content.object}
                           </h3>
                           {averageRating && (
                             <div className="flex items-center gap-1 text-sm">
@@ -1717,13 +2480,19 @@ export default function ReviewPage() {
                           <span>작성자: {getAgentName(idea.author)}</span>
                           <span>평가: {idea.evaluations?.length || 0}개</span>
                           <span>{formatTimestamp(idea.timestamp)}</span>
-                          <span className="text-blue-500 font-medium">클릭하여 상세보기 →</span>
                         </div>
                       </div>
                     );
-                  })
-                )}
+                  });
+                })()}
               </div>
+              
+              {/* 필터링 결과 요약 */}
+              {ideaFilter !== "전체" && (
+                <div className="mt-4 text-sm text-gray-600 text-center">
+                  {getFilteredAndSortedIdeas().length}개의 아이디어가 표시되고 있습니다 (전체 {ideas.length}개 중)
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1731,6 +2500,9 @@ export default function ReviewPage() {
 
       {/* 아이디어 상세 모달 */}
       <IdeaDetailModal />
+      
+      {/* 활동 상세 모달 */}
+      <ActivityDetailModal />
     </div>
   );
 }

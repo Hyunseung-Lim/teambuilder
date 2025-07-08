@@ -119,7 +119,7 @@ export default function FeedbackTabContent({
         }
       }
     } catch (error) {
-      console.error("메시지 로드 실패:", error);
+      // 메시지 로드 실패 처리
     }
   };
 

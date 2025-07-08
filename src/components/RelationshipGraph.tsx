@@ -6,7 +6,7 @@ import {
   RELATIONSHIP_TYPES,
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { Plus, Crown, User, ArrowRight, XIcon } from "lucide-react";
+import { Plus, Crown, User, XIcon } from "lucide-react";
 
 // RelationshipGraph 컴포넌트
 export function RelationshipGraph({
@@ -125,9 +125,6 @@ export function RelationshipGraph({
   const handleMouseUp = () => {
     // 드래그가 끝나면 위치 변경을 부모에게 알림
     if (draggedNode && onNodePositionChange) {
-      console.log("=== 노드 위치 업데이트 ===");
-      console.log("드래그된 노드:", draggedNode);
-      console.log("업데이트될 전체 노드 위치:", JSON.stringify(nodes, null, 2));
       onNodePositionChange(nodes);
     }
     // 클릭과 드래그를 구분하기 위해 약간의 딜레이 후 초기화
@@ -207,7 +204,7 @@ export function RelationshipGraph({
         {connectionCandidate && (
           <div className="flex gap-2">
             {Object.entries(RELATIONSHIP_TYPES)
-              .filter(([type, config]) => !config.hidden) // Filter out hidden relationships
+              .filter(([, config]) => !config.hidden) // Filter out hidden relationships
               .map(([type, config]) => (
               <Button
                 key={type}
@@ -256,12 +253,12 @@ export function RelationshipGraph({
           const fromMember = members.find(
             (m) =>
               (m.isUser && rel.from === "나") ||
-              (!m.isUser && (m.agent?.name === rel.from || m.id === rel.from))
+              (!m.isUser && (m.id === rel.from || m.agentId === rel.from || m.agent?.name === rel.from))
           );
           const toMember = members.find(
             (m) =>
               (m.isUser && rel.to === "나") ||
-              (!m.isUser && (m.agent?.name === rel.to || m.id === rel.to))
+              (!m.isUser && (m.id === rel.to || m.agentId === rel.to || m.agent?.name === rel.to))
           );
 
           if (!fromMember || !toMember) return null;
@@ -311,7 +308,7 @@ export function RelationshipGraph({
                 stroke="transparent"
                 strokeWidth="20"
                 className="cursor-pointer"
-                onClick={() => onRemoveRelationship(fromMember.id, toMember.id)}
+                onClick={() => onRemoveRelationship(rel.from, rel.to)}
               />
               <line
                 x1={startX}
@@ -338,7 +335,7 @@ export function RelationshipGraph({
               {!readOnly && (
                 <g
                   className="cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={() => onRemoveRelationship(fromMember.id, toMember.id)}
+                  onClick={() => onRemoveRelationship(rel.from, rel.to)}
                 >
                 <rect
                   x={(startX + endX) / 2 - 12}

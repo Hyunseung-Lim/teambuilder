@@ -99,6 +99,7 @@ export default function IdeationPage() {
   // 피드백 세션 모달 상태
   const [showViewSessionModal, setShowViewSessionModal] = useState(false);
   const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
+  const [useOriginalLayout, setUseOriginalLayout] = useState(false);
 
   // 활성 피드백 세션 상태
   const [activeFeedbackSessions, setActiveFeedbackSessions] = useState<
@@ -148,7 +149,10 @@ export default function IdeationPage() {
 
   // 작성자 이름 가져오기 함수
   const getAuthorName = (authorId: string) => {
-    if (authorId === "나") return "나";
+    if (authorId === "나") {
+      const userMember = team?.members.find((m) => m.isUser);
+      return userMember?.userProfile?.name || "나";
+    }
     const member = team?.members.find((m) => m.agentId === authorId);
     if (member && !member.isUser) {
       const agent = agents.find((a) => a.id === authorId);
@@ -336,6 +340,15 @@ export default function IdeationPage() {
     sessionData?: any
   ) => {
     try {
+      // 중복 탭 체크
+      const existingTab = feedbackTabs.find(
+        (tab) => tab.participantId === participantId && tab.type === type
+      );
+      if (existingTab) {
+        setActiveTab(existingTab.id);
+        return existingTab.id;
+      }
+
       const response = await fetch(`/api/teams/${team?.id}/feedback-sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -406,7 +419,6 @@ export default function IdeationPage() {
         }),
       });
       if (response.ok) {
-        console.log(`✅ 피드백 세션 ${tabId} 백엔드 종료 완료`);
       }
     } catch (error) {
       console.error(`❌ 피드백 세션 ${tabId} 백엔드 종료 오류:`, error);
@@ -679,11 +691,6 @@ export default function IdeationPage() {
           getUserAgentsAction(),
         ]);
         
-        console.log("=== 아이디에이션 페이지 팀 데이터 로드 ===");
-        console.log("teamData.relationships:", JSON.stringify(teamData.relationships, null, 2));
-        console.log("teamData.nodePositions:", JSON.stringify(teamData.nodePositions, null, 2));
-        console.log("teamData.members:", JSON.stringify(teamData.members, null, 2));
-        
         setTeam(teamData);
         setAgents(agentsData);
         await Promise.all([loadIdeas(teamId), loadMessages(teamId)]);
@@ -803,9 +810,6 @@ export default function IdeationPage() {
             );
             if (!otherParticipant) continue;
 
-            console.log(
-              `🎯 사용자 피드백 세션 감지됨: ${session.id} with ${otherParticipant.name}`
-            );
 
             // 피드백 탭 자동 생성 (세션이 이미 생성되어 있으므로 바로 탭만 열기)
             const newTab = {
@@ -845,19 +849,10 @@ export default function IdeationPage() {
                   }),
                 });
                 setNotifiedSessionIds((prev) => new Set(prev).add(session.id));
-                console.log(
-                  `✅ 피드백 세션 알림 메시지 전송 완료: ${session.id}`
-                );
               } catch (error) {
                 console.error("❌ 시스템 메시지 전송 실패:", error);
               }
-            } else {
-              console.log(
-                `⚠️ 세션 ${session.id}는 이미 알림을 보냈으므로 스킵`
-              );
             }
-
-            console.log(`✅ 피드백 탭 자동 생성 완료: ${session.id}`);
           }
         }
       } catch (error) {
@@ -1027,6 +1022,8 @@ export default function IdeationPage() {
             timers={timers}
             onAgentClick={handleAgentClick}
             isConnected={isConnected}
+            useOriginalLayout={useOriginalLayout}
+            onToggleLayout={setUseOriginalLayout}
           />
 
           {/* 가운데: 채팅 영역 */}

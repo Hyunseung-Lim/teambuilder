@@ -18,6 +18,8 @@ import {
   planFeedbackStrategyPrompt,
   generateFeedbackSessionResponsePrompt,
   generateFeedbackSessionSummaryPrompt,
+  generateTeamMembersSummaryPrompt,
+  generateAgentPersonaSummaryPrompt,
 } from "@/core/prompts";
 import { AgentMemory } from "@/lib/types";
 import OpenAI from "openai";
@@ -491,7 +493,7 @@ export async function generateIdeaAction(
     enhancedContext += `\nBased on the above memory, generate ideas that reflect your personality and experience.`;
   }
 
-  const prompt = generateIdeaPrompt(enhancedContext, userProfile, memory, team?.sharedMentalModel);
+  const prompt = generateIdeaPrompt(enhancedContext, userProfile, memory, team?.sharedMentalModel, userProfile?.personaSummary);
   return getJsonResponse(prompt, userProfile);
 }
 
@@ -1422,5 +1424,130 @@ export async function planFeedbackStrategy(
   } catch (error) {
     console.error("Failed to parse feedback strategy response:", error);
     throw new Error("Invalid JSON response from OpenAI");
+  }
+}
+
+// Team members summary generation function
+export async function generateTeamMembersSummary(
+  teamMembers: Array<{
+    name: string;
+    skills: string;
+    personality?: string;
+    workStyle?: string;
+    preferences?: string;
+    dislikes?: string;
+    professional: string;
+    isUser: boolean;
+  }>,
+  sharedMentalModel?: string
+): Promise<string> {
+  try {
+    const { agentContext, mainPrompt } = generateTeamMembersSummaryPrompt(
+      teamMembers,
+      sharedMentalModel
+    );
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: agentContext,
+        },
+        {
+          role: "user",
+          content: mainPrompt,
+        },
+      ],
+      temperature: 0.7,
+      max_tokens: 1500,
+    });
+
+    const result = completion.choices[0]?.message?.content;
+    if (!result) {
+      throw new Error("OpenAI 응답이 비어있습니다");
+    }
+
+    // JSON 마크다운 블록 제거
+    let jsonString = result.trim();
+    if (jsonString.startsWith("```json")) {
+      jsonString = jsonString.replace(/^```json\s*/, "").replace(/\s*```$/, "");
+    } else if (jsonString.startsWith("```")) {
+      jsonString = jsonString.replace(/^```\s*/, "").replace(/\s*```$/, "");
+    }
+
+    const parsed = JSON.parse(jsonString);
+    return parsed.teamSummary || "팀원들의 다양한 배경과 전문성을 바탕으로 효과적인 협업이 기대됩니다.";
+  } catch (error) {
+    console.error("팀 요약 생성 실패:", error);
+    
+    // 기본값 반환
+    const memberCount = teamMembers.length;
+    const humanCount = teamMembers.filter(m => m.isUser).length;
+    const aiCount = memberCount - humanCount;
+    
+    return `${memberCount}명의 팀원(인간 ${humanCount}명, AI ${aiCount}명)으로 구성된 다양한 전문성을 가진 팀입니다. 각자의 고유한 배경과 역량을 바탕으로 창의적인 협업이 기대됩니다.`;
+  }
+}
+
+// Individual agent persona summary generation function
+export async function generateAgentPersonaSummary(
+  agentProfile: {
+    name: string;
+    skills: string;
+    personality?: string;
+    workStyle?: string;
+    preferences?: string;
+    dislikes?: string;
+    professional: string;
+    age?: number;
+    gender?: string;
+    value?: string;
+  },
+  teamContext?: {
+    teamName: string;
+    topic?: string;
+    sharedMentalModel?: string;
+  }
+): Promise<string> {
+  try {
+    const { agentContext, mainPrompt } = generateAgentPersonaSummaryPrompt(agentProfile, teamContext);
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: agentContext,
+        },
+        {
+          role: "user",
+          content: mainPrompt,
+        },
+      ],
+      temperature: 0.7,
+      max_tokens: 1000,
+    });
+
+    const result = completion.choices[0]?.message?.content;
+    if (!result) {
+      throw new Error("OpenAI 응답이 비어있습니다");
+    }
+
+    // JSON 마크다운 블록 제거
+    let jsonString = result.trim();
+    if (jsonString.startsWith("```json")) {
+      jsonString = jsonString.replace(/^```json\s*/, "").replace(/\s*```$/, "");
+    } else if (jsonString.startsWith("```")) {
+      jsonString = jsonString.replace(/^```\s*/, "").replace(/\s*```$/, "");
+    }
+
+    const parsed = JSON.parse(jsonString);
+    return parsed.personaSummary || `${agentProfile.name}의 페르소나 요약이 생성되었습니다.`;
+  } catch (error) {
+    console.error("개인 페르소나 요약 생성 실패:", error);
+    
+    // 기본값 반환
+    return `${agentProfile.name}은 ${agentProfile.professional} 분야의 전문가로, ${agentProfile.skills} 역량을 바탕으로 팀에 기여합니다. ${agentProfile.personality ? `${agentProfile.personality} 성격을 가지고 있으며, ` : ""}팀 협업에서 중요한 역할을 수행할 것으로 기대됩니다.`;
   }
 }

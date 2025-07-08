@@ -18,6 +18,13 @@ interface AddIdeaModalProps {
   isGeneratingIdea: boolean;
 }
 
+import { useState, useEffect } from 'react';
+
+interface KeyValuePair {
+  key: string;
+  value: string;
+}
+
 export default function AddIdeaModal({
   isOpen,
   onClose,
@@ -27,6 +34,98 @@ export default function AddIdeaModal({
   isAutoGenerating,
   isGeneratingIdea,
 }: AddIdeaModalProps) {
+  // behavior와 structure를 key-value 쌍으로 관리
+  const [behaviorPairs, setBehaviorPairs] = useState<KeyValuePair[]>([{ key: '', value: '' }]);
+  const [structurePairs, setStructurePairs] = useState<KeyValuePair[]>([{ key: '', value: '' }]);
+
+  // formData에서 behavior와 structure를 파싱하여 key-value 쌍으로 변환
+  useEffect(() => {
+    // behavior 파싱
+    if (formData.behavior) {
+      try {
+        const parsed = JSON.parse(formData.behavior);
+        if (Array.isArray(parsed)) {
+          setBehaviorPairs(parsed.length > 0 ? parsed : [{ key: '', value: '' }]);
+        } else {
+          setBehaviorPairs([{ key: '', value: formData.behavior }]);
+        }
+      } catch {
+        setBehaviorPairs([{ key: '', value: formData.behavior }]);
+      }
+    } else {
+      setBehaviorPairs([{ key: '', value: '' }]);
+    }
+
+    // structure 파싱
+    if (formData.structure) {
+      try {
+        const parsed = JSON.parse(formData.structure);
+        if (Array.isArray(parsed)) {
+          setStructurePairs(parsed.length > 0 ? parsed : [{ key: '', value: '' }]);
+        } else {
+          setStructurePairs([{ key: '', value: formData.structure }]);
+        }
+      } catch {
+        setStructurePairs([{ key: '', value: formData.structure }]);
+      }
+    } else {
+      setStructurePairs([{ key: '', value: '' }]);
+    }
+  }, [formData.behavior, formData.structure]);
+
+  // key-value 쌍을 JSON 문자열로 변환하여 formData 업데이트
+  const updateFormData = (newBehaviorPairs?: KeyValuePair[], newStructurePairs?: KeyValuePair[]) => {
+    const behaviorData = newBehaviorPairs || behaviorPairs;
+    const structureData = newStructurePairs || structurePairs;
+    
+    const newFormData = {
+      ...formData,
+      behavior: JSON.stringify(behaviorData.filter(p => p.key.trim() || p.value.trim())),
+      structure: JSON.stringify(structureData.filter(p => p.key.trim() || p.value.trim())),
+    };
+    onFormDataChange(newFormData);
+  };
+
+  const addBehaviorPair = () => {
+    const newPairs = [...behaviorPairs, { key: '', value: '' }];
+    setBehaviorPairs(newPairs);
+    updateFormData(newPairs, undefined);
+  };
+
+  const removeBehaviorPair = (index: number) => {
+    const newPairs = behaviorPairs.filter((_, i) => i !== index);
+    setBehaviorPairs(newPairs);
+    updateFormData(newPairs, undefined);
+  };
+
+  const updateBehaviorPair = (index: number, field: 'key' | 'value', newValue: string) => {
+    const newPairs = behaviorPairs.map((pair, i) => 
+      i === index ? { ...pair, [field]: newValue } : pair
+    );
+    setBehaviorPairs(newPairs);
+    updateFormData(newPairs, undefined);
+  };
+
+  const addStructurePair = () => {
+    const newPairs = [...structurePairs, { key: '', value: '' }];
+    setStructurePairs(newPairs);
+    updateFormData(undefined, newPairs);
+  };
+
+  const removeStructurePair = (index: number) => {
+    const newPairs = structurePairs.filter((_, i) => i !== index);
+    setStructurePairs(newPairs);
+    updateFormData(undefined, newPairs);
+  };
+
+  const updateStructurePair = (index: number, field: 'key' | 'value', newValue: string) => {
+    const newPairs = structurePairs.map((pair, i) => 
+      i === index ? { ...pair, [field]: newValue } : pair
+    );
+    setStructurePairs(newPairs);
+    updateFormData(undefined, newPairs);
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -53,82 +152,116 @@ export default function AddIdeaModal({
           </div>
 
           <div className="space-y-6">
-            {/* Object */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Object *
-              </label>
+            {/* Object 필드 */}
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Object</label>
               <textarea
                 value={formData.object}
-                onChange={(e) =>
-                  onFormDataChange({
-                    ...formData,
-                    object: e.target.value,
-                  })
-                }
+                onChange={(e) => onFormDataChange({ ...formData, object: e.target.value })}
                 className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                rows={2}
-                placeholder="아이디어의 핵심 객체를 입력하세요..."
-                required
+                rows={3}
+                placeholder="아이디어의 대상이나 객체에 대해 설명하세요..."
               />
             </div>
 
-            {/* Function */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Function *
-              </label>
+            {/* Function 필드 */}
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">Function</label>
               <textarea
                 value={formData.function}
-                onChange={(e) =>
-                  onFormDataChange({
-                    ...formData,
-                    function: e.target.value,
-                  })
-                }
+                onChange={(e) => onFormDataChange({ ...formData, function: e.target.value })}
                 className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                rows={4}
-                placeholder="아이디어의 기능을 상세히 설명하세요..."
-                required
+                rows={3}
+                placeholder="아이디어의 기능이나 목적에 대해 설명하세요..."
               />
             </div>
 
-            {/* Behavior */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Behavior
-              </label>
-              <textarea
-                value={formData.behavior}
-                onChange={(e) =>
-                  onFormDataChange({
-                    ...formData,
-                    behavior: e.target.value,
-                  })
-                }
-                className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                rows={4}
-                placeholder="아이디어의 동작 방식을 설명하세요..."
-              />
+            {/* Behavior 필드 (Key-Value) */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <label className="block text-sm font-medium text-gray-700">Behavior</label>
+                <button
+                  onClick={addBehaviorPair}
+                  className="px-3 py-1 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+                  type="button"
+                >
+                  + 행동 요소 추가
+                </button>
+              </div>
+              
+              {behaviorPairs.map((pair, index) => (
+                <div key={index} className="border border-gray-200 rounded-lg p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <input
+                      type="text"
+                      value={pair.key}
+                      onChange={(e) => updateBehaviorPair(index, 'key', e.target.value)}
+                      className="flex-1 mr-2 p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="행동 요소명 (예: 동작, 반응, ...)"
+                    />
+                    {behaviorPairs.length > 1 && (
+                      <button
+                        onClick={() => removeBehaviorPair(index)}
+                        className="p-2 text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                        type="button"
+                      >
+                        <span className="text-lg">×</span>
+                      </button>
+                    )}
+                  </div>
+                  <textarea
+                    value={pair.value}
+                    onChange={(e) => updateBehaviorPair(index, 'value', e.target.value)}
+                    className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    rows={3}
+                    placeholder={`${pair.key || '행동 요소'}에 대한 설명을 입력하세요...`}
+                  />
+                </div>
+              ))}
             </div>
 
-            {/* Structure */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Structure
-              </label>
-              <textarea
-                value={formData.structure}
-                onChange={(e) =>
-                  onFormDataChange({
-                    ...formData,
-                    structure: e.target.value,
-                  })
-                }
-                className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                rows={4}
-                placeholder="아이디어의 구조를 설명하세요..."
-              />
+            {/* Structure 필드 (Key-Value) */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <label className="block text-sm font-medium text-gray-700">Structure</label>
+                <button
+                  onClick={addStructurePair}
+                  className="px-3 py-1 text-sm bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors"
+                  type="button"
+                >
+                  + 구조 요소 추가
+                </button>
+              </div>
+              
+              {structurePairs.map((pair, index) => (
+                <div key={index} className="border border-gray-200 rounded-lg p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <input
+                      type="text"
+                      value={pair.key}
+                      onChange={(e) => updateStructurePair(index, 'key', e.target.value)}
+                      className="flex-1 mr-2 p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="구조 요소명 (예: 형태, 배치, ...)"
+                    />
+                    {structurePairs.length > 1 && (
+                      <button
+                        onClick={() => removeStructurePair(index)}
+                        className="p-2 text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                        type="button"
+                      >
+                        <span className="text-lg">×</span>
+                      </button>
+                    )}
+                  </div>
+                  <textarea
+                    value={pair.value}
+                    onChange={(e) => updateStructurePair(index, 'value', e.target.value)}
+                    className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    rows={3}
+                    placeholder={`${pair.key || '구조 요소'}에 대한 설명을 입력하세요...`}
+                  />
+                </div>
+              ))}
             </div>
 
             {/* 액션 버튼 */}

@@ -359,12 +359,11 @@ export default function IdeaDetailModal({
 
                 {/* 아이디어 제목 */}
                 <div className="mb-6">
-                  <label className="text-sm font-medium text-gray-500 mb-2 block">
-                    OBJECT
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Object
                   </label>
                   {isEditMode ? (
-                    <input
-                      type="text"
+                    <textarea
                       value={editFormData.object}
                       onChange={(e) =>
                         setEditFormData({
@@ -372,7 +371,9 @@ export default function IdeaDetailModal({
                           object: e.target.value,
                         })
                       }
-                      className="w-full text-xl font-bold text-gray-900 border border-gray-300 rounded-lg px-3 py-2"
+                      className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      rows={3}
+                      placeholder="아이디어의 대상이나 객체에 대해 설명하세요..."
                     />
                   ) : (
                     <h1 className="text-2xl font-bold text-gray-900">
@@ -383,8 +384,8 @@ export default function IdeaDetailModal({
 
                 {/* 기능 설명 */}
                 <div className="mb-6">
-                  <label className="text-sm font-medium text-gray-500 mb-2 block">
-                    FUNCTION
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Function
                   </label>
                   {isEditMode ? (
                     <textarea
@@ -395,8 +396,9 @@ export default function IdeaDetailModal({
                           function: e.target.value,
                         })
                       }
+                      className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       rows={3}
-                      className="w-full text-gray-700 border border-gray-300 rounded-lg px-3 py-2 resize-none"
+                      placeholder="아이디어의 기능이나 목적에 대해 설명하세요..."
                     />
                   ) : (
                     <p className="text-gray-700 leading-relaxed">
@@ -407,124 +409,148 @@ export default function IdeaDetailModal({
 
                 {/* 동작 방식 */}
                 <div className="mb-6">
-                  <label className="text-sm font-medium text-gray-500 mb-2 block">
-                    BEHAVIOR
-                  </label>
                   {isEditMode ? (
-                    <div className="space-y-2">
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-sm font-medium text-gray-700">Behavior</label>
+                        <button
+                          onClick={() =>
+                            setBehaviorPairs([
+                              ...behaviorPairs,
+                              { key: "", value: "" },
+                            ])
+                          }
+                          className="px-3 py-1 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+                          type="button"
+                        >
+                          + 행동 요소 추가
+                        </button>
+                      </div>
+                      
                       {behaviorPairs.map((pair, index) => (
-                        <div key={index} className="flex gap-2">
-                          <input
-                            type="text"
-                            value={pair.key}
-                            onChange={(e) => {
-                              const newPairs = [...behaviorPairs];
-                              newPairs[index].key = e.target.value;
-                              setBehaviorPairs(newPairs);
-                            }}
-                            placeholder="속성"
-                            className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
-                          />
-                          <input
-                            type="text"
+                        <div key={index} className="border border-gray-200 rounded-lg p-4 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <input
+                              type="text"
+                              value={pair.key}
+                              onChange={(e) => {
+                                const newPairs = [...behaviorPairs];
+                                newPairs[index].key = e.target.value;
+                                setBehaviorPairs(newPairs);
+                              }}
+                              className="flex-1 mr-2 p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              placeholder="행동 요소명 (예: 동작, 반응, ...)"
+                            />
+                            {behaviorPairs.length > 1 && (
+                              <button
+                                onClick={() => {
+                                  setBehaviorPairs(
+                                    behaviorPairs.filter((_, i) => i !== index)
+                                  );
+                                }}
+                                className="p-2 text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                                type="button"
+                              >
+                                <span className="text-lg">×</span>
+                              </button>
+                            )}
+                          </div>
+                          <textarea
                             value={pair.value}
                             onChange={(e) => {
                               const newPairs = [...behaviorPairs];
                               newPairs[index].value = e.target.value;
                               setBehaviorPairs(newPairs);
                             }}
-                            placeholder="값"
-                            className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
+                            className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            rows={3}
+                            placeholder={`${pair.key || '행동 요소'}에 대한 설명을 입력하세요...`}
                           />
-                          <button
-                            onClick={() => {
-                              setBehaviorPairs(
-                                behaviorPairs.filter((_, i) => i !== index)
-                              );
-                            }}
-                            className="text-red-500 hover:text-red-700 px-2"
-                          >
-                            ×
-                          </button>
                         </div>
                       ))}
-                      <button
-                        onClick={() =>
-                          setBehaviorPairs([
-                            ...behaviorPairs,
-                            { key: "", value: "" },
-                          ])
-                        }
-                        className="text-blue-600 hover:text-blue-800 text-sm"
-                      >
-                        + 항목 추가
-                      </button>
                     </div>
                   ) : (
-                    <div className="text-gray-700 leading-relaxed">
-                      {renderSafeData(idea.content.behavior)}
+                    <div>
+                      <label className="text-sm font-medium text-gray-500 mb-2 block">
+                        BEHAVIOR
+                      </label>
+                      <div className="text-gray-700 leading-relaxed">
+                        {renderSafeData(idea.content.behavior)}
+                      </div>
                     </div>
                   )}
                 </div>
 
                 {/* 구조 */}
                 <div className="mb-6">
-                  <label className="text-sm font-medium text-gray-500 mb-2 block">
-                    STRUCTURE
-                  </label>
                   {isEditMode ? (
-                    <div className="space-y-2">
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-sm font-medium text-gray-700">Structure</label>
+                        <button
+                          onClick={() =>
+                            setStructurePairs([
+                              ...structurePairs,
+                              { key: "", value: "" },
+                            ])
+                          }
+                          className="px-3 py-1 text-sm bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors"
+                          type="button"
+                        >
+                          + 구조 요소 추가
+                        </button>
+                      </div>
+                      
                       {structurePairs.map((pair, index) => (
-                        <div key={index} className="flex gap-2">
-                          <input
-                            type="text"
-                            value={pair.key}
-                            onChange={(e) => {
-                              const newPairs = [...structurePairs];
-                              newPairs[index].key = e.target.value;
-                              setStructurePairs(newPairs);
-                            }}
-                            placeholder="요소"
-                            className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
-                          />
-                          <input
-                            type="text"
+                        <div key={index} className="border border-gray-200 rounded-lg p-4 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <input
+                              type="text"
+                              value={pair.key}
+                              onChange={(e) => {
+                                const newPairs = [...structurePairs];
+                                newPairs[index].key = e.target.value;
+                                setStructurePairs(newPairs);
+                              }}
+                              className="flex-1 mr-2 p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              placeholder="구조 요소명 (예: 형태, 배치, ...)"
+                            />
+                            {structurePairs.length > 1 && (
+                              <button
+                                onClick={() => {
+                                  setStructurePairs(
+                                    structurePairs.filter((_, i) => i !== index)
+                                  );
+                                }}
+                                className="p-2 text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                                type="button"
+                              >
+                                <span className="text-lg">×</span>
+                              </button>
+                            )}
+                          </div>
+                          <textarea
                             value={pair.value}
                             onChange={(e) => {
                               const newPairs = [...structurePairs];
                               newPairs[index].value = e.target.value;
                               setStructurePairs(newPairs);
                             }}
-                            placeholder="설명"
-                            className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
+                            className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            rows={3}
+                            placeholder={`${pair.key || '구조 요소'}에 대한 설명을 입력하세요...`}
                           />
-                          <button
-                            onClick={() => {
-                              setStructurePairs(
-                                structurePairs.filter((_, i) => i !== index)
-                              );
-                            }}
-                            className="text-red-500 hover:text-red-700 px-2"
-                          >
-                            ×
-                          </button>
                         </div>
                       ))}
-                      <button
-                        onClick={() =>
-                          setStructurePairs([
-                            ...structurePairs,
-                            { key: "", value: "" },
-                          ])
-                        }
-                        className="text-blue-600 hover:text-blue-800 text-sm"
-                      >
-                        + 항목 추가
-                      </button>
                     </div>
                   ) : (
-                    <div className="text-gray-700 leading-relaxed">
-                      {renderSafeData(idea.content.structure)}
+                    <div>
+                      <label className="text-sm font-medium text-gray-500 mb-2 block">
+                        STRUCTURE
+                      </label>
+                      <div className="text-gray-700 leading-relaxed">
+                        {renderSafeData(idea.content.structure)}
+                      </div>
                     </div>
                   )}
                 </div>

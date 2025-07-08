@@ -121,7 +121,6 @@ export default function FeedbackSessionModal({
       if (response.ok) {
         const data = await response.json();
         setSession(data.session);
-        console.log("✅ 피드백 세션 생성 완료:", data.session.id);
       } else {
         const errorData = await response.json();
         console.error("❌ 피드백 세션 생성 실패:", errorData.error);
@@ -157,7 +156,6 @@ export default function FeedbackSessionModal({
             ) {
               setAiGenerating(false);
               setSessionEnded(true);
-              console.log("✅ 피드백 세션이 AI에 의해 종료됨");
             }
           }
         }
@@ -226,7 +224,6 @@ export default function FeedbackSessionModal({
               setSession(aiData.session);
 
               if (aiData.sessionEnded) {
-                console.log("AI가 세션을 종료했습니다");
                 setAiGenerating(false);
                 setSessionEnded(true);
 

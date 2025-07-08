@@ -13,14 +13,17 @@ export interface AIAgent {
   name: string;
   age?: number;
   gender?: "여자" | "남자" | "정의하지 않음" | "알 수 없음";
+  nationality?: string;
+  major?: string;
   education?: "고졸" | "대졸" | "석사" | "박사" | "기타";
-  professional: string;
+  professional?: string; // 선택 필드로 변경
   skills: string;
-  personality?: string;
+  personality: string; // 필수 필드로 변경
   value?: string;
-  workStyle?: string;
-  preferences?: string;
-  dislikes?: string;
+  workStyle: string; // 필수 필드로 변경
+  preferences: string; // 필수 필드로 변경
+  dislikes: string; // 필수 필드로 변경
+  personaSummary?: string; // GPT-4o로 생성된 개인 페르소나 요약
   createdAt: Date;
   updatedAt: Date;
   userId: string;
@@ -36,6 +39,7 @@ export interface Team {
   nodePositions?: { [key: string]: { x: number; y: number } }; // 관계 그래프 노드 위치
   topic?: string; // 아이디에이션 주제
   sharedMentalModel?: string; // 공유 멘탈 모델
+  teamSummary?: string; // GPT-4o로 생성된 팀원 종합 요약
   createdAt: Date;
 }
 
@@ -45,6 +49,22 @@ export interface TeamMember {
   roles: AgentRole[];
   isLeader: boolean;
   isUser: boolean;
+  userProfile?: { // 사용자 프로필 정보 (isUser가 true인 경우)
+    name: string;
+    age?: number;
+    gender?: "여자" | "남자" | "정의하지 않음" | "알 수 없음";
+    nationality?: string;
+    major?: string;
+    education?: "고졸" | "대졸" | "석사" | "박사" | "기타";
+    professional?: string; // 선택 필드로 변경
+    skills: string;
+    personality: string; // 필수 필드로 변경
+    value?: string;
+    workStyle: string; // 필수 필드로 변경
+    preferences: string; // 필수 필드로 변경
+    dislikes: string; // 필수 필드로 변경
+    personaSummary?: string;
+  };
 }
 
 // 에이전트 역할 타입
@@ -97,14 +117,16 @@ export interface TeamMemberSlot {
     name: string;
     age?: number;
     gender?: "여자" | "남자" | "정의하지 않음" | "알 수 없음";
+    nationality?: string;
+    major?: string;
     education?: "고졸" | "대졸" | "석사" | "박사" | "기타";
-    professional: string;
+    professional?: string; // 선택 필드로 변경
     skills: string;
-    personality?: string;
+    personality: string; // 필수 필드로 변경
     value?: string;
-    workStyle?: string;
-    preferences?: string;
-    dislikes?: string;
+    workStyle: string; // 필수 필드로 변경
+    preferences: string; // 필수 필드로 변경
+    dislikes: string; // 필수 필드로 변경
   };
 }
 
@@ -124,6 +146,8 @@ export interface CreateAgentData {
   name: string;
   age: number;
   gender: "여자" | "남자" | "정의하지 않음" | "알 수 없음";
+  nationality?: string;
+  major?: string;
   education?: "고졸" | "대졸" | "석사" | "박사" | "기타";
   professional: string;
   skills: string;

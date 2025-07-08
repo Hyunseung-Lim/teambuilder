@@ -46,7 +46,23 @@ export class Agent {
     if (this.team) {
       for (const member of this.team.members) {
         if (member.isUser) {
-          // TODO: Add user info to relation memory
+          const userName = member.userProfile?.name || "나";
+          relations["나"] = {
+            agentInfo: {
+              id: "나",
+              name: userName,
+              professional: member.userProfile?.professional || "Unknown",
+              personality: member.userProfile?.personality || "Collaborative",
+              skills: member.userProfile?.skills || "General",
+            },
+            relationship:
+              this.team.relationships.find(
+                (r) =>
+                  r.from === this.agentInfo.name && r.to === "나"
+              )?.type || "PEER",
+            interactionHistory: [],
+            myOpinion: "A collaborative team member.",
+          };
         } else if (member.agentId && member.agentId !== this.agentInfo.id) {
           const fellowAgent = await getAgentById(member.agentId);
           if (fellowAgent) {

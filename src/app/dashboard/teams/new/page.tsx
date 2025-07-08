@@ -76,6 +76,21 @@ const SKILL_OPTIONS = [
   "프레젠테이션"
 ];
 
+const MAJOR_OPTIONS = [
+  "컴퓨터공학",
+  "산업디자인",
+  "경영학",
+  "심리학",
+  "마케팅학",
+  "시각디자인",
+  "정보시스템",
+  "통계학",
+  "언론정보학",
+  "UI/UX디자인",
+  "그래픽디자인",
+  "제품디자인"
+];
+
 export default function NewTeamPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -210,10 +225,10 @@ export default function NewTeamPage() {
       setTopic(template.topic || "");
       setTeamSize(template.members.length);
       setSharedMentalModel(template.sharedMentalModel || "");
-      setRelationships(template.relationships || []);
 
-      // 팀원 슬롯 복사
+      // 팀원 슬롯 복사 및 ID 매핑 생성
       const templateSlots: TeamMemberSlot[] = [];
+      const memberIdMapping: { [oldId: string]: string } = {}; // 원본 ID -> 새 ID 매핑
       
       for (const member of template.members) {
         if (member.isUser) {
@@ -222,25 +237,57 @@ export default function NewTeamPage() {
             roles: member.roles,
             isLeader: member.isLeader,
             isUser: true,
+            agent: member.userProfile ? { ...member.userProfile } : undefined, // 사용자 프로필 정보 복사
           });
+          // 사용자의 경우 원본에서도 "나"였을 가능성이 높지만 안전하게 매핑
+          memberIdMapping[member.agentId || "나"] = "나";
         } else {
           // AI 멤버의 경우 해당 에이전트 정보 찾기
           const agent = existingAgents.find(a => a.id === member.agentId);
           const letters = ["A", "B", "C", "D", "E"];
           const aiMemberIndex = templateSlots.filter(s => !s.isUser).length;
+          const newId = letters[aiMemberIndex];
           
           templateSlots.push({
-            id: letters[aiMemberIndex],
+            id: newId,
             roles: member.roles,
             isLeader: member.isLeader,
             isUser: false,
             agent: agent ? { ...agent } : undefined,
             agentId: agent?.id || null,
           });
+          
+          // ID 매핑 저장 (agentId와 기존 관계에서 사용된 식별자들을 모두 매핑)
+          if (member.agentId) {
+            memberIdMapping[member.agentId] = newId;
+          }
+          // 기존 관계에서 사용된 다른 식별자들도 매핑 (예: 에이전트 이름 등)
+          if (agent) {
+            memberIdMapping[agent.name] = newId;
+            memberIdMapping[`${agent.name}봇`] = newId;
+          }
         }
       }
       
+      // 관계 데이터 매핑 업데이트
+      const mappedRelationships = (template.relationships || []).map(rel => ({
+        ...rel,
+        from: memberIdMapping[rel.from] || rel.from,
+        to: memberIdMapping[rel.to] || rel.to,
+      }));
+      
+      // 노드 위치 매핑 업데이트
+      const mappedNodePositions: { [key: string]: { x: number; y: number } } = {};
+      if (template.nodePositions) {
+        Object.entries(template.nodePositions).forEach(([oldId, position]) => {
+          const newId = memberIdMapping[oldId] || oldId;
+          mappedNodePositions[newId] = position;
+        });
+      }
+      
       setMemberSlots(templateSlots);
+      setRelationships(mappedRelationships);
+      setNodePositions(mappedNodePositions);
       setStep(1); // 팀 정보 단계로 이동
     } catch (error) {
       setError("템플릿 적용에 실패했습니다.");
@@ -328,13 +375,10 @@ export default function NewTeamPage() {
         roles: member.roles,
         isLeader: member.isLeader,
         isUser: member.isUser,
+        userProfile: member.isUser ? member.agent : undefined, // 사용자 프로필 정보 포함
       }));
 
       // 4. 팀 생성 액션 호출
-      console.log("=== 팀 저장 전 데이터 구조 확인 ===");
-      console.log("relationships:", JSON.stringify(relationships, null, 2));
-      console.log("nodePositions:", JSON.stringify(nodePositions, null, 2));
-      console.log("teamMembers:", JSON.stringify(teamMembers, null, 2));
 
       const teamFormData = new FormData();
       teamFormData.append("teamName", teamName.trim());
@@ -392,17 +436,9 @@ export default function NewTeamPage() {
   };
 
   const removeRelationship = (from: string, to: string) => {
-    // member.id를 agentId 또는 "나"로 변환 (일관성 유지)
-    const fromMember = memberSlots.find((m) => m.id === from);
-    const toMember = memberSlots.find((m) => m.id === to);
-
-    const fromId = fromMember?.isUser
-      ? "나"
-      : fromMember?.agentId || from;
-    const toId = toMember?.isUser ? "나" : toMember?.agentId || to;
-
+    // 관계 데이터에서 직접 전달받은 ID를 사용 (템플릿에서 온 관계는 이미 올바른 형태)
     setRelationships((prev) =>
-      prev.filter((rel) => !(rel.from === fromId && rel.to === toId))
+      prev.filter((rel) => !(rel.from === from && rel.to === to))
     );
   };
 
@@ -720,12 +756,12 @@ export default function NewTeamPage() {
           <CardContent className="space-y-8">
             {/* 팀 관계 네트워크 미리보기 */}
             {relationships.length > 0 && (
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900 mb-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-2">
+                <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900 mb-2 px-2">
                   <Users className="h-5 w-5 text-blue-600" />
                   설정된 팀 관계
                 </h3>
-                <div className="scale-75 origin-top">
+                <div className="scale-90 origin-top">
                   <RelationshipGraph
                     members={memberSlots}
                     relationships={relationships}
@@ -920,12 +956,12 @@ export default function NewTeamPage() {
             <CardContent>
               {/* 팀 관계 네트워크 미리보기 */}
               {relationships.length > 0 && (
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
-                  <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900 mb-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-2 mb-6">
+                  <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900 mb-2 px-2">
                     <Users className="h-5 w-5 text-blue-600" />
                     설정된 팀 관계
                   </h3>
-                  <div className="scale-75 origin-top">
+                  <div className="scale-90 origin-top">
                     <RelationshipGraph
                       members={memberSlots}
                       relationships={relationships}
@@ -1406,17 +1442,22 @@ function UserInfoForm({
     name: initialData?.name || "",
     age: initialData?.age?.toString() || "",
     gender: initialData?.gender || "",
+    nationality: initialData?.nationality || "",
+    major: initialData?.major || "",
     education: initialData?.education || "",
     professional: initialData?.professional || "",
     skills: initialData?.skills || "",
     personality: initialData?.personality || "",
     workStyle: initialData?.workStyle || "",
-    preferences: initialData?.preferences || initialData?.designStyle || "",
+    preferences: initialData?.preferences || "",
     dislikes: initialData?.dislikes || "",
   });
 
   const [isCustomProfessional, setIsCustomProfessional] = useState(
     initialData?.professional ? !PROFESSION_OPTIONS.includes(initialData.professional) : false
+  );
+  const [isCustomMajor, setIsCustomMajor] = useState(
+    initialData?.major ? !MAJOR_OPTIONS.includes(initialData.major) : false
   );
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [customSkills, setCustomSkills] = useState<string[]>([]);
@@ -1430,6 +1471,8 @@ function UserInfoForm({
         name: initialData.name || "",
         age: initialData.age?.toString() || "",
         gender: initialData.gender || "",
+        nationality: initialData.nationality || "",
+        major: initialData.major || "",
         education: initialData.education || "",
         professional: initialData.professional || "",
         skills: initialData.skills || "",
@@ -1499,6 +1542,8 @@ function UserInfoForm({
       name: formData.name,
       age: formData.age ? parseInt(formData.age) : undefined,
       gender: genderValue,
+      nationality: formData.nationality || undefined,
+      major: formData.major || undefined,
       education: formData.education as
         | "고졸"
         | "대졸"
@@ -1587,6 +1632,57 @@ function UserInfoForm({
             <option value="정의하지 않음">정의하지 않음</option>
             <option value="알 수 없음">알 수 없음</option>
           </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="user-nationality">국적</Label>
+          <Input
+            id="user-nationality"
+            value={formData.nationality}
+            onChange={(e) =>
+              setFormData((prev) => ({ ...prev, nationality: e.target.value }))
+            }
+            placeholder="예: 한국, 미국, 일본"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="user-major">전공</Label>
+          <div className="space-y-2">
+            <Select
+              id="user-major"
+              value={isCustomMajor ? "직접입력" : formData.major}
+              onChange={(e) => {
+                if (e.target.value === "직접입력") {
+                  setIsCustomMajor(true);
+                  setFormData((prev) => ({ ...prev, major: "" }));
+                } else {
+                  setIsCustomMajor(false);
+                  setFormData((prev) => ({ ...prev, major: e.target.value }));
+                }
+              }}
+            >
+              <option value="">선택해주세요</option>
+              {MAJOR_OPTIONS.map((major) => (
+                <option key={major} value={major}>
+                  {major}
+                </option>
+              ))}
+              <option value="직접입력">직접 입력</option>
+            </Select>
+            {isCustomMajor && (
+              <Input
+                id="user-major-custom"
+                value={formData.major}
+                onChange={(e) =>
+                  setFormData((prev) => ({ ...prev, major: e.target.value }))
+                }
+                placeholder="전공을 직접 입력해주세요"
+                autoFocus
+              />
+            )}
+          </div>
         </div>
         <div className="space-y-2">
           <Label htmlFor="user-education">교육 수준</Label>
@@ -1824,6 +1920,8 @@ function AgentCreateForm({
     name: "",
     age: "",
     gender: "",
+    nationality: "",
+    major: "",
     education: "",
     professional: "",
     skills: "",
@@ -1834,6 +1932,7 @@ function AgentCreateForm({
   });
 
   const [isCustomProfessional, setIsCustomProfessional] = useState(false);
+  const [isCustomMajor, setIsCustomMajor] = useState(false);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [customSkills, setCustomSkills] = useState<string[]>([]);
   const [newSkillInput, setNewSkillInput] = useState("");
@@ -1846,6 +1945,8 @@ function AgentCreateForm({
         name: initialData.name || "",
         age: initialData.age?.toString() || "",
         gender: initialData.gender || "",
+        nationality: initialData.nationality || "",
+        major: initialData.major || "",
         education: initialData.education || "",
         professional: initialData.professional || "",
         skills: initialData.skills || "",
@@ -1855,6 +1956,7 @@ function AgentCreateForm({
         dislikes: initialData.dislikes || "",
       });
       setIsCustomProfessional(initialData.professional ? !PROFESSION_OPTIONS.includes(initialData.professional) : false);
+      setIsCustomMajor(initialData.major ? !MAJOR_OPTIONS.includes(initialData.major) : false);
       
       // 기존 스킬 파싱
       if (initialData.skills) {
@@ -1873,6 +1975,8 @@ function AgentCreateForm({
         name: "",
         age: "",
         gender: "",
+        nationality: "",
+        major: "",
         education: "",
         professional: "",
         skills: "",
@@ -1882,6 +1986,7 @@ function AgentCreateForm({
         dislikes: "",
       });
       setIsCustomProfessional(false);
+      setIsCustomMajor(false);
       setSelectedSkills([]);
       setCustomSkills([]);
       setNewSkillInput("");
@@ -1939,6 +2044,8 @@ function AgentCreateForm({
       name: formData.name,
       age: formData.age ? parseInt(formData.age) : undefined,
       gender: genderValue,
+      nationality: formData.nationality || undefined,
+      major: formData.major || undefined,
       education: formData.education as
         | "고졸"
         | "대졸"
@@ -2027,6 +2134,57 @@ function AgentCreateForm({
             <option value="정의하지 않음">정의하지 않음</option>
             <option value="알 수 없음">알 수 없음</option>
           </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`nationality-${memberKey}`}>국적</Label>
+          <Input
+            id={`nationality-${memberKey}`}
+            value={formData.nationality}
+            onChange={(e) =>
+              setFormData((prev) => ({ ...prev, nationality: e.target.value }))
+            }
+            placeholder="예: 한국, 미국, 일본"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor={`major-${memberKey}`}>전공</Label>
+          <div className="space-y-2">
+            <Select
+              id={`major-${memberKey}`}
+              value={isCustomMajor ? "직접입력" : formData.major}
+              onChange={(e) => {
+                if (e.target.value === "직접입력") {
+                  setIsCustomMajor(true);
+                  setFormData((prev) => ({ ...prev, major: "" }));
+                } else {
+                  setIsCustomMajor(false);
+                  setFormData((prev) => ({ ...prev, major: e.target.value }));
+                }
+              }}
+            >
+              <option value="">선택해주세요</option>
+              {MAJOR_OPTIONS.map((major) => (
+                <option key={major} value={major}>
+                  {major}
+                </option>
+              ))}
+              <option value="직접입력">직접 입력</option>
+            </Select>
+            {isCustomMajor && (
+              <Input
+                id={`major-custom-${memberKey}`}
+                value={formData.major}
+                onChange={(e) =>
+                  setFormData((prev) => ({ ...prev, major: e.target.value }))
+                }
+                placeholder="전공을 직접 입력해주세요"
+                autoFocus
+              />
+            )}
+          </div>
         </div>
         <div className="space-y-2">
           <Label htmlFor={`education-${memberKey}`}>교육 수준</Label>

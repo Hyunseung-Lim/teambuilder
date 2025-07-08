@@ -555,15 +555,6 @@ export default function ChatArea({
                               const closestIdea = authorIdeas[0];
 
                               if (closestIdea) {
-                                console.log(
-                                  "🎯 메시지 시간 기준 가장 가까운 아이디어 찾음:",
-                                  {
-                                    messageTime: message.timestamp,
-                                    ideaTime: closestIdea.timestamp,
-                                    timeDiff:
-                                      closestIdea.timeDiff / 1000 + "초 차이",
-                                  }
-                                );
 
                                 // 아이디어 모달 열기
                                 const ideaIndex = ideas.findIndex(
@@ -573,9 +564,7 @@ export default function ChatArea({
                                   onIdeaClick(closestIdea, ideaIndex);
                                 }
                               } else {
-                                console.log(
-                                  "❌ 해당 작성자의 아이디어를 찾을 수 없음"
-                                );
+                                // 아이디어를 찾을 수 없음
                               }
                             }}
                           >
@@ -645,19 +634,6 @@ export default function ChatArea({
                               const closestEvaluatedIdea = evaluatedIdeas[0];
 
                               if (closestEvaluatedIdea) {
-                                console.log(
-                                  "🎯 평가 메시지 시간 기준 가장 가까운 평가된 아이디어 찾음:",
-                                  {
-                                    messageTime: message.timestamp,
-                                    evaluationTime:
-                                      closestEvaluatedIdea.evaluationTime,
-                                    timeDiff:
-                                      closestEvaluatedIdea.timeDiff / 1000 +
-                                      "초 차이",
-                                    ideaTitle:
-                                      closestEvaluatedIdea.content.object,
-                                  }
-                                );
 
                                 // 아이디어 모달 열기
                                 const ideaIndex = ideas.findIndex(
@@ -667,9 +643,7 @@ export default function ChatArea({
                                   onIdeaClick(closestEvaluatedIdea, ideaIndex);
                                 }
                               } else {
-                                console.log(
-                                  "❌ 해당 평가자가 평가한 아이디어를 찾을 수 없음"
-                                );
+                                // 평가한 아이디어를 찾을 수 없음
                               }
                             }}
                           >

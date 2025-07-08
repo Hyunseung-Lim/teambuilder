@@ -5,12 +5,14 @@ interface MiniRelationshipNetworkProps {
   team: Team;
   agents: AIAgent[];
   className?: string;
+  useOriginalLayout?: boolean;
 }
 
 export default function MiniRelationshipNetwork({
   team,
   agents,
   className = "",
+  useOriginalLayout = false,
 }: MiniRelationshipNetworkProps) {
   // Helper function to get agent name by ID
   const getAgentName = (agentId: string) => {
@@ -30,21 +32,13 @@ export default function MiniRelationshipNetwork({
       isLeader: member.isLeader,
     };
     
-    console.log("노드 생성:", node);
     return node;
   });
-  
-  console.log("전체 노드:", nodes);
 
   // Create edges from relationships - using the same logic as review page
   const edges: any[] = [];
   
-  console.log("=== MiniRelationshipNetwork 관계 분석 ===");
-  console.log("팀 ID:", team.id);
-  console.log("팀 관계 데이터:", JSON.stringify(team.relationships, null, 2));
-  console.log("팀 멤버 데이터:", JSON.stringify(team.members, null, 2));
-  console.log("에이전트 데이터:", JSON.stringify(agents.map(a => ({id: a.id, name: a.name})), null, 2));
-  
+
   if (team.relationships && team.relationships.length > 0) {
     team.relationships.forEach((relationship) => {
       // Skip NULL relationships
@@ -56,8 +50,6 @@ export default function MiniRelationshipNetwork({
       let fromId = relationship.from;
       let toId = relationship.to;
       
-      console.log("관계 처리 중:", relationship);
-      console.log("fromId:", fromId, "toId:", toId);
       
       // from과 to가 agentId인 경우 그대로 사용, A,B,C,D인 경우 매핑 필요
       if (fromId !== "나") {
@@ -65,17 +57,20 @@ export default function MiniRelationshipNetwork({
         const directMatch = team.members.find(m => !m.isUser && m.agentId === fromId);
         if (directMatch) {
           fromId = directMatch.agentId!;
-          console.log("fromId 직접 매핑 완료:", fromId);
         } else {
-          // A, B, C, D 같은 임시 ID인 경우 에이전트 이름으로 매핑 시도
-          const nameMatch = team.members.find(m => 
-            !m.isUser && getAgentName(m.agentId || "") === fromId
-          );
-          if (nameMatch) {
-            fromId = nameMatch.agentId!;
-            console.log("fromId 이름 매핑 완료:", fromId);
+          // A, B, C, D 같은 임시 ID인 경우 팀 멤버 순서로 매핑
+          const memberIndex = fromId.charCodeAt(0) - 65; // A=0, B=1, C=2, D=3
+          const nonUserMembers = team.members.filter(m => !m.isUser);
+          if (memberIndex >= 0 && memberIndex < nonUserMembers.length) {
+            fromId = nonUserMembers[memberIndex].agentId!;
           } else {
-            console.log("fromMember 찾지 못함:", fromId);
+            // 에이전트 이름으로 매핑 시도 (백업)
+            const nameMatch = team.members.find(m => 
+              !m.isUser && getAgentName(m.agentId || "") === fromId
+            );
+            if (nameMatch) {
+              fromId = nameMatch.agentId!;
+            }
           }
         }
       }
@@ -85,17 +80,20 @@ export default function MiniRelationshipNetwork({
         const directMatch = team.members.find(m => !m.isUser && m.agentId === toId);
         if (directMatch) {
           toId = directMatch.agentId!;
-          console.log("toId 직접 매핑 완료:", toId);
         } else {
-          // A, B, C, D 같은 임시 ID인 경우 에이전트 이름으로 매핑 시도
-          const nameMatch = team.members.find(m => 
-            !m.isUser && getAgentName(m.agentId || "") === toId
-          );
-          if (nameMatch) {
-            toId = nameMatch.agentId!;
-            console.log("toId 이름 매핑 완료:", toId);
+          // A, B, C, D 같은 임시 ID인 경우 팀 멤버 순서로 매핑
+          const memberIndex = toId.charCodeAt(0) - 65; // A=0, B=1, C=2, D=3
+          const nonUserMembers = team.members.filter(m => !m.isUser);
+          if (memberIndex >= 0 && memberIndex < nonUserMembers.length) {
+            toId = nonUserMembers[memberIndex].agentId!;
           } else {
-            console.log("toMember 찾지 못함:", toId);
+            // 에이전트 이름으로 매핑 시도 (백업)
+            const nameMatch = team.members.find(m => 
+              !m.isUser && getAgentName(m.agentId || "") === toId
+            );
+            if (nameMatch) {
+              toId = nameMatch.agentId!;
+            }
           }
         }
       }
@@ -104,7 +102,6 @@ export default function MiniRelationshipNetwork({
       const fromNode = nodes.find(n => n.id === fromId);
       const toNode = nodes.find(n => n.id === toId);
       
-      console.log("fromNode:", fromNode, "toNode:", toNode);
       
       if (fromNode && toNode) {
         const edge = {
@@ -112,50 +109,104 @@ export default function MiniRelationshipNetwork({
           to: toId,
           type: relationship.type,
           color: RELATIONSHIP_TYPES[relationship.type]?.color || "#9ca3af",
-          isHierarchical: relationship.type === "SUPERVISOR",
+          isHierarchical: relationship.type === "SUPERVISOR" || relationship.type === "SUPERIOR_SUBORDINATE",
         };
-        console.log("엣지 추가:", edge);
         edges.push(edge);
-      } else {
-        console.log("노드를 찾지 못해 엣지 추가 실패");
       }
     });
   }
 
   // Position nodes in a small circle
-  const centerX = 75;
-  const centerY = 50;
-  const radius = 45;
+  const centerX = 95;
+  const centerY = 75;
+  const radius = 60;
   
-  const positionedNodes = nodes.map((node, index) => {
-    // Use saved positions if available, otherwise use circular layout
-    let x, y;
+  // 첫 번째 패스: 원본 위치 수집
+  const originalPositions = [];
+  
+  nodes.forEach((node, index) => {
+    let positionFound = false;
+    let originalX, originalY;
+    
     if (team.nodePositions && team.nodePositions[node.id]) {
-      // Scale down the saved positions to fit the mini view
-      x = team.nodePositions[node.id].x * 0.3;
-      y = team.nodePositions[node.id].y * 0.25;
-    } else {
-      // Fallback to circular layout
-      const angle = (index * 2 * Math.PI) / nodes.length - Math.PI / 2;
-      x = centerX + radius * Math.cos(angle);
-      y = centerY + radius * Math.sin(angle);
+      originalX = team.nodePositions[node.id].x;
+      originalY = team.nodePositions[node.id].y;
+      positionFound = true;
+    } else if (team.nodePositions) {
+      // agentId가 아닌 A, B, C, D 형태로 저장된 경우 확인
+      const nonUserMembers = team.members.filter(m => !m.isUser);
+      const memberIndex = nonUserMembers.findIndex(m => m.agentId === node.id);
+      
+      if (memberIndex >= 0) {
+        const tempKey = String.fromCharCode(65 + memberIndex);
+        if (team.nodePositions[tempKey]) {
+          originalX = team.nodePositions[tempKey].x;
+          originalY = team.nodePositions[tempKey].y;
+          positionFound = true;
+        }
+      }
     }
     
-    return { ...node, x, y };
+    if (positionFound && !useOriginalLayout) {
+      originalPositions.push({ node, x: originalX, y: originalY });
+    } else {
+      // 기본 원형 배치 (원형 배치 모드이거나 저장된 위치가 없는 경우)
+      const angle = (index * 2 * Math.PI) / nodes.length - Math.PI / 2;
+      originalPositions.push({ 
+        node, 
+        x: centerX + radius * Math.cos(angle), 
+        y: centerY + radius * Math.sin(angle) 
+      });
+    }
   });
+  
+  // 미니뷰 정규화 (리뷰 페이지와 동일한 로직을 미니뷰에 적용)
+  if (originalPositions.length > 0) {
+    const minX = Math.min(...originalPositions.map(p => p.x));
+    const maxX = Math.max(...originalPositions.map(p => p.x));
+    const minY = Math.min(...originalPositions.map(p => p.y));
+    const maxY = Math.max(...originalPositions.map(p => p.y));
+    
+    const originalWidth = maxX - minX;
+    const originalHeight = maxY - minY;
+    
+    // 미니뷰 목표 영역 (노드 이름 표시 공간 고려)
+    const targetWidth = 170; // 190 - 20
+    const targetHeight = 135; // 160 - 25 (하단 이름 공간 확보)
+    
+    // 스케일 계산
+    const scaleX = originalWidth > 0 ? targetWidth / originalWidth : 1;
+    const scaleY = originalHeight > 0 ? targetHeight / originalHeight : 1;
+    const scale = Math.min(scaleX, scaleY, 1);
+    
+    // 정규화된 위치 적용
+    originalPositions.forEach(({node, x, y}) => {
+      const scaledX = (x - minX) * scale;
+      const scaledY = (y - minY) * scale;
+      
+      // 미니뷰 중앙 배치
+      node.x = scaledX + (190 - originalWidth * scale) / 2;
+      node.y = scaledY + (160 - originalHeight * scale) / 2;
+      
+      // 경계 체크 (하단에 이름 공간 확보)
+      node.x = Math.max(10, Math.min(180, node.x));
+      node.y = Math.max(15, Math.min(135, node.y));
+    });
+  }
+  
+  const positionedNodes = originalPositions.map(({node}) => node);
 
   return (
-    <div className={`bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 ${className}`}>
-      <h3 className="text-xs font-medium text-gray-700 mb-2">팀 관계 네트워크</h3>
-      <svg width="150" height="100" className="mx-auto">
+    <div className={`bg-gray-50 border border-gray-200 rounded-lg px-3 py-4 mb-4 ${className}`}>
+      <svg width="190" height="160" className="mx-auto">
         <defs>
           <marker
             id="mini-arrow"
             viewBox="0 0 10 10"
             refX="8"
             refY="5"
-            markerWidth="4"
-            markerHeight="4"
+            markerWidth="6"
+            markerHeight="6"
             orient="auto-start-reverse"
           >
             <path d="M 0 0 L 10 5 L 0 10 z" fill="#374151" />
@@ -179,10 +230,10 @@ export default function MiniRelationshipNetwork({
           const unitY = dy / length;
           const nodeRadius = 8;
           
-          const startX = fromNode.x + unitX * nodeRadius;
-          const startY = fromNode.y + unitY * nodeRadius;
-          const endX = toNode.x - unitX * (nodeRadius + (edge.isHierarchical ? 3 : 0));
-          const endY = toNode.y - unitY * (nodeRadius + (edge.isHierarchical ? 3 : 0));
+          const startX = fromNode.x + unitX * (nodeRadius + 2);
+          const startY = fromNode.y + unitY * (nodeRadius + 2);
+          const endX = toNode.x - unitX * (nodeRadius + (edge.isHierarchical ? 6 : 3));
+          const endY = toNode.y - unitY * (nodeRadius + (edge.isHierarchical ? 6 : 3));
 
           return (
             <g key={index}>

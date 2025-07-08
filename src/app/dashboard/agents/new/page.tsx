@@ -82,29 +82,80 @@ export default function NewAgentPage() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="gender">성별 *</Label>
-              <Select
-                id="gender"
-                name="gender"
-                placeholder="성별을 선택해주세요"
-                required
-                disabled={isLoading}
-              >
-                <option value="여자">여자</option>
-                <option value="남자">남자</option>
-                <option value="정의하지 않음">정의하지 않음</option>
-                <option value="알 수 없음">알 수 없음</option>
-              </Select>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="gender">성별 *</Label>
+                <Select
+                  id="gender"
+                  name="gender"
+                  placeholder="성별을 선택해주세요"
+                  required
+                  disabled={isLoading}
+                >
+                  <option value="여자">여자</option>
+                  <option value="남자">남자</option>
+                  <option value="정의하지 않음">정의하지 않음</option>
+                  <option value="알 수 없음">알 수 없음</option>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="nationality">국적</Label>
+                <Input
+                  id="nationality"
+                  name="nationality"
+                  placeholder="예: 한국, 미국, 일본"
+                  disabled={isLoading}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="major">전공</Label>
+                <Select
+                  id="major"
+                  name="major"
+                  placeholder="전공을 선택해주세요"
+                  disabled={isLoading}
+                >
+                  <option value="">선택해주세요</option>
+                  <option value="컴퓨터공학">컴퓨터공학</option>
+                  <option value="산업디자인">산업디자인</option>
+                  <option value="경영학">경영학</option>
+                  <option value="심리학">심리학</option>
+                  <option value="마케팅학">마케팅학</option>
+                  <option value="시각디자인">시각디자인</option>
+                  <option value="정보시스템">정보시스템</option>
+                  <option value="통계학">통계학</option>
+                  <option value="언론정보학">언론정보학</option>
+                  <option value="인문학">인문학</option>
+                  <option value="직접입력">직접 입력</option>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="education">교육 수준</Label>
+                <Select
+                  id="education"
+                  name="education"
+                  placeholder="교육 수준을 선택해주세요"
+                  disabled={isLoading}
+                >
+                  <option value="">선택해주세요</option>
+                  <option value="고졸">고졸</option>
+                  <option value="대졸">대졸</option>
+                  <option value="석사">석사</option>
+                  <option value="박사">박사</option>
+                  <option value="기타">기타</option>
+                </Select>
+              </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="professional">직업/전문성 *</Label>
+              <Label htmlFor="professional">직업/전문성</Label>
               <Input
                 id="professional"
                 name="professional"
                 placeholder="예: UX/UI 디자이너, 프론트엔드 개발자, 프로덕트 매니저"
-                required
                 disabled={isLoading}
               />
             </div>
@@ -122,11 +173,12 @@ export default function NewAgentPage() {
 
 
             <div className="space-y-2">
-              <Label htmlFor="personality">성격</Label>
+              <Label htmlFor="personality">성격 *</Label>
               <Textarea
                 id="personality"
                 name="personality"
                 placeholder="예: 창의적이고 도전적인 성격. 새로운 아이디어를 제안하는 것을 좋아하며, 팀워크를 중시합니다."
+                required
                 disabled={isLoading}
               />
             </div>
@@ -142,31 +194,34 @@ export default function NewAgentPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="workStyle">업무 방식(스타일)</Label>
+              <Label htmlFor="workStyle">업무 방식(스타일) *</Label>
               <Textarea
                 id="workStyle"
                 name="workStyle"
                 placeholder="예: 체계적이고 계획적인 업무 방식을 선호함"
+                required
                 disabled={isLoading}
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="preferences">선호하는 것</Label>
+              <Label htmlFor="preferences">선호하는 것 *</Label>
               <Textarea
                 id="preferences"
                 name="preferences"
                 placeholder="예: 미니멀하면서도 감각적인 디자인, 협업적인 환경"
+                required
                 disabled={isLoading}
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="dislikes">싫어하는 것</Label>
+              <Label htmlFor="dislikes">싫어하는 것 *</Label>
               <Textarea
                 id="dislikes"
                 name="dislikes"
                 placeholder="예: 지나치게 복잡한 인터페이스, 비효율적인 프로세스"
+                required
                 disabled={isLoading}
               />
             </div>

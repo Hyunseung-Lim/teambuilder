@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { User, Crown, Users } from "lucide-react";
+import { User, Crown, Users, Network } from "lucide-react";
 import { Team, AIAgent, RELATIONSHIP_TYPES } from "@/lib/types";
 import { AgentStateInfo } from "../hooks/useAgentStates";
 import AgentStateIndicator from "./AgentStateIndicator";
@@ -12,6 +12,8 @@ interface TeamMembersListProps {
   timers: Map<string, number>;
   onAgentClick: (agentId: string) => void;
   isConnected?: boolean;
+  useOriginalLayout?: boolean;
+  onToggleLayout?: (useOriginal: boolean) => void;
 }
 
 export default function TeamMembersList({
@@ -21,6 +23,8 @@ export default function TeamMembersList({
   timers,
   onAgentClick,
   isConnected = true,
+  useOriginalLayout = false,
+  onToggleLayout,
 }: TeamMembersListProps) {
   const [hoveredMember, setHoveredMember] = useState<string | null>(null);
 
@@ -37,7 +41,19 @@ export default function TeamMembersList({
       </div>
       
       {/* Mini Relationship Network */}
-      <MiniRelationshipNetwork team={team} agents={agents} />
+      <div className="relative">
+        <MiniRelationshipNetwork team={team} agents={agents} useOriginalLayout={useOriginalLayout} />
+        {onToggleLayout && (
+          <button
+            onClick={() => onToggleLayout(!useOriginalLayout)}
+            className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+            title={useOriginalLayout ? "설정된 위치로 전환" : "원형 배치로 전환"}
+          >
+            <Network className="h-3 w-3" />
+            {useOriginalLayout ? "설정 위치" : "원형 배치"}
+          </button>
+        )}
+      </div>
       
       <div className="space-y-2">
         {team.members.map((member, index) => {
