@@ -18,6 +18,7 @@ import {
   generateAgentPersonaSummaryPrompt,
 } from "@/core/prompts";
 import { AgentMemory } from "@/lib/types";
+import { resolveMultipleAgentIds } from "@/lib/member-utils";
 import OpenAI from "openai";
 
 if (!process.env.OPENAI_API_KEY) {
@@ -33,12 +34,54 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+/**
+ * 팀원들의 역할을 분석하여 가능한 요청 타입을 결정합니다.
+ */
+function analyzeAvailableRequestTypes(teamMembers: Array<{
+  name: string;
+  roles: string[];
+  isUser: boolean;
+  agentId?: string;
+}>) {
+  const requestTypeToRole = {
+    "generate_idea": "아이디어 생성하기",
+    "evaluate_idea": "아이디어 평가하기", 
+    "give_feedback": "피드백하기"
+  };
+  
+  const availableTypes: string[] = [];
+  const membersByRequestType: Record<string, any[]> = {
+    "generate_idea": [],
+    "evaluate_idea": [],
+    "give_feedback": []
+  };
+  
+  // 각 요청 타입별로 수행 가능한 팀원들을 찾음
+  Object.entries(requestTypeToRole).forEach(([requestType, requiredRole]) => {
+    const capableMembers = teamMembers.filter(member => 
+      member.roles.includes(requiredRole)
+    );
+    
+    if (capableMembers.length > 0) {
+      availableTypes.push(requestType);
+      membersByRequestType[requestType] = capableMembers;
+    }
+  });
+  
+  return {
+    availableTypes,
+    membersByRequestType,
+    totalCapableMembers: teamMembers.filter(member => 
+      member.roles.some(role => Object.values(requestTypeToRole).includes(role))
+    )
+  };
+}
+
 export async function getJsonResponse(prompt: string, agentProfile?: any) {
   const messages = [];
 
   // 시스템 프롬프트로 AI 에이전트 데모그래픽 정보 추가
   if (agentProfile) {
-    // console.log("원본 agentProfile:", JSON.stringify(agentProfile, null, 2));
 
     // 필드명 매핑 (professional -> occupation)
     const occupation =
@@ -92,7 +135,6 @@ export async function getJsonResponse(prompt: string, agentProfile?: any) {
       .trim();
 
     const parsedResponse = JSON.parse(cleanedResponse);
-    // console.log("파싱된 JSON 응답:", JSON.stringify(parsedResponse, null, 2));
     return parsedResponse;
   } catch (error) {
     console.error("LLM 응답 처리 오류:", error);
@@ -365,24 +407,74 @@ export async function giveFeedback(
   allIdeas?: any[],
   feedbackStrategy?: any
 ) {
-  console.log("🎯 giveFeedback 함수 실행 - 입력 매개변수:");
-  console.log("- targetMember:", targetMember);
-  console.log("- targetMemberIdeas:", targetMemberIdeas);
-  console.log("- userProfile:", userProfile);
-  console.log("- teamContext:", teamContext);
-  console.log("- memory:", memory);
-  console.log("- targetMemberRoles:", targetMemberRoles);
+  console.log(`🎯 giveFeedback: ${userProfile?.name} → ${targetMember} (ideas: ${targetMemberIdeas?.length || 0})`);
 
+  // preFeedback 실행 (전략 수립)
+  console.log("📋 preFeedback 단계 시작");
+  const { preFeedbackPrompt } = await import("@/core/prompts");
+  const preFeedbackPromptText = preFeedbackPrompt(
+    targetMember,
+    targetMemberIdeas,
+    memory,
+    userProfile
+  );
+  
+  let preFeedbackResult;
+  try {
+    preFeedbackResult = await getJsonResponse(preFeedbackPromptText, userProfile);
+    console.log("📊 preFeedback 완료:", preFeedbackResult?.feedbackType || "unknown");
+  } catch (error) {
+    console.error("❌ preFeedback 실행 실패:", error);
+    preFeedbackResult = feedbackStrategy || { hasIdeas: targetMemberIdeas.length > 0, feedbackFocus: "general", feedbackApproach: "supportive" };
+  }
+
+  console.log("📋 === feedbackPrompt 단계 시작 ===");
+  
+  // Resolve agent names in team context before calling feedbackPrompt
+  let enhancedTeamContext = teamContext;
+  if (teamContext && (teamContext.teamMembers || teamContext.relationships)) {
+    // Collect all agent IDs that need resolution
+    const agentIds = new Set<string>();
+    
+    // From team members
+    teamContext.teamMembers?.forEach((member: any) => {
+      if (!member.isUser && member.agentId) {
+        agentIds.add(member.agentId);
+      }
+    });
+    
+    // From relationships
+    teamContext.relationships?.forEach((rel: any) => {
+      if (rel.from !== "나") agentIds.add(rel.from);
+      if (rel.to !== "나") agentIds.add(rel.to);
+    });
+    
+    // From ideas authors
+    allIdeas?.forEach((idea: any) => {
+      if (idea.author !== "나") agentIds.add(idea.author);
+    });
+    
+    // Resolve all agent names
+    const agentNameMap = await resolveMultipleAgentIds(Array.from(agentIds));
+    
+    // Enhance team context with resolved names
+    enhancedTeamContext = {
+      ...teamContext,
+      agentNameMap, // Add the name mapping for use in feedbackPrompt
+    };
+  }
+  
   const { agentContext, mainPrompt } = feedbackPrompt(
     targetMember,
     targetMemberIdeas,
-    teamContext,
+    enhancedTeamContext,
     userProfile,
     memory,
     targetMemberRoles,
     allIdeas,
-    feedbackStrategy
+    preFeedbackResult
   );
+  
 
 
   const messages = [];
@@ -478,7 +570,7 @@ export async function planNextAction(
         (member: any) => !member.isUser && member.agentId !== userProfile.id
       );
       
-      console.log(`👥 피드백 대상 후보 (${otherMembers.length}명):`, otherMembers.map(m => ({ agentId: m.agentId, name: m.name })));
+      console.log(`👥 피드백 대상 후보 (${otherMembers.length}명):`, otherMembers.map((m: any) => ({ agentId: m.agentId, name: m.name })));
       console.log(`📊 팀 관계 정보 (${team.relationships.length}개):`, team.relationships);
       
       for (const member of otherMembers) {
@@ -493,11 +585,25 @@ export async function planNextAction(
       console.log(`📋 ${userProfile.name} 피드백 계획 결과: ${canGiveFeedback ? '✅ 가능' : '❌ 불가능'}`);
     }
 
+    // 팀 관계 정보를 위한 agentNameMap 생성
+    let agentNameMap: { [agentId: string]: string } = {};
+    if (team?.members) {
+      const agentIds = team.members
+        .filter((m: any) => !m.isUser && m.agentId)
+        .map((m: any) => m.agentId);
+      
+      if (agentIds.length > 0) {
+        agentNameMap = await resolveMultipleAgentIds(agentIds);
+      }
+    }
+
     // 더 많은 메시지 컨텍스트를 위해 최근 15개 메시지 전달
     const extendedTeamContext = {
       ...teamContext,
       recentMessages: teamContext.recentMessages.slice(-15), // 더 많은 히스토리 제공
       canGiveFeedback, // 피드백 가능 여부 추가
+      relationships: team?.relationships || [], // 팀 관계 정보 추가
+      agentNameMap, // agent ID를 이름으로 매핑
     };
 
     const { agentContext, mainPrompt } = planningPrompt(userProfile, extendedTeamContext, memory);
@@ -789,6 +895,18 @@ export async function preRequestAction(
     }
   }
   
+  // 역할 기반으로 가능한 요청 타입 결정 및 팀원 추가 필터링
+  const roleBasedRequests = analyzeAvailableRequestTypes(filteredTeamMembers);
+  console.log(`🎭 역할 기반 분석 결과:`, roleBasedRequests);
+  
+  if (roleBasedRequests.availableTypes.length === 0) {
+    console.log(`❌ ${userProfile.name} 요청 가능한 역할을 가진 팀원이 없음`);
+    return {
+      success: false,
+      error: "No team members have roles that can handle any request types"
+    };
+  }
+  
   const prompt = preRequestPrompt(
     triggerContext,
     filteredTeamMembers,
@@ -895,6 +1013,25 @@ export async function makeRequestAction(
     throw new Error(`Target member ${requestAnalysis.targetMember} not found`);
   }
 
+  // 역할 검증: 선택된 요청 타입이 대상 팀원이 수행할 수 있는지 확인
+  const requestTypeToRole = {
+    "generate_idea": "아이디어 생성하기",
+    "evaluate_idea": "아이디어 평가하기", 
+    "give_feedback": "피드백하기"
+  };
+  
+  const requiredRole = requestTypeToRole[requestAnalysis.requestType as keyof typeof requestTypeToRole];
+  const canPerformRequest = targetMemberInfo.roles.includes(requiredRole);
+  
+  if (!canPerformRequest) {
+    console.log(`❌ 역할 검증 실패: ${requestAnalysis.targetMember} (역할: ${targetMemberInfo.roles.join(', ')})는 ${requestAnalysis.requestType} 수행 불가 (필요 역할: ${requiredRole})`);
+    return {
+      success: false,
+      error: `Target member ${requestAnalysis.targetMember} cannot perform ${requestAnalysis.requestType}. Required role: ${requiredRole}, but they have: ${targetMemberInfo.roles.join(', ')}`
+    };
+  }
+  
+  console.log(`✅ 역할 검증 성공: ${requestAnalysis.targetMember}는 ${requestAnalysis.requestType} 수행 가능 (보유 역할: ${targetMemberInfo.roles.join(', ')})`);
 
   // 관계 검증: 요청은 관계가 있는 팀원에게만 가능
   if (team && userProfile) {
@@ -960,6 +1097,10 @@ export async function generateFeedbackSessionResponse(
     teamIdeas?: any[];
     targetMemberRoles?: string[];
     targetMemberIdeas?: any[];
+    team?: any;
+    teamContext?: any;
+    teamTopic?: string;
+    allIdeas?: any[];
   },
   agentMemory?: any
 ): Promise<{
@@ -1017,6 +1158,45 @@ export async function generateFeedbackSessionResponse(
         timestamp: msg.timestamp
       }));
 
+    // Resolve agent names in team context before calling responsePrompt
+    let enhancedTeamContext = sessionContext.teamContext || { 
+      topic: sessionContext.teamTopic, 
+      teamMembers: sessionContext.team?.members, 
+      relationships: sessionContext.team?.relationships 
+    };
+    
+    if (enhancedTeamContext.teamMembers || enhancedTeamContext.relationships) {
+      // Collect all agent IDs that need resolution
+      const agentIds = new Set<string>();
+      
+      // From team members
+      enhancedTeamContext.teamMembers?.forEach((member: any) => {
+        if (!member.isUser && member.agentId) {
+          agentIds.add(member.agentId);
+        }
+      });
+      
+      // From relationships
+      enhancedTeamContext.relationships?.forEach((rel: any) => {
+        if (rel.from !== "나") agentIds.add(rel.from);
+        if (rel.to !== "나") agentIds.add(rel.to);
+      });
+      
+      // From ideas authors
+      sessionContext.allIdeas?.forEach((idea: any) => {
+        if (idea.author !== "나") agentIds.add(idea.author);
+      });
+      
+      // Resolve all agent names
+      const agentNameMap = await resolveMultipleAgentIds(Array.from(agentIds));
+      
+      // Enhance team context with resolved names
+      enhancedTeamContext = {
+        ...enhancedTeamContext,
+        agentNameMap, // Add the name mapping for use in responsePrompt
+      };
+    }
+
     // Get prompt components from prompts.ts
     const { agentContext, mainPrompt } = responsePrompt(
       formattedMessageHistory,
@@ -1024,16 +1204,11 @@ export async function generateFeedbackSessionResponse(
       agent,
       agentMemory,
       sessionContext.targetMemberRoles,
-      sessionContext.targetMemberIdeas
+      sessionContext.targetMemberIdeas,
+      enhancedTeamContext,
+      sessionContext.allIdeas
     );
 
-    // 피드백 응답 생성시 프롬프트 전체 출력
-    console.log("📝 피드백 응답 생성 프롬프트:");
-    console.log("=== SYSTEM MESSAGE (agentContext) ===");
-    console.log(agentContext);
-    console.log("=== USER MESSAGE (mainPrompt) ===");
-    console.log(mainPrompt);
-    console.log("================================================");
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -1174,92 +1349,6 @@ export async function generateFeedbackSessionSummary(
   }
 }
 
-// 피드백 전략 결정 함수 - AI가 모든 정보를 고려해서 피드백 대상과 방식을 결정
-export async function planFeedbackStrategy(
-  agentProfile: any,
-  _teamContext: {
-    teamName: string;
-    topic: string;
-    teamMembers: Array<{
-      id: string;
-      name: string;
-      isUser: boolean;
-      roles: string[];
-      isAvailable: boolean; // 피드백 세션 중이지 않은지
-    }>;
-    existingIdeas: Array<{
-      ideaNumber: number;
-      authorId: string;
-      authorName: string;
-      object: string;
-      function: string;
-      behavior: string;
-      structure: string;
-      timestamp: string;
-      evaluations: any[];
-    }>;
-    recentMessages: any[];
-  },
-  memory?: AgentMemory
-): Promise<{
-  targetMember: {
-    id: string;
-    name: string;
-    isUser: boolean;
-  };
-  feedbackType:
-    | "general_collaboration"
-    | "specific_idea"
-    | "skill_development"
-    | "team_dynamics";
-  targetIdea?: {
-    ideaNumber: number;
-    authorId: string;
-    object: string;
-  };
-  feedbackMessage: string;
-  reasoning: string;
-}> {
-
-
-  const prompt = preFeedbackPrompt(
-    "target team member", // targetMemberName - we'll determine this
-    [], // targetMemberIdeas - we'll determine this
-    memory,
-    agentProfile
-  );
-
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      {
-        role: "system",
-        content: `You are an AI agent planning feedback strategy. Respond only with valid JSON.`,
-      },
-      {
-        role: "user",
-        content: prompt,
-      },
-    ],
-  });
-
-  const rawResponse = completion.choices[0]?.message?.content;
-  if (!rawResponse) {
-    throw new Error("OpenAI returned an empty response.");
-  }
-
-  // JSON 마크다운 블록 제거
-  const cleanedResponse = rawResponse
-    .replace(/```json\n?|```/g, "")
-    .trim();
-
-  try {
-    return JSON.parse(cleanedResponse);
-  } catch (error) {
-    console.error("Failed to parse feedback strategy response:", error);
-    throw new Error("Invalid JSON response from OpenAI");
-  }
-}
 
 // Team members summary generation function
 export async function generateTeamMembersSummary(

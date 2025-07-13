@@ -294,7 +294,29 @@ async function updateKnowledgeAndActionPlan(
 
     if (parsed.knowledge) {
       // console.log(`📚 Knowledge 업데이트 전:`, memory.longTerm.knowledge?.substring(0, 100) + "...");
-      memory.longTerm.knowledge = parsed.knowledge;
+      
+      // 기존 knowledge에 새로운 내용 추가 (덮어쓰기 대신)
+      if (memory.longTerm.knowledge) {
+        // 중복 방지를 위해 새로운 지식이 기존 지식과 다른 경우에만 추가
+        const newKnowledge = parsed.knowledge.trim();
+        if (!memory.longTerm.knowledge.includes(newKnowledge)) {
+          const updatedKnowledge = memory.longTerm.knowledge + "\n\n" + newKnowledge;
+          
+          // Knowledge 길이 제한 (2500자 초과 시 앞부분 제거)
+          if (updatedKnowledge.length > 2500) {
+            const lines = updatedKnowledge.split('\n\n');
+            // 마지막 몇 개 섹션만 유지
+            const keptLines = lines.slice(-3); // 최신 3개 섹션 유지
+            memory.longTerm.knowledge = keptLines.join('\n\n');
+            console.log(`📚 Knowledge 길이 제한으로 이전 내용 일부 제거 (agentId: ${agentId})`);
+          } else {
+            memory.longTerm.knowledge = updatedKnowledge;
+          }
+        }
+      } else {
+        memory.longTerm.knowledge = parsed.knowledge;
+      }
+      
       // console.log(`📚 Knowledge 업데이트 후:`, memory.longTerm.knowledge?.substring(0, 100) + "...");
     }
 

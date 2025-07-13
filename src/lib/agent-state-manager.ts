@@ -97,12 +97,12 @@ export async function updateAgentStateTimer(
             console.warn(
               `⚠️ ${state.agentId} 고아 피드백 세션 상태로 5분 초과 - 강제 idle 전환`
             );
-            state = resetToIdleState(state);
+            state = await resetToIdleState(teamId, state);
           }
         }
       } else {
         console.warn(`⚠️ ${state.agentId} 작업 시간 초과, 강제 idle 전환`);
-        state = resetToIdleState(state);
+        state = await resetToIdleState(teamId, state);
       }
     }
   }
@@ -265,7 +265,7 @@ async function handlePlanningFailure(
         return;
       }
 
-      const newState = resetToIdleState(failedState);
+      const newState = await resetToIdleState(teamId, failedState);
       await setAgentState(teamId, agentId, newState);
       console.log(`✅ 에이전트 ${agentId} 계획 실패 후 idle 복구 완료`);
     }
@@ -312,7 +312,7 @@ async function handleActionExecutionFailure(
         return;
       }
 
-      const newState = resetToIdleState(failedState);
+      const newState = await resetToIdleState(teamId, failedState);
       await setAgentState(teamId, agentId, newState);
       console.log(`✅ 에이전트 ${agentId} 액션 실행 실패 후 idle 복구 완료`);
     }
@@ -335,15 +335,37 @@ async function handleActionExecutionFailure(
   }
 }
 
-// idle 상태로 초기화
-function resetToIdleState(state: AgentStateInfo): AgentStateInfo {
-  return {
+// idle 상태로 초기화 (큐 확인 포함)
+async function resetToIdleState(teamId: string, state: AgentStateInfo): Promise<AgentStateInfo> {
+  const idleState = {
     ...state,
-    currentState: "idle",
+    currentState: "idle" as const,
     lastStateChange: new Date().toISOString(),
     isProcessing: false,
     idleTimer: createNewIdleTimer(),
     currentTask: undefined,
     plannedAction: undefined,
   };
+  
+  // idle 상태로 전환 즉시 큐에서 대기 중인 요청 확인
+  console.log(`🔍 ${state.agentId} idle 전환 시 큐 즉시 확인`);
+  
+  try {
+    const { processQueuedRequest } = await import("@/lib/agent-background-processor");
+    const hasQueuedRequest = await processQueuedRequest(teamId, state.agentId);
+    
+    if (hasQueuedRequest) {
+      console.log(`📋 ${state.agentId} 큐에서 요청 발견 → 즉시 처리`);
+      // 큐에서 요청을 처리했으면 현재 상태를 다시 확인
+      const { getAgentState } = await import("@/lib/agent-state-utils");
+      const updatedState = await getAgentState(teamId, state.agentId);
+      return updatedState || idleState;
+    } else {
+      console.log(`💤 ${state.agentId} 큐 비어있음 → idle 상태 유지`);
+      return idleState;
+    }
+  } catch (error) {
+    console.error(`❌ ${state.agentId} 큐 확인 실패:`, error);
+    return idleState;
+  }
 }

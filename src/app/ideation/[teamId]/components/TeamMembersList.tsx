@@ -208,8 +208,8 @@ export default function TeamMembersList({
                                                   rel.from === memberSlotId || rel.from === `${agent.name}봇`;
                                 const isToAgent = rel.to === agent.id || rel.to === agent.name || 
                                                 rel.to === memberSlotId || rel.to === `${agent.name}봇`;
-                                // Filter out NULL relationships from UI display
-                                return (isFromAgent || isToAgent) && rel.type !== "NULL";
+                                // Filter out null relationships from UI display  
+                                return (isFromAgent || isToAgent) && rel.type;
                               });
                               
                               if (agentRelationships.length === 0) {

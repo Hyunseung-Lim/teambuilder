@@ -164,8 +164,8 @@ async function transitionToIdleIfNotInFeedbackSession(
   }
 }
 
-// 큐에서 대기 중인 요청 처리
-export async function processQueuedRequest(teamId: string, agentId: string) {
+// 큐에서 대기 중인 요청 처리 (요청이 있었는지 boolean 반환)
+export async function processQueuedRequest(teamId: string, agentId: string): Promise<boolean> {
   const queueKey = `agent_queue:${teamId}:${agentId}`;
   const queuedRequest = await redis.rpop(queueKey);
 
@@ -206,7 +206,7 @@ export async function processQueuedRequest(teamId: string, agentId: string) {
       // 백그라운드에서 요청 처리
       processRequestInBackground(teamId, agentId, requestData);
 
-      return actionState;
+      return true; // 요청을 처리했음을 반환
     } catch (parseError) {
       console.error(`❌ 에이전트 ${agentId} 큐 데이터 파싱 실패:`, parseError);
       console.error(`큐 데이터 상세:`, {
@@ -216,13 +216,13 @@ export async function processQueuedRequest(teamId: string, agentId: string) {
         isUndefined: queuedRequest === undefined,
       });
 
-      // 파싱 실패 시 기본 idle 상태로
-      return createIdleState(agentId);
+      // 파싱 실패 시 큐에 요청이 있었지만 처리하지 못함
+      return false;
     }
   }
 
-  // 큐가 비어있으면 idle 상태 반환
-  return createIdleState(agentId);
+  // 큐가 비어있으면 false 반환 (처리할 요청 없음)
+  return false;
 }
 
 // 액션 상태 생성
@@ -282,17 +282,6 @@ function createActionState(agentId: string, requestData: any) {
         requestMessage: requestData.payload?.message || "",
       },
     },
-  };
-}
-
-// idle 상태 생성
-function createIdleState(agentId: string) {
-  return {
-    agentId,
-    currentState: "idle" as const,
-    lastStateChange: new Date().toISOString(),
-    isProcessing: false,
-    idleTimer: createNewIdleTimer(),
   };
 }
 

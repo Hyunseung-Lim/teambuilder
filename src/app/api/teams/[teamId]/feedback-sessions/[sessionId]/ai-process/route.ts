@@ -117,9 +117,12 @@ export async function POST(
           targetMemberRoles = targetMember.roles || [];
         }
         
-        // 상대방의 아이디어 조회
+        // 상대방의 아이디어 조회 (ID와 이름 모두 확인)
         targetMemberIdeas = teamIdeas.filter(idea => 
-          idea.author === otherParticipant.name
+          idea.author === otherParticipant.name || 
+          idea.author === otherParticipant.id ||
+          idea.authorId === otherParticipant.id ||
+          idea.authorId === otherParticipant.name
         );
       }
 
@@ -134,6 +137,14 @@ export async function POST(
           teamIdeas,
           targetMemberRoles,
           targetMemberIdeas,
+          team,
+          teamContext: { 
+            topic: team?.topic, 
+            teamMembers: team?.members, 
+            relationships: team?.relationships 
+          },
+          teamTopic: team?.topic,
+          allIdeas: teamIdeas,
         },
         agentMemory
       );

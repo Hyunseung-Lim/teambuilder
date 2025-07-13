@@ -132,10 +132,31 @@ async function executeGenerateIdeaAction(
 
   const agentMemory = await getAgentMemory(agentId);
   
+  // 큐에서 대기 중인 요청 확인
+  const queueKey = `agent_queue:${teamId}:${agentId}`;
+  const queuedRequest = await redis.lindex(queueKey, -1); // 마지막 요청 확인 (제거하지 않음)
+  
+  let requestMessage = "자율적 아이디어 생성";
+  
+  if (queuedRequest) {
+    try {
+      const requestData = typeof queuedRequest === "string" ? JSON.parse(queuedRequest) : queuedRequest;
+      if (requestData?.type === "generate_idea" && requestData?.payload?.message) {
+        requestMessage = requestData.payload.message;
+        console.log(`📋 ${agentProfile.name} 큐에서 아이디어 생성 요청 발견: "${requestMessage}"`);
+        
+        // 사용된 요청은 큐에서 제거
+        await redis.rpop(queueKey);
+      }
+    } catch (error) {
+      console.error("❌ 큐 요청 파싱 실패:", error);
+    }
+  }
+  
   // Pre-stage: Analyze and develop strategy
   const { preIdeationAction } = await import("@/lib/openai");
   const preAnalysis = await preIdeationAction(
-    "자율적 아이디어 생성",
+    requestMessage,
     existingIdeas,
     agentProfile,
     agentMemory || undefined
@@ -314,8 +335,29 @@ async function executeEvaluateIdeaAction(
       function: idea.content.function
     }));
     
+    // 큐에서 대기 중인 평가 요청 확인
+    const queueKey = `agent_queue:${teamId}:${agentId}`;
+    const queuedRequest = await redis.lindex(queueKey, -1);
+    
+    let requestMessage = "자율적 아이디어 평가";
+    
+    if (queuedRequest) {
+      try {
+        const requestData = typeof queuedRequest === "string" ? JSON.parse(queuedRequest) : queuedRequest;
+        if (requestData?.type === "evaluate_idea" && requestData?.payload?.message) {
+          requestMessage = requestData.payload.message;
+          console.log(`📋 ${agentProfile.name} 큐에서 아이디어 평가 요청 발견: "${requestMessage}"`);
+          
+          // 사용된 요청은 큐에서 제거
+          await redis.rpop(queueKey);
+        }
+      } catch (error) {
+        console.error("❌ 큐 요청 파싱 실패:", error);
+      }
+    }
+    
     const preAnalysis = await preEvaluationAction(
-      "자율적 아이디어 평가",
+      requestMessage,
       allIdeas,
       agentProfile,
       memory || undefined
@@ -1111,17 +1153,46 @@ async function generateInitialFeedbackMessage(
   ideas: any[]
 ): Promise<string> {
   try {
-    // 다른 팀원들의 아이디어 찾기
-    const otherMembers = team?.members?.filter(
-      (member: any) => !member.isUser && member.agentId !== agentId
-    ) || [];
+    // 큐에서 대기 중인 피드백 요청 확인
+    const teamId = team.id;
+    const queueKey = `agent_queue:${teamId}:${agentId}`;
+    const queuedRequest = await redis.lindex(queueKey, -1);
     
-    if (otherMembers.length === 0) {
-      return `${agentProfile.name}이 팀 협업에 대한 피드백을 제공하고 싶어합니다.`;
+    let targetMember: any = null;
+    
+    if (queuedRequest) {
+      try {
+        const requestData = typeof queuedRequest === "string" ? JSON.parse(queuedRequest) : queuedRequest;
+        if (requestData?.type === "give_feedback" && requestData?.payload?.targetAgentId) {
+          // 요청에서 지정된 타겟으로 피드백
+          const specifiedTarget = team?.members?.find((m: any) => m.agentId === requestData.payload.targetAgentId);
+          if (specifiedTarget) {
+            targetMember = specifiedTarget;
+            console.log(`📋 ${agentProfile.name} 큐에서 피드백 요청 발견: ${requestData.payload.targetAgentId}에게 피드백`);
+            
+            // 사용된 요청은 큐에서 제거
+            await redis.rpop(queueKey);
+          }
+        }
+      } catch (error) {
+        console.error("❌ 큐 요청 파싱 실패:", error);
+      }
     }
+    
+    // 요청 기반이 아닌 경우 기존 랜덤 선택 로직 사용
+    if (!targetMember) {
+      const otherMembers = team?.members?.filter(
+        (member: any) => !member.isUser && member.agentId !== agentId
+      ) || [];
+      
+      if (otherMembers.length === 0) {
+        return `${agentProfile.name}이 팀 협업에 대한 피드백을 제공하고 싶어합니다.`;
+      }
 
-    // 랜덤하게 타겟 멤버 선택
-    const targetMember = otherMembers[Math.floor(Math.random() * otherMembers.length)];
+      // 랜덤하게 타겟 멤버 선택
+      targetMember = otherMembers[Math.floor(Math.random() * otherMembers.length)];
+    }
+    
     const targetAgent = await getAgentById(targetMember.agentId);
     const targetMemberName = targetAgent?.name || targetMember.name;
     
@@ -1147,7 +1218,7 @@ async function generateInitialFeedbackMessage(
           targetMemberName,
           targetMemberIdeas,
           agentProfile,
-          { topic: team.topic, teamMembers: team.members },
+          { topic: team.topic, teamMembers: team.members, relationships: team.relationships },
           agentMemory as any || undefined,
           targetMember.roles,
           allIdeas, // 전체 아이디어 리스트 전달

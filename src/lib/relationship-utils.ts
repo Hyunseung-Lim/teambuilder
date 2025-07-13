@@ -68,7 +68,7 @@ export function getRelationshipType(
 
   // 관계가 없는 경우
   console.log(`❌ 관계 없음: ${normalizedFromId} ↔ ${normalizedToId}`);
-  return "NULL";
+  return null;
 }
 
 /**
@@ -85,24 +85,15 @@ export function canCreateFeedbackSession(
   console.log(`📋 관계 타입: ${relationshipType}`);
   
   // 명시적 관계가 있는 경우 확인
-  if (relationshipType && relationshipType !== "NULL") {
+  if (relationshipType) {
     // 상사-부하 관계(양방향), 동료 관계는 피드백 세션 생성 가능
     const canCreate = relationshipType === "SUPERVISOR" || relationshipType === "SUBORDINATE" || relationshipType === "PEER";
     console.log(`${canCreate ? '✅' : '❌'} 피드백 세션 권한 (명시적 관계): ${relationshipType} → ${canCreate ? '가능' : '불가능'}`);
     return canCreate;
   }
 
-  // TEMPORARY FIX: 팀 내에서 기본적인 협업을 위해 모든 팀원 간 피드백 허용
-  // 단, 자기 자신에게는 피드백 불가 (이미 getRelationshipType에서 처리됨)
-  console.log(`⚠️ 임시 허용: 명시적 관계가 없지만 팀 협업을 위해 피드백 허용 (${relationshipType})`);
-  return true;
-
   // 명시적 관계가 없는 경우: 관계가 정의되지 않았으므로 피드백 불허용
-  // if (!relationshipType || relationshipType === "NULL") {
-  //   console.log(`❌ 피드백 세션 권한: 명시적 관계가 필요함 (${relationshipType})`);
-  //   return false;
-  // }
-
+  console.log(`❌ 피드백 세션 권한: 명시적 관계가 필요함 (관계 없음)`);
   return false;
 }
 
@@ -142,7 +133,7 @@ export function canMakeRequest(
   console.log(`📋 관계 타입 결과: ${relationshipType}`);
   
   // 명시적 관계가 있는 경우 확인
-  if (relationshipType && relationshipType !== "NULL") {
+  if (relationshipType) {
     // 상사-부하 관계(양방향), 동료 관계는 요청 가능
     const canRequest = relationshipType === "SUPERVISOR" || relationshipType === "SUBORDINATE" || relationshipType === "PEER";
     console.log(`${canRequest ? '✅' : '❌'} 요청 권한 (명시적 관계): ${relationshipType} → ${canRequest ? '가능' : '불가능'}`);
@@ -150,11 +141,7 @@ export function canMakeRequest(
   }
 
   // 명시적 관계가 없는 경우: 관계가 정의되지 않았으므로 요청 불허용
-  if (!relationshipType || relationshipType === "NULL") {
-    console.log(`❌ 요청 권한: 명시적 관계가 필요함 (${relationshipType})`);
-    return false;
-  }
-
+  console.log(`❌ 요청 권한: 명시적 관계가 필요함 (관계 없음)`);
   return false;
 }
 

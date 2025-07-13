@@ -812,8 +812,8 @@ export default function ReviewPage() {
       
       if (team.relationships && team.relationships.length > 0) {
         team.relationships.forEach((relationship) => {
-          // NULL 관계는 스킵
-          if (relationship.type === "NULL") {
+          // 관계가 없는 경우 스킵
+          if (!relationship.type) {
             return;
           }
           

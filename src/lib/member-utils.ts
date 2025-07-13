@@ -39,7 +39,7 @@ export function getMemberActualId(member: TeamMember): string {
  */
 export function getMemberDisplayName(member: TeamMember | TeamMemberSlot, agents?: AIAgent[]): string {
   if (member.isUser) {
-    return member.userProfile?.name || "나";
+    return (member as TeamMember).userProfile?.name || "나";
   }
   
   // AI 멤버의 경우 에이전트 이름 검색
@@ -72,12 +72,45 @@ export function mapActualIdToDisplayName(team: Team, actualId: string, agents?: 
 }
 
 /**
+ * 에이전트 ID를 실제 에이전트 이름으로 변환
+ */
+export async function resolveAgentIdToName(agentId: string): Promise<string> {
+  if (agentId === "나") {
+    return "나";
+  }
+  
+  try {
+    const { getAgentById } = await import("@/lib/redis");
+    const agent = await getAgentById(agentId);
+    return agent?.name || agentId;
+  } catch (error) {
+    console.warn(`Failed to resolve agent name for ID ${agentId}:`, error);
+    return agentId;
+  }
+}
+
+/**
+ * 여러 에이전트 ID들을 이름으로 변환하는 유틸리티
+ */
+export async function resolveMultipleAgentIds(agentIds: string[]): Promise<{ [agentId: string]: string }> {
+  const nameMap: { [agentId: string]: string } = {};
+  
+  await Promise.all(
+    agentIds.map(async (agentId) => {
+      nameMap[agentId] = await resolveAgentIdToName(agentId);
+    })
+  );
+  
+  return nameMap;
+}
+
+/**
  * 관계 생성을 위한 ID 매핑 헬퍼
  */
 export function createMemberIdMapping(teamMembers: any[]): { [slotId: string]: string } {
   const mapping: { [slotId: string]: string } = {};
   
-  teamMembers.forEach((member, index) => {
+  teamMembers.forEach((member) => {
     if (member.isUser) {
       mapping["나"] = "나";
       mapping[member.id] = "나"; // 슬롯 ID도 매핑

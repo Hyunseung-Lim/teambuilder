@@ -11,7 +11,6 @@ import {
 import {
   generateIdeaAction,
   evaluateIdeaAction,
-  planFeedbackStrategy,
   getJsonResponse,
 } from "@/lib/openai";
 import {
@@ -338,47 +337,67 @@ export async function handleGiveFeedbackRequestDirect(
       return;
     }
 
-    const feedbackStrategy = await planFeedbackStrategy(
+    // 사용자가 요청한 피드백이므로 preFeedbackPrompt에 요청 컨텍스트 전달
+    // 실제 사용자("나")의 아이디어를 가져오기
+    const userIdeas = feedbackContext.existingIdeas
+      .filter(idea => idea.authorId === "나")
+      .map(idea => ({
+        content: {
+          object: idea.object,
+          function: idea.function,
+          behavior: idea.behavior,
+          structure: idea.structure
+        }
+      }));
+
+    console.log(`🔍 사용자 아이디어 확인 (${userIdeas.length}개):`, 
+      userIdeas.map(idea => idea.content.object));
+
+    const { preFeedbackPrompt } = await import("@/core/prompts");
+    const preFeedbackPromptText = preFeedbackPrompt(
+      "나", // 기본적으로 사용자를 대상으로 설정
+      userIdeas, // 실제 사용자 아이디어 전달
+      feedbackContext.agentMemory,
       agentProfile,
       {
-        teamName: team.teamName || "팀",
-        topic: team.topic || "아이디에이션",
-        teamMembers: feedbackContext.availableMembers,
-        existingIdeas: feedbackContext.existingIdeas,
-        recentMessages: feedbackContext.recentMessages,
-        sharedMentalModel: team.sharedMentalModel,
-      },
-      {
+        isRequestBased: true,
         requesterName,
-        originalMessage:
-          requestData.payload?.message || "피드백을 요청했습니다.",
-      },
-      feedbackContext.agentMemory || undefined
+        requestMessage: requestData.payload?.message || "피드백을 요청했습니다.",
+        teamContext: {
+          teamName: team.teamName || "팀",
+          topic: team.topic || "아이디에이션",
+          availableMembers: feedbackContext.availableMembers,
+          existingIdeas: feedbackContext.existingIdeas,
+          recentMessages: feedbackContext.recentMessages,
+        }
+      }
     );
 
+    const feedbackStrategy = await getJsonResponse(preFeedbackPromptText, agentProfile);
+
     console.log(`🎯 ${agentProfile.name} 피드백 전략 결정 완료:`, {
-      target: feedbackStrategy.targetMember.name,
+      target: feedbackStrategy.targetMember?.name || "나",
       type: feedbackStrategy.feedbackType,
       reasoning: feedbackStrategy.reasoning,
     });
 
+    // 요청 기반 피드백에서는 targetMember가 사용자("나")이므로 적절히 처리
+    const targetMember = {
+      id: "나",
+      name: "나",
+      isUser: true
+    };
+
     // 피드백 전략 수립 후 대상이 현재 피드백 세션 중인지 재확인
-    const isTargetBusy = await isInActiveFeedbackSession(
-      feedbackStrategy.targetMember.id
-    );
+    const isTargetBusy = await isInActiveFeedbackSession(targetMember.id);
 
     if (isTargetBusy) {
       console.log(
-        `⚠️ ${feedbackStrategy.targetMember.name}이 현재 피드백 세션 중이므로 피드백 불가능`
+        `⚠️ ${targetMember.name}이 현재 피드백 세션 중이므로 피드백 불가능`
       );
 
-      // LLM으로 적절한 메시지 생성
-      const busyMessage = await generateBusyTargetMessage(
-        agentProfile,
-        feedbackStrategy.targetMember,
-        requestData.requesterName,
-        requestData.payload?.message || "피드백을 요청했습니다."
-      );
+      // 간단한 메시지 생성 (generateBusyTargetMessage 함수 대신)
+      const busyMessage = `${targetMember.name}는 현재 다른 피드백 세션에 참여 중입니다.`;
 
       await addChatMessage(teamId, {
         sender: agentId,
@@ -394,16 +413,25 @@ export async function handleGiveFeedbackRequestDirect(
         currentState: "idle",
         lastStateChange: new Date().toISOString(),
         isProcessing: false,
-        currentTask: null,
+        currentTask: undefined,
       });
 
       return;
     }
 
+    // executeFeedbackSession이 예상하는 형식으로 feedbackStrategy 변환
+    const adaptedFeedbackStrategy = {
+      targetMember,
+      feedbackType: feedbackStrategy.feedbackType || "general_collaboration",
+      reasoning: feedbackStrategy.reasoning || "요청 기반 피드백",
+      feedbackMessage: `${requesterName}의 요청에 따른 피드백을 제공합니다.`,
+      ...feedbackStrategy
+    };
+
     await executeFeedbackSession(
       teamId,
       agentId,
-      feedbackStrategy,
+      adaptedFeedbackStrategy,
       agentProfile,
       requestData
     );
@@ -520,15 +548,46 @@ async function performIdeaEvaluation(
     },
   });
 
-  const randomIdea =
-    unevaluatedIdeas[Math.floor(Math.random() * unevaluatedIdeas.length)];
-  console.log(
-    `📊 ${agentProfile.name} → ${randomIdea.content.object} 평가 시작`
-  );
+  // 1단계: 평가 전략 수립 (preEvaluationAction)
+  const ideas = await getIdeas(teamId);
+  const allIdeas = ideas.map((idea, index) => ({
+    ideaNumber: index + 1,
+    authorName: idea.author === "나" ? "나" : idea.author,
+    object: idea.content.object,
+    function: idea.content.function,
+    behavior: idea.content.behavior,
+    structure: idea.content.structure,
+  }));
 
+  const agentMemory = await getAgentMemory(agentId);
+  
   try {
+    // Pre-evaluation 단계: 어떤 아이디어를 어떻게 평가할지 전략 수립
+    const { preEvaluationAction } = await import("@/lib/openai");
+    const preAnalysis = await preEvaluationAction(
+      "사용자가 요청한 아이디어 평가", // 요청 메시지
+      allIdeas,
+      agentProfile,
+      agentMemory || undefined
+    );
+    
+    console.log(`📊 ${agentProfile.name} 평가 전략:`, preAnalysis);
+    
+    // 전략에 따라 특정 아이디어 선택하거나 랜덤 선택
+    const targetIdea = preAnalysis.targetIdeaNumber 
+      ? ideas.find((_, index) => index + 1 === preAnalysis.targetIdeaNumber)
+      : unevaluatedIdeas[Math.floor(Math.random() * unevaluatedIdeas.length)];
+    
+    if (!targetIdea) {
+      console.log(`⚠️ 평가할 아이디어를 찾을 수 없음`);
+      return;
+    }
+
+    console.log(`📊 ${agentProfile.name} → ${targetIdea.content.object} 평가 시작`);
+
+    // 2단계: 실제 평가 수행
     const evaluation = await evaluateIdeaAction(
-      randomIdea,
+      targetIdea,
       agentProfile.name,
       team
     );
@@ -536,7 +595,7 @@ async function performIdeaEvaluation(
     const response = await fetch(
       `${
         process.env.NEXTAUTH_URL || "http://localhost:3000"
-      }/api/teams/${teamId}/ideas/${randomIdea.id}/evaluate`,
+      }/api/teams/${teamId}/ideas/${targetIdea.id}/evaluate`,
       {
         method: "POST",
         headers: {
@@ -727,6 +786,37 @@ async function executeFeedbackSession(
   requestData: any
 ) {
   const targetMember = feedbackStrategy.targetMember;
+
+  // 🔒 관계 기반 피드백 세션 생성 권한 확인
+  const team = await getTeamById(teamId);
+  if (!team) {
+    console.error(`❌ 팀 ${teamId}를 찾을 수 없음`);
+    await addChatMessage(teamId, {
+      sender: agentId,
+      type: "system",
+      payload: {
+        content: `팀 정보를 찾을 수 없어 피드백 세션을 생성할 수 없습니다.`,
+      },
+    });
+    return;
+  }
+
+  const { canCreateFeedbackSession } = await import("@/lib/relationship-utils");
+  const hasRelationship = canCreateFeedbackSession(agentId, targetMember.id, team);
+  
+  if (!hasRelationship) {
+    console.log(`❌ ${agentProfile.name} → ${targetMember.name} 관계가 없어 피드백 세션 생성 불가`);
+    await addChatMessage(teamId, {
+      sender: agentId,
+      type: "system",
+      payload: {
+        content: `${targetMember.name}와 관계가 연결되지 않아 피드백 세션을 생성할 수 없습니다.`,
+      },
+    });
+    return;
+  }
+
+  console.log(`✅ ${agentProfile.name} → ${targetMember.name} 관계 기반 피드백 세션 권한 확인 완료`);
 
   // 락 키 생성
   const lockKey = `feedback_lock:${[agentId, targetMember.id]

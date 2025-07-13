@@ -22,12 +22,6 @@ export async function POST(
     const { action, initiatorId, targetAgentId, message, feedbackContext } =
       body;
 
-    console.log("피드백 세션 생성 요청:", {
-      teamId,
-      initiatorId,
-      targetAgentId,
-      feedbackContext,
-    });
 
     if (action === "create") {
       // 피드백 세션 생성
@@ -46,11 +40,6 @@ export async function POST(
         );
       }
 
-      console.log("🚀 피드백 세션 생성 요청:", {
-        initiatorId,
-        targetAgentId,
-        feedbackContext,
-      });
 
       // 🔒 관계 기반 피드백 세션 생성 권한 확인
       const team = await getTeamById(teamId);

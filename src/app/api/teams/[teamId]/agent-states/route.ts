@@ -287,26 +287,26 @@ export async function POST(
       console.log(`🔧 에이전트 ${agentId} 강제 idle 상태 초기화 - 큐 확인 포함`);
 
       // 강제 초기화이지만 큐는 여전히 확인해야 함
-      const queueCheckedState = await processQueuedRequest(teamId, agentId);
+      const hasQueuedRequest = await processQueuedRequest(teamId, agentId);
       
-      // 큐에 요청이 있었으면 그 상태를 사용, 없으면 idle 상태 설정
-      const finalState = queueCheckedState.currentState !== "idle" ? queueCheckedState : {
-        agentId,
-        currentState: "idle",
-        lastStateChange: new Date().toISOString(),
-        isProcessing: false,
-        idleTimer: createNewIdleTimer(),
-      };
+      if (!hasQueuedRequest) {
+        // 큐에 요청이 없으면 idle 상태로 설정
+        const idleState = {
+          agentId,
+          currentState: "idle" as const,
+          lastStateChange: new Date().toISOString(),
+          isProcessing: false,
+          idleTimer: createNewIdleTimer(),
+        };
+        await setAgentState(teamId, agentId, idleState);
+      }
 
-      await setAgentState(teamId, agentId, finalState);
-
-      console.log(`✅ 에이전트 ${agentId} 강제 idle 상태 초기화 완료 (큐 처리: ${queueCheckedState.currentState !== "idle" ? "있음" : "없음"})`);
+      console.log(`✅ 에이전트 ${agentId} 강제 idle 상태 초기화 완료 (큐 처리: ${hasQueuedRequest ? "있음" : "없음"})`);
 
       return NextResponse.json({
         success: true,
         message: "에이전트 상태가 강제로 idle로 초기화되었습니다",
-        state: finalState,
-        queueProcessed: queueCheckedState.currentState !== "idle",
+        queueProcessed: hasQueuedRequest,
       });
     }
 
@@ -398,7 +398,28 @@ export async function POST(
 
     if (currentState === "idle") {
       // idle 상태로 전환 시 큐 확인 및 처리
-      newState = await processQueuedRequest(teamId, agentId);
+      const hasQueuedRequest = await processQueuedRequest(teamId, agentId);
+      
+      if (!hasQueuedRequest) {
+        // 큐에 요청이 없으면 idle 상태 생성
+        newState = {
+          agentId,
+          currentState: "idle",
+          lastStateChange: now.toISOString(),
+          isProcessing: false,
+          idleTimer: createNewIdleTimer(),
+        };
+      } else {
+        // 큐에 요청이 있었으면 현재 상태를 다시 조회
+        const currentAgentState = await getAgentState(teamId, agentId);
+        newState = currentAgentState || {
+          agentId,
+          currentState: "idle",
+          lastStateChange: now.toISOString(),
+          isProcessing: false,
+          idleTimer: createNewIdleTimer(),
+        };
+      }
     } else if (currentState === "plan" || currentState === "action") {
       // 작업 상태로 전환
       newState = {
