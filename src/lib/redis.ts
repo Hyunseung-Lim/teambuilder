@@ -452,19 +452,13 @@ async function updateAgentsSharedMentalModel(
           if (newMemory) {
             console.log(`v2 메모리 발견, 업데이트 진행: ${member.agentId}`);
 
-            // 기존 공유 멘탈 모델 섹션 제거
+            // 기존 공유 멘탈 모델 섹션이 있다면 제거 (더 이상 knowledge에 저장하지 않음)
             let updatedKnowledge = newMemory.longTerm.knowledge.replace(
               /\n\n=== 팀의 공유 멘탈 모델 ===\n[\s\S]*?(?=\n\n|$)/,
               ""
             );
 
-            // 새로운 공유 멘탈 모델 추가
-            if (sharedMentalModel) {
-              const mentalModelPrefix = "\n\n=== 팀의 공유 멘탈 모델 ===\n";
-              updatedKnowledge =
-                updatedKnowledge + mentalModelPrefix + sharedMentalModel;
-            }
-
+            // 공유 멘탈 모델은 더 이상 knowledge에 추가하지 않음 (별도 관리)
             newMemory.longTerm.knowledge = updatedKnowledge;
             newMemory.lastMemoryUpdate = new Date().toISOString();
 
@@ -507,16 +501,16 @@ async function updateAgentsSharedMentalModel(
 }
 
 export async function getUserTeams(userId: string): Promise<Team[]> {
-  console.log("🔍 getUserTeams 호출됨:", userId);
+  // console.log("🔍 getUserTeams 호출됨:", userId);
 
   const teamIds = await redis.smembers(keys.userTeams(userId));
-  console.log("🔍 사용자의 팀 ID 목록:", teamIds);
+  // console.log("🔍 사용자의 팀 ID 목록:", teamIds);
 
   const teams = await Promise.all(teamIds.map((id) => getTeamById(id)));
-  console.log("🔍 불러온 팀들:", teams);
+  // console.log("🔍 불러온 팀들:", teams);
 
   const filteredTeams = teams.filter((team): team is Team => team !== null);
-  console.log("🔍 필터링된 팀들:", filteredTeams);
+  // console.log("🔍 필터링된 팀들:", filteredTeams);
 
   return filteredTeams;
 }
@@ -528,13 +522,13 @@ export async function deleteTeam(
 ): Promise<void> {
   const team = (await getTeamById(teamId)) as Team & { ownerId?: string };
 
-  console.log("🔍 팀 삭제 디버깅:");
-  console.log("  - 요청된 teamId:", teamId);
-  console.log("  - 요청된 ownerId:", ownerId);
-  console.log("  - 팀 존재 여부:", !!team);
-  console.log("  - 팀 정보:", team);
-  console.log("  - 팀의 ownerId:", team?.ownerId);
-  console.log("  - ownerId 비교 결과:", team?.ownerId === ownerId);
+  // console.log("🔍 팀 삭제 디버깅:");
+  // console.log("  - 요청된 teamId:", teamId);
+  // console.log("  - 요청된 ownerId:", ownerId);
+  // console.log("  - 팀 존재 여부:", !!team);
+  // console.log("  - 팀 정보:", team);
+  // console.log("  - 팀의 ownerId:", team?.ownerId);
+  // console.log("  - ownerId 비교 결과:", team?.ownerId === ownerId);
 
   if (!team || team.ownerId !== ownerId) {
     throw new Error("Team not found or user not authorized to delete.");
@@ -1099,18 +1093,10 @@ export async function initializeAgentMemory(
     // 새로운 v2 메모리 구조로 생성 (공유 멘탈 모델 포함)
     const newMemory = await createNewAgentMemory(agentId, team);
 
-    // 공유 멘탈 모델을 에이전트의 지식에 추가
+    // 공유 멘탈 모델은 별도로 관리하므로 knowledge에 추가하지 않음
+    console.log(`✅ 에이전트 ${agentId}의 메모리 생성 완료 (공유 멘탈 모델은 별도 관리)`);
     if (team.sharedMentalModel) {
-      const mentalModelPrefix = "\n\n=== 팀의 공유 멘탈 모델 ===\n";
-      const originalKnowledge = newMemory.longTerm.knowledge;
-      newMemory.longTerm.knowledge =
-        originalKnowledge + mentalModelPrefix + team.sharedMentalModel;
-
-      console.log(`✅ 에이전트 ${agentId}에 공유 멘탈 모델 추가됨`);
-      console.log("- 추가 전 지식 길이:", originalKnowledge.length);
-      console.log("- 추가 후 지식 길이:", newMemory.longTerm.knowledge.length);
-    } else {
-      console.log(`⚠️ 에이전트 ${agentId}에 추가할 공유 멘탈 모델이 없음`);
+      console.log(`- 팀의 공유 멘탈 모델 존재: ${team.sharedMentalModel.length}자`);
     }
 
     await saveNewAgentMemory(agentId, newMemory);

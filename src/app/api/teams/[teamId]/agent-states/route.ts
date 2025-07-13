@@ -284,9 +284,13 @@ export async function POST(
 
     // forceClear가 true이면 모든 체크를 무시하고 강제로 상태 변경
     if (forceClear && currentState === "idle") {
-      console.log(`🔧 에이전트 ${agentId} 강제 idle 상태 초기화`);
+      console.log(`🔧 에이전트 ${agentId} 강제 idle 상태 초기화 - 큐 확인 포함`);
 
-      const forcedState: AgentStateInfo = {
+      // 강제 초기화이지만 큐는 여전히 확인해야 함
+      const queueCheckedState = await processQueuedRequest(teamId, agentId);
+      
+      // 큐에 요청이 있었으면 그 상태를 사용, 없으면 idle 상태 설정
+      const finalState = queueCheckedState.currentState !== "idle" ? queueCheckedState : {
         agentId,
         currentState: "idle",
         lastStateChange: new Date().toISOString(),
@@ -294,14 +298,15 @@ export async function POST(
         idleTimer: createNewIdleTimer(),
       };
 
-      await setAgentState(teamId, agentId, forcedState);
+      await setAgentState(teamId, agentId, finalState);
 
-      console.log(`✅ 에이전트 ${agentId} 강제 idle 상태 초기화 완료`);
+      console.log(`✅ 에이전트 ${agentId} 강제 idle 상태 초기화 완료 (큐 처리: ${queueCheckedState.currentState !== "idle" ? "있음" : "없음"})`);
 
       return NextResponse.json({
         success: true,
         message: "에이전트 상태가 강제로 idle로 초기화되었습니다",
-        state: forcedState,
+        state: finalState,
+        queueProcessed: queueCheckedState.currentState !== "idle",
       });
     }
 
@@ -348,14 +353,44 @@ export async function POST(
         );
       }
 
-      // 백그라운드에서 요청 처리
-      processRequestInBackground(teamId, agentId, requestData);
+      // 에이전트가 바쁜지 확인하고 적절히 처리
+      if (currentAgentState.isProcessing || currentAgentState.currentState !== "idle") {
+        console.log(`⏳ 에이전트 ${agentId}가 바쁘므로 행동을 큐에 추가`);
+        
+        // 요청 타입에 따른 행동을 큐에 추가 (기존 queueRetrospective 패턴 사용)
+        const actionRequest = {
+          id: `action-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          type: requestData.type, // generate_idea, evaluate_idea, give_feedback
+          requesterName: requestData.requesterName,
+          payload: requestData.payload,
+          timestamp: new Date().toISOString(),
+          teamId: teamId,
+        };
+        
+        const queueKey = `agent_queue:${teamId}:${agentId}`;
+        await redis.lpush(queueKey, JSON.stringify(actionRequest));
+        
+        console.log(`✅ ${requestData.type} 행동이 Redis 큐에 추가됨 (key: ${queueKey})`);
+        
+        return NextResponse.json({
+          message: "에이전트가 바쁘므로 행동이 큐에 추가되었습니다.",
+          agentId,
+          requestType: requestData.type,
+          queued: true,
+        });
+      } else {
+        console.log(`🔄 에이전트 ${agentId}가 여유로우므로 즉시 처리`);
+        
+        // 백그라운드에서 요청 처리
+        processRequestInBackground(teamId, agentId, requestData);
 
-      return NextResponse.json({
-        message: "요청이 처리 중입니다.",
-        agentId,
-        requestType: requestData.type,
-      });
+        return NextResponse.json({
+          message: "요청이 즉시 처리 중입니다.",
+          agentId,
+          requestType: requestData.type,
+          queued: false,
+        });
+      }
     }
 
     const now = new Date();

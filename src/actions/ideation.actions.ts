@@ -12,17 +12,16 @@ import {
   getAgentMemory,
   updateAgentMemory,
   initializeAgentMemory,
+  redis,
 } from "@/lib/redis";
 import {
   preIdeationAction,
   executeIdeationAction,
   preEvaluationAction,
   executeEvaluationAction,
-  generateAlreadyEvaluatedResponse,
 } from "@/lib/openai";
 import { Idea, AgentMemory } from "@/lib/types";
 import { getServerSession } from "next-auth";
-import AgentStateManager from "@/lib/agent-state-manager";
 import { AgentRequest } from "@/lib/types";
 
 // 한국어 조사 선택 함수
@@ -47,8 +46,23 @@ function getKoreanParticle(
   return hasConsonant;
 }
 
-// 에이전트 상태 관리자 인스턴스
-const stateManager = AgentStateManager.getInstance();
+// 요청을 Redis 큐에 추가하는 헬퍼 함수 (기존 queueRetrospective 패턴과 동일)
+async function addRequestToQueue(
+  teamId: string,
+  agentId: string,
+  request: AgentRequest
+): Promise<void> {
+  try {
+    // Redis 큐에 추가 (기존 요청 시스템과 동일한 방식)
+    const queueKey = `agent_queue:${teamId}:${agentId}`;
+    await redis.lpush(queueKey, JSON.stringify(request));
+    
+    console.log(`✅ ${agentId} 요청이 Redis 큐에 추가됨 (key: ${queueKey})`);
+  } catch (error) {
+    console.error(`❌ ${agentId} 요청 큐잉 실패:`, error);
+    throw error;
+  }
+}
 
 export async function generateIdeaViaRequest({
   teamId,
@@ -77,8 +91,8 @@ export async function generateIdeaViaRequest({
       teamId,
     };
 
-    // 상태 관리자를 통해 요청 추가
-    await stateManager.addRequest(agentId, request);
+    // Redis 큐에 요청 추가 (기존 큐 시스템 사용)
+    await addRequestToQueue(teamId, agentId, request);
 
     console.log(`✅ 에이전트 ${agentId}에게 아이디어 생성 요청 추가 완료`);
     return { success: true, message: "요청이 에이전트에게 전달되었습니다." };
@@ -124,8 +138,8 @@ export async function evaluateIdeaViaRequest({
       teamId,
     };
 
-    // 상태 관리자를 통해 요청 추가
-    await stateManager.addRequest(agentId, request);
+    // Redis 큐에 요청 추가 (기존 큐 시스템 사용)
+    await addRequestToQueue(teamId, agentId, request);
 
     console.log(`✅ 에이전트 ${agentId}에게 아이디어 평가 요청 추가 완료`);
     return {
@@ -258,13 +272,36 @@ export async function startAgentStateSystem(teamId: string) {
       return;
     }
 
-    const stateManager = AgentStateManager.getInstance();
-
-    // 모든 에이전트를 Idle 상태로 전환
+    // 모든 에이전트를 Idle 상태로 전환 - 기존 API 사용
     for (const member of team.members) {
       if (!member.isUser && member.agentId) {
         console.log(`😴 에이전트 ${member.agentId} → Idle 상태 전환`);
-        await stateManager.transitionToIdle(member.agentId);
+        
+        // 기존 상태 관리 API 사용
+        const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
+        try {
+          const response = await fetch(
+            `${baseUrl}/api/teams/${teamId}/agent-states`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "User-Agent": "TeamBuilder-Internal",
+              },
+              body: JSON.stringify({
+                agentId: member.agentId,
+                currentState: "idle",
+                forceClear: true,
+              }),
+            }
+          );
+          
+          if (!response.ok) {
+            console.error(`❌ 에이전트 ${member.agentId} 상태 전환 실패:`, response.status);
+          }
+        } catch (error) {
+          console.error(`❌ 에이전트 ${member.agentId} 상태 전환 오류:`, error);
+        }
       }
     }
 

@@ -106,21 +106,80 @@ export async function handleGenerateIdeaRequestDirect(
     console.log(`🎯 ${agentProfile.name} 요청받은 아이디어 생성 시작`);
 
     const ideas = await getIdeas(teamId);
-    const existingIdeas = ideas.map((idea, index) => ({
+    
+    // Helper function to get author name
+    const getAuthorName = async (authorId: string) => {
+      if (authorId === "나") return "나";
+      
+      const member = team?.members.find((m: any) => m.agentId === authorId);
+      if (member && !member.isUser) {
+        // Find agent profile
+        const agent = await getAgentById(authorId);
+        return agent?.name || `에이전트 ${authorId}`;
+      }
+      
+      return authorId;
+    };
+
+    const existingIdeas = await Promise.all(ideas.map(async (idea, index) => ({
       ideaNumber: index + 1,
-      authorName: idea.author,
+      authorName: await getAuthorName(idea.author),
       object: idea.content.object,
       function: idea.content.function,
-    }));
+      behavior: idea.content.behavior,
+      structure: idea.content.structure,
+    })));
 
     const agentMemory = await getAgentMemory(agentId);
-    const generatedContent = await generateIdeaAction(
-      team.topic || "Carbon Emission Reduction",
-      agentProfile,
+    
+    // 1단계: 아이디어 생성 요청 사전 분석 (새로 만들지 기존 것을 업데이트할지 결정)
+    const requestMessage = requestData.payload?.message || "새로운 아이디어를 생성해주세요";
+    const preAnalysis = await (await import("@/lib/openai")).preIdeationAction(
+      requestMessage,
       existingIdeas,
-      agentMemory || undefined,
-      team
+      agentProfile,
+      agentMemory || undefined
     );
+
+    console.log(`🔍 아이디어 생성 사전 분석 완료:`, {
+      decision: preAnalysis.decision,
+      ideationStrategy: preAnalysis.ideationStrategy,
+      selectedIdea: preAnalysis.selectedIdea
+    });
+
+    // 2단계: 결정에 따른 아이디어 생성 또는 업데이트 실행
+    let generatedContent;
+    if (preAnalysis.decision === "Update" && preAnalysis.selectedIdea) {
+      // 기존 아이디어를 참조하여 업데이트
+      const referenceIdea = ideas.find(idea => 
+        idea.content.object === preAnalysis.selectedIdea.object ||
+        (idea.id && preAnalysis.selectedIdea.ideaNumber && 
+         ideas.indexOf(idea) + 1 === preAnalysis.selectedIdea.ideaNumber)
+      );
+
+      console.log(`🔄 기존 아이디어 업데이트 모드:`, referenceIdea?.content.object);
+
+      generatedContent = await (await import("@/lib/openai")).executeIdeationAction(
+        "Update",
+        preAnalysis.ideationStrategy,
+        team.topic || "Carbon Emission Reduction",
+        referenceIdea,
+        agentProfile,
+        agentMemory || undefined
+      );
+    } else {
+      // 새로운 아이디어 생성
+      console.log(`✨ 새로운 아이디어 생성 모드`);
+
+      generatedContent = await (await import("@/lib/openai")).executeIdeationAction(
+        "New",
+        preAnalysis.ideationStrategy,
+        team.topic || "Carbon Emission Reduction",
+        undefined,
+        agentProfile,
+        agentMemory || undefined
+      );
+    }
 
     const newIdea = await addIdea(teamId, {
       author: agentId,
@@ -144,7 +203,7 @@ export async function handleGenerateIdeaRequestDirect(
       sender: agentId,
       type: "system",
       payload: {
-        content: `${requestData.requesterName}의 요청에 따라 새로운 아이디어를 생성했습니다.`,
+        content: `${requestData.requesterName}의 요청에 따라 ${preAnalysis.decision === "Update" ? "기존 아이디어를 개선한" : "새로운"} 아이디어를 생성했습니다.`,
       },
     });
 
@@ -182,6 +241,7 @@ export async function handleGenerateIdeaRequestDirect(
   }
 }
 
+
 // 피드백 요청 처리
 export async function handleGiveFeedbackRequestDirect(
   teamId: string,
@@ -212,9 +272,29 @@ export async function handleGiveFeedbackRequestDirect(
     const requesterName = requestData.requesterName;
     const requesterId = requestData.requesterId;
 
-    // 피드백 세션 체크 제거 - 요청 접수 시점에 이미 체크했음
+    // 사용자가 직접 피드백을 요청한 경우 - 새로운 세션 생성하지 않고 기존 세션에 응답
+    if (requesterId === "나" || requesterName === "나") {
+      console.log(
+        `👤 사용자가 ${agentProfile.name}에게 피드백을 요청함 - 기존 세션에 응답`
+      );
+      
+      // 사용자가 이미 피드백 세션을 시작했으므로, AI는 응답만 하면 됨
+      // 새로운 세션을 만들지 않고 여기서 처리 완료
+      await addChatMessage(teamId, {
+        sender: agentId,
+        type: "system",
+        payload: {
+          content: `피드백 요청을 확인했습니다. 곧 피드백을 제공하겠습니다.`,
+        },
+      });
+      
+      console.log(`✅ ${agentProfile.name} 사용자 피드백 요청 확인 완료`);
+      return;
+    }
+
+    // AI 에이전트가 다른 AI에게 피드백을 요청한 경우에만 새로운 세션 생성
     console.log(
-      `🎯 ${agentProfile.name} 피드백 요청 처리 시작 (세션 체크 스킵)`
+      `🤖 AI 에이전트 ${requesterName}가 ${agentProfile.name}에게 피드백 요청 - 새로운 세션 생성`
     );
 
     await setAgentState(teamId, agentId, {

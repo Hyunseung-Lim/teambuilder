@@ -261,6 +261,14 @@ export async function POST(
         `📨 피드백 요청 - 에이전트 ${messagePayload.mention}에게 전달`
       );
 
+      // 사용자가 보낸 피드백 요청은 이미 UI에서 피드백 세션을 생성했으므로 중복 처리 방지
+      if (sender === "나" || !sender || sender === session?.user?.email) {
+        console.log(
+          `👤 사용자가 보낸 피드백 요청은 이미 UI에서 처리됨 - AI 세션 생성 스킵`
+        );
+        return NextResponse.json({ message: newMessage });
+      }
+
       // 새로운 에이전트 상태 시스템을 통해 요청 처리
       const requestData = {
         id: `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,

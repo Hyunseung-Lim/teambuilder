@@ -75,6 +75,7 @@ export default function IdeationPage() {
     Set<string>
   >(new Set());
   const [sseConnected, setSseConnected] = useState(false);
+  const [isCreatingFeedbackSession, setIsCreatingFeedbackSession] = useState(false);
 
   // 채팅 기능 상태
   const [chatMode, setChatMode] = useState<"give_feedback" | "make_request">(
@@ -340,6 +341,12 @@ export default function IdeationPage() {
     sessionData?: any
   ) => {
     try {
+      // 이미 생성 중인 경우 중복 요청 방지
+      if (isCreatingFeedbackSession) {
+        console.log("⚠️ 피드백 세션 생성 중 - 중복 요청 무시");
+        return;
+      }
+
       // 중복 탭 체크
       const existingTab = feedbackTabs.find(
         (tab) => tab.participantId === participantId && tab.type === type
@@ -348,6 +355,8 @@ export default function IdeationPage() {
         setActiveTab(existingTab.id);
         return existingTab.id;
       }
+
+      setIsCreatingFeedbackSession(true);
 
       const response = await fetch(`/api/teams/${team?.id}/feedback-sessions`, {
         method: "POST",
@@ -404,6 +413,8 @@ export default function IdeationPage() {
       console.error("❌ 피드백 세션 생성 실패:", error);
       alert("피드백 세션 생성에 실패했습니다. 다시 시도해주세요.");
       return null;
+    } finally {
+      setIsCreatingFeedbackSession(false);
     }
   };
 
@@ -544,6 +555,12 @@ export default function IdeationPage() {
   const handleAddIdea = async () => {
     if (!team || !addIdeaFormData.object.trim()) return;
     try {
+      console.log("🚀 아이디어 추가 요청:", {
+        action: "add",
+        author: "나",
+        content: addIdeaFormData,
+      });
+
       const response = await fetch(`/api/teams/${team.id}/ideas`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -554,6 +571,7 @@ export default function IdeationPage() {
         }),
       });
       if (response.ok) {
+        await loadIdeas(team.id);
         setShowAddIdeaModal(false);
         setAddIdeaFormData({
           object: "",
@@ -1054,6 +1072,7 @@ export default function IdeationPage() {
             onSendMessage={handleSendMessage}
             isAutoGenerating={isAutoGenerating}
             isGeneratingIdea={isGeneratingIdea}
+            isCreatingFeedbackSession={isCreatingFeedbackSession}
             scrollToBottom={scrollToBottom}
             isChatDisabled={isChatDisabled}
             getChatDisabledMessage={getChatDisabledMessage}
@@ -1106,6 +1125,11 @@ export default function IdeationPage() {
           agents={agents}
           onSubmitEvaluation={handleSubmitEvaluationNew}
           isSubmittingEvaluation={isSubmittingEvaluation}
+          onIdeaUpdate={async () => {
+            if (team) {
+              await loadIdeas(team.id);
+            }
+          }}
         />
       )}
 

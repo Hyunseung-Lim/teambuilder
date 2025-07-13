@@ -4,7 +4,9 @@ import {
   Relationship,
   RelationshipType,
   RELATIONSHIP_TYPES,
+  AIAgent,
 } from "@/lib/types";
+import { getMemberDisplayName } from "@/lib/member-utils";
 import { Button } from "@/components/ui/button";
 import { Plus, Crown, User, XIcon } from "lucide-react";
 
@@ -17,6 +19,7 @@ export function RelationshipGraph({
   readOnly = false,
   initialNodePositions = {},
   onNodePositionChange,
+  agents = [],
 }: {
   members: TeamMemberSlot[];
   relationships: Relationship[];
@@ -25,6 +28,7 @@ export function RelationshipGraph({
   readOnly?: boolean;
   initialNodePositions?: { [key: string]: { x: number; y: number } };
   onNodePositionChange?: (positions: { [key: string]: { x: number; y: number } }) => void;
+  agents?: AIAgent[];
 }) {
   const [nodes, setNodes] = useState<{
     [key: string]: { x: number; y: number };
@@ -188,9 +192,10 @@ export function RelationshipGraph({
                       const member = members.find(
                         (m) => m.id === connectingFrom
                       );
-                      return member?.isUser
+                      if (!member) return "알 수 없음";
+                      return member.isUser
                         ? "나"
-                        : member?.agent?.name || `팀원 ${member?.id}`;
+                        : getMemberDisplayName(member, agents);
                     })()}와 연결할 팀원을 선택하세요.`
                   : "관계를 시작할 팀원을 선택하세요."}
               </p>
@@ -445,9 +450,7 @@ export function RelationshipGraph({
                 fontWeight="600"
                 className="pointer-events-none select-none fill-gray-700"
               >
-                {member.isUser
-                  ? "나"
-                  : member.agent?.name || `팀원 ${member.id}`}
+                {getMemberDisplayName(member, agents)}
               </text>
             </g>
           );

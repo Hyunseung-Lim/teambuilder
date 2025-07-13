@@ -115,6 +115,16 @@ export default function FeedbackTabContent({
           ) {
             setSessionEnded(true);
             setIsGenerating(false);
+            
+            // 종료 메시지 추가
+            const endMessage: FeedbackMessage = {
+              id: `end-${Date.now()}`,
+              sender: "시스템",
+              content: "피드백 세션이 종료되었습니다.",
+              timestamp: new Date().toISOString(),
+              type: "system",
+            };
+            setMessages(prev => [...prev, endMessage]);
           }
         }
       }
@@ -256,6 +266,20 @@ export default function FeedbackTabContent({
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message) => {
           const isMyMessage = message.sender === "나";
+          const isSystemMessage = message.sender === "시스템";
+
+          if (isSystemMessage) {
+            return (
+              <div
+                key={`${message.id}-${message.timestamp}`}
+                className="flex justify-center mb-4"
+              >
+                <div className="bg-gray-100 text-gray-600 text-sm px-4 py-2 rounded-full">
+                  {message.content}
+                </div>
+              </div>
+            );
+          }
 
           return (
             <div

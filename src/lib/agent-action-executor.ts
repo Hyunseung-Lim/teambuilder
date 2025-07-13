@@ -7,15 +7,12 @@ import {
   getAgentMemory,
   redis,
 } from "@/lib/redis";
+import { getNewAgentMemory, triggerMemoryUpdate } from "@/lib/memory-v2";
+import { canCreateFeedbackSession } from "@/lib/relationship-utils";
 import {
-  generateIdeaAction,
-  evaluateIdeaAction,
-  planFeedbackStrategy,
   makeRequestAction,
 } from "@/lib/openai";
-import { processMemoryUpdate } from "@/lib/memory";
 import {
-  AgentStateInfo,
   getAgentState,
   setAgentState,
   isFeedbackSessionActive,
@@ -54,6 +51,15 @@ export async function executeAgentAction(
       isLeader: teamMember?.isLeader || false
     };
 
+    console.log(`🎭 ${agentProfile.name} 역할 확인:`, {
+      roles: agentProfile.roles,
+      hasIdeation: agentProfile.roles?.includes("아이디어 생성하기"),
+      hasEvaluation: agentProfile.roles?.includes("아이디어 평가하기"),
+      hasFeedback: agentProfile.roles?.includes("피드백하기"),
+      hasRequest: agentProfile.roles?.includes("요청하기"),
+      isLeader: agentProfile.isLeader
+    });
+
     console.log(
       `🎯 ${agentProfile.name} 자율 행동 실행: ${plannedAction.action}`
     );
@@ -87,7 +93,7 @@ export async function executeAgentAction(
     }
   } catch (error) {
     console.error(`❌ ${agentId} 작업 실행 실패:`, error);
-    await handleExecutionFailure(teamId, agentId);
+    await handleExecutionFailure(teamId, agentId, error);
   }
 }
 
@@ -98,24 +104,55 @@ async function executeGenerateIdeaAction(
   team: any,
   agentProfile: any
 ) {
-  const ideas = await getIdeas(teamId);
-  const existingIdeas = ideas.map((idea, index) => ({
+  try {
+    const ideas = await getIdeas(teamId);
+  
+  // Helper function to get author name
+  const getAuthorName = async (authorId: string) => {
+    if (authorId === "나") return "나";
+    
+    const member = team?.members.find((m: any) => m.agentId === authorId);
+    if (member && !member.isUser) {
+      // Find agent profile
+      const agent = await getAgentById(authorId);
+      return agent?.name || `에이전트 ${authorId}`;
+    }
+    
+    return authorId;
+  };
+
+  const existingIdeas = await Promise.all(ideas.map(async (idea, index) => ({
     ideaNumber: index + 1,
-    authorName: idea.author,
+    authorName: await getAuthorName(idea.author),
     object: idea.content.object,
     function: idea.content.function,
-  }));
+    behavior: idea.content.behavior,
+    structure: idea.content.structure,
+  })));
 
   const agentMemory = await getAgentMemory(agentId);
-  const generatedContent = await generateIdeaAction(
-    team.topic || "Carbon Emission Reduction",
-    agentProfile,
+  
+  // Pre-stage: Analyze and develop strategy
+  const { preIdeationAction } = await import("@/lib/openai");
+  const preAnalysis = await preIdeationAction(
+    "자율적 아이디어 생성",
     existingIdeas,
-    agentMemory || undefined,
-    team
+    agentProfile,
+    agentMemory || undefined
+  );
+  
+  // Execute with strategy
+  const { executeIdeationAction } = await import("@/lib/openai");
+  const generatedContent = await executeIdeationAction(
+    preAnalysis.decision,
+    preAnalysis.ideationStrategy,
+    team.topic || "Carbon Emission Reduction",
+    preAnalysis.decision === "Update" ? preAnalysis.referenceIdea : undefined,
+    agentProfile,
+    agentMemory || undefined
   );
 
-  const newIdea = await addIdea(teamId, {
+  await addIdea(teamId, {
     author: agentId,
     timestamp: new Date().toISOString(),
     content: {
@@ -141,23 +178,21 @@ async function executeGenerateIdeaAction(
     },
   });
 
-  // 메모리 업데이트
+  // v2 메모리 업데이트
   try {
-    await processMemoryUpdate({
-      type: "IDEA_GENERATED",
-      payload: {
-        teamId,
-        authorId: agentId,
-        idea: newIdea,
-        isAutonomous: true,
-      },
-    });
-    console.log(
-      `✅ 자율적 아이디어 생성 후 메모리 업데이트 성공: ${agentId} -> idea ${newIdea.id}`
+    await triggerMemoryUpdate(
+      agentId,
+      "idea_evaluation", // 아이디어 생성 후 회고
+      `I generated a new idea: "${generatedContent.object}" with the strategy: ${preAnalysis.ideationStrategy}`,
+      undefined,
+      teamId
     );
+    // console.log(
+    //   `✅ 자율적 아이디어 생성 후 v2 메모리 업데이트 성공: ${agentId} -> idea ${newIdea.id}`
+    // );
   } catch (memoryError) {
     console.error(
-      "❌ 자율적 아이디어 생성 후 메모리 업데이트 실패:",
+      "❌ 자율적 아이디어 생성 후 v2 메모리 업데이트 실패:",
       memoryError
     );
   }
@@ -166,6 +201,31 @@ async function executeGenerateIdeaAction(
     `✅ ${agentProfile.name} 아이디어 생성 완료:`,
     generatedContent.object
   );
+
+  // 작업 완료 후 idle 상태로 전환
+  await setAgentState(teamId, agentId, {
+    agentId,
+    currentState: "idle",
+    lastStateChange: new Date().toISOString(),
+    isProcessing: false,
+    idleTimer: createNewIdleTimer(),
+  });
+  
+  console.log(`🔄 에이전트 ${agentId} idle 상태로 전환 완료`);
+  } catch (error) {
+    console.error(`❌ ${agentProfile.name} 아이디어 생성 실패:`, error);
+    
+    // 오류 발생 시에도 idle 상태로 전환
+    await setAgentState(teamId, agentId, {
+      agentId,
+      currentState: "idle",
+      lastStateChange: new Date().toISOString(),
+      isProcessing: false,
+      idleTimer: createNewIdleTimer(),
+    });
+    
+    console.log(`🔄 에이전트 ${agentId} 오류 후 idle 상태로 전환 완료`);
+  }
 }
 
 // 아이디어 평가 액션 실행
@@ -239,33 +299,35 @@ async function executeEvaluateIdeaAction(
     `📊 ${agentProfile.name} → ${randomIdea.content.object} 평가 시작`
   );
 
-  // Use the established executeEvaluationPrompt pattern for consistency
-  const executeEvaluationPrompt = (await import("@/core/prompts")).executeEvaluationPrompt;
-  
-  const evaluationStrategy = "Provide objective evaluation focusing on team contribution and innovation potential";
   const selectedIdea = {
     ...randomIdea,
     authorName: getAuthorName(randomIdea.author)
   };
-  
-  const extendedPrompt = executeEvaluationPrompt(
-    selectedIdea,
-    evaluationStrategy,
-    memory || undefined,
-    agentProfile,
-    team?.sharedMentalModel
-  );
-
-  console.log(extendedPrompt);
 
   try {
-    // 새로운 평가 시스템 사용 (executeEvaluationAction)
-    const evaluation = await (await import("@/lib/openai")).executeEvaluationAction(
-      selectedIdea,
-      evaluationStrategy,
+    // Pre-stage: Analyze and develop evaluation strategy
+    const { preEvaluationAction } = await import("@/lib/openai");
+    const allIdeas = ideas.map((idea, index) => ({
+      ideaNumber: index + 1,
+      authorName: getAuthorName(idea.author),
+      object: idea.content.object,
+      function: idea.content.function
+    }));
+    
+    const preAnalysis = await preEvaluationAction(
+      "자율적 아이디어 평가",
+      allIdeas,
       agentProfile,
-      memory || undefined,
-      team?.sharedMentalModel
+      memory || undefined
+    );
+    
+    // Execute with strategy
+    const { executeEvaluationAction } = await import("@/lib/openai");
+    const evaluation = await executeEvaluationAction(
+      selectedIdea,
+      preAnalysis.evaluationStrategy,
+      agentProfile,
+      memory || undefined
     );
 
     const response = await fetch(
@@ -303,14 +365,56 @@ async function executeEvaluateIdeaAction(
           },
         });
       }
+
+      // v2 메모리 업데이트
+      try {
+        await triggerMemoryUpdate(
+          agentId,
+          "idea_evaluation",
+          `I evaluated "${selectedIdea.content.object}" by ${selectedIdea.authorName} using strategy: ${preAnalysis.evaluationStrategy}. Scores: novelty=${evaluation.scores.novelty}, completeness=${evaluation.scores.completeness}, quality=${evaluation.scores.quality}`,
+          selectedIdea.author !== "나" ? selectedIdea.author : undefined,
+          teamId
+        );
+        console.log(
+          `✅ 아이디어 평가 후 v2 메모리 업데이트 성공: ${agentId}`
+        );
+      } catch (memoryError) {
+        console.error(
+          "❌ 아이디어 평가 후 v2 메모리 업데이트 실패:",
+          memoryError
+        );
+      }
     } else {
       console.error(`❌ ${agentProfile.name} 평가 저장 실패:`, response.status);
     }
   } catch (evaluationError) {
     console.error(`❌ ${agentProfile.name} 평가 수행 실패:`, evaluationError);
+    
+    // 오류 발생 시에도 idle 상태로 전환
+    await setAgentState(teamId, agentId, {
+      agentId,
+      currentState: "idle",
+      lastStateChange: new Date().toISOString(),
+      isProcessing: false,
+      idleTimer: createNewIdleTimer(),
+    });
+    
+    console.log(`🔄 에이전트 ${agentId} 오류 후 idle 상태로 전환 완료`);
+    return; // 오류 후 함수 종료
   }
 
   console.log(`✅ 에이전트 ${agentId} 아이디어 평가 요청 처리 완료`);
+
+  // 작업 완료 후 idle 상태로 전환
+  await setAgentState(teamId, agentId, {
+    agentId,
+    currentState: "idle",
+    lastStateChange: new Date().toISOString(),
+    isProcessing: false,
+    idleTimer: createNewIdleTimer(),
+  });
+  
+  console.log(`🔄 에이전트 ${agentId} idle 상태로 전환 완료`);
 }
 
 // 피드백 제공 액션 실행
@@ -338,13 +442,13 @@ async function executeGiveFeedbackAction(
 
   const agents = await Promise.all(
     (team?.members || [])
-      .filter((m) => !m.isUser && m.agentId)
-      .map((m) => getAgentById(m.agentId!))
+      .filter((m: any) => !m.isUser && m.agentId)
+      .map((m: any) => getAgentById(m.agentId!))
   );
   const validAgents = agents.filter((agent) => agent !== null);
 
   const otherMembers = team.members.filter(
-    (member) => !member.isUser && member.agentId !== agentId
+    (member: any) => !member.isUser && member.agentId !== agentId
   );
 
   if (otherMembers.length === 0) {
@@ -352,8 +456,36 @@ async function executeGiveFeedbackAction(
     return;
   }
 
+  // 피드백 세션을 생성할 수 있는 관계인 팀원들만 필터링
+  console.log(`🔍 ${agentProfile.name} 피드백 세션 권한 확인 시작`);
+  console.log(`👥 다른 팀원들 (${otherMembers.length}명):`, otherMembers.map((m: any) => ({ agentId: m.agentId, name: m.name })));
+  console.log(`📊 팀 관계 정보 (${team.relationships.length}개):`, team.relationships);
+  
+  const availableMembers = otherMembers.filter((member: any) => {
+    const canCreate = canCreateFeedbackSession(agentId, member.agentId!, team);
+    console.log(`🎯 ${agentProfile.name} → ${member.name || member.agentId}: ${canCreate ? '✅ 가능' : '❌ 불가능'}`);
+    return canCreate;
+  });
+
+  console.log(`📋 피드백 가능한 팀원: ${availableMembers.length}명`, availableMembers.map((m: any) => m.name || m.agentId));
+
+  if (availableMembers.length === 0) {
+    console.log(`⚠️ ${agentProfile.name} 피드백 세션을 생성할 수 있는 관계인 팀원이 없음`);
+    
+    // 에이전트를 idle 상태로 전환
+    await setAgentState(teamId, agentId, {
+      agentId,
+      currentState: "idle",
+      lastStateChange: new Date().toISOString(),
+      isProcessing: false,
+      idleTimer: createNewIdleTimer(),
+    });
+    
+    return;
+  }
+
   const targetMember =
-    otherMembers[Math.floor(Math.random() * otherMembers.length)];
+    availableMembers[Math.floor(Math.random() * availableMembers.length)];
   const targetAgent = validAgents.find(
     (a: any) => a.id === targetMember.agentId
   );
@@ -362,6 +494,8 @@ async function executeGiveFeedbackAction(
     console.log(`⚠️ ${agentProfile.name} 대상 에이전트를 찾을 수 없음`);
     return;
   }
+
+  console.log(`✅ ${agentProfile.name} → ${targetAgent.name} 피드백 가능한 관계 확인됨`);
 
   console.log(`🎯 ${agentProfile.name} → ${targetAgent.name} 피드백 세션 생성`);
 
@@ -382,7 +516,7 @@ async function executeGiveFeedbackAction(
   }
 
   try {
-    await createFeedbackSession(teamId, agentId, targetAgent, agentProfile);
+    await createFeedbackSession(teamId, agentId, targetAgent, agentProfile, team, otherIdeas);
   } finally {
     await redis.del(lockKey);
     console.log(`🔓 ${agentProfile.name} → ${targetAgent.name} 락 해제`);
@@ -394,7 +528,9 @@ async function createFeedbackSession(
   teamId: string,
   agentId: string,
   targetAgent: any,
-  agentProfile: any
+  agentProfile: any,
+  team: any,
+  otherIdeas: any[]
 ) {
   const baseUrl = process.env.NEXTAUTH_URL || `http://localhost:3000`;
   const sessionResponse = await fetch(
@@ -409,7 +545,7 @@ async function createFeedbackSession(
         action: "create",
         initiatorId: agentId,
         targetAgentId: targetAgent.id,
-        message: `${agentProfile.name}이 피드백을 제공하고 싶어합니다.`,
+        message: await generateInitialFeedbackMessage(agentId, agentProfile, team, otherIdeas),
         feedbackContext: {
           type: "general_feedback",
           initiatedBy: "ai",
@@ -580,28 +716,49 @@ async function triggerFeedbackMessage(
 }
 
 // 실행 실패 처리
-async function handleExecutionFailure(teamId: string, agentId: string) {
-  const currentState = await getAgentState(teamId, agentId);
-  if (currentState && isFeedbackSessionActive(currentState)) {
-    // 실제로 활성 피드백 세션이 존재하는지 확인
-    const isActuallyInActiveSession = await verifyActiveFeedbackSession(teamId, agentId);
+async function handleExecutionFailure(teamId: string, agentId: string, error?: any) {
+  console.log(`🔧 에이전트 ${agentId} 실행 실패 - 복구 시작`, { error: error?.message || 'Unknown error' });
+  
+  try {
+    const currentState = await getAgentState(teamId, agentId);
     
-    if (isActuallyInActiveSession) {
-      console.log(
-        `🔒 에이전트 ${agentId}는 활성 피드백 세션 중이므로 실패 후에도 idle 전환 스킵`
-      );
-      return;
-    } else {
-      console.log(
-        `🧹 에이전트 ${agentId}가 존재하지 않는 피드백 세션에 갇혀있음 - 강제 해제`
-      );
-      // 고아 상태에서 강제로 해제
+    if (currentState && isFeedbackSessionActive(currentState)) {
+      // 실제로 활성 피드백 세션이 존재하는지 확인
+      const isActuallyInActiveSession = await verifyActiveFeedbackSession(teamId, agentId);
+      
+      if (isActuallyInActiveSession) {
+        console.log(
+          `🔒 에이전트 ${agentId}는 활성 피드백 세션 중이므로 실패 후에도 idle 전환 스킵`
+        );
+        return;
+      } else {
+        console.log(
+          `🧹 에이전트 ${agentId}가 존재하지 않는 피드백 세션에 갇혀있음 - 강제 해제`
+        );
+      }
+    }
+
+    // 즉시 idle 상태로 전환 (딜레이 제거)
+    await transitionToIdleState(teamId, agentId, "실패 후 복구");
+    console.log(`✅ 에이전트 ${agentId} idle 상태 복구 완료`);
+    
+  } catch (recoveryError) {
+    console.error(`❌ 에이전트 ${agentId} 복구 실패:`, recoveryError);
+    
+    // 복구 실패 시 강제 초기화 시도
+    try {
+      await setAgentState(teamId, agentId, {
+        agentId,
+        currentState: "idle",
+        lastStateChange: new Date().toISOString(),
+        isProcessing: false,
+        idleTimer: createNewIdleTimer(),
+      });
+      console.log(`🛠️ 에이전트 ${agentId} 강제 초기화 완료`);
+    } catch (forceError) {
+      console.error(`💥 에이전트 ${agentId} 강제 초기화도 실패:`, forceError);
     }
   }
-
-  setTimeout(async () => {
-    await transitionToIdleState(teamId, agentId, "실패 후");
-  }, 2000);
 }
 
 // 에이전트가 실제로 활성 피드백 세션에 참여 중인지 확인
@@ -638,7 +795,7 @@ async function verifyActiveFeedbackSession(teamId: string, agentId: string): Pro
 async function handleLockFailure(
   teamId: string,
   agentId: string,
-  agentName: string
+  _agentName: string
 ) {
   setTimeout(async () => {
     await transitionToIdleState(teamId, agentId, "락 획득 실패 후");
@@ -649,7 +806,7 @@ async function handleLockFailure(
 async function handleSessionCreationFailure(
   teamId: string,
   agentId: string,
-  agentName: string
+  _agentName: string
 ) {
   setTimeout(async () => {
     await transitionToIdleState(teamId, agentId, "피드백 세션 생성 실패 후");
@@ -709,7 +866,7 @@ async function executeMakeRequestAction(
   agentId: string,
   team: any,
   agentProfile: any,
-  plannedAction: any
+  _plannedAction: any
 ) {
   try {
     console.log(`🎯 ${agentProfile.name} 자율적 요청 실행 시작`);
@@ -778,7 +935,6 @@ async function executeMakeRequestAction(
         currentState: "idle",
         lastStateChange: new Date().toISOString(),
         isProcessing: false,
-        requestQueue: [],
       });
       
       return;
@@ -786,12 +942,29 @@ async function executeMakeRequestAction(
 
     // 현재 아이디어 정보 가져오기
     const ideas = await getIdeas(teamId);
-    const currentIdeas = ideas.map((idea: any, index: number) => ({
+    
+    // Helper function to get author name
+    const getAuthorName = async (authorId: string) => {
+      if (authorId === "나") return "나";
+      
+      const member = team?.members.find((m: any) => m.agentId === authorId);
+      if (member && !member.isUser) {
+        // Find agent profile
+        const agent = await getAgentById(authorId);
+        return agent?.name || `에이전트 ${authorId}`;
+      }
+      
+      return authorId;
+    };
+
+    const currentIdeas = await Promise.all(ideas.map(async (idea: any, index: number) => ({
       ideaNumber: index + 1,
-      authorName: idea.author,
+      authorName: await getAuthorName(idea.author),
       object: idea.content.object,
       function: idea.content.function,
-    }));
+      behavior: idea.content.behavior,
+      structure: idea.content.structure,
+    })));
 
     // 에이전트 메모리 가져오기
     const agentMemory = await getAgentMemory(agentId);
@@ -807,9 +980,57 @@ async function executeMakeRequestAction(
       agentProfile,
       agentMemory || undefined,
       undefined,
-      undefined,
-      team.sharedMentalModel
+      team.sharedMentalModel,
+      team // 관계 검증을 위한 팀 정보 전달
     );
+
+    // 요청 결과 검증 및 디버깅
+    console.log(`🔍 ${agentProfile.name} 요청 결과 구조:`, JSON.stringify(requestResult, null, 2));
+    
+    if (!requestResult) {
+      throw new Error("No request result returned");
+    }
+
+    // 요청 실패한 경우 처리
+    if (requestResult.success === false) {
+      console.log(`⚠️ ${agentProfile.name} 요청 실패:`, requestResult.error);
+      
+      // 에이전트를 idle 상태로 전환
+      await setAgentState(teamId, agentId, {
+        agentId,
+        currentState: "idle",
+        lastStateChange: new Date().toISOString(),
+        isProcessing: false,
+        idleTimer: createNewIdleTimer(),
+      });
+      
+      return;
+    }
+
+    // 성공한 경우 필수 필드 검증
+    if (!requestResult.analysis || !requestResult.message) {
+      console.log(`❌ ${agentProfile.name} 요청 결과 필드 누락:`);
+      console.log(`- analysis exists: ${!!requestResult.analysis}`);
+      console.log(`- message exists: ${!!requestResult.message}`);
+      console.log(`- requestResult keys:`, Object.keys(requestResult));
+      
+      throw new Error("Invalid request result: missing required fields");
+    }
+
+    const messageContent = requestResult.message?.message || 
+                          requestResult.message?.content || 
+                          (typeof requestResult.message === 'string' ? requestResult.message : 
+                           JSON.stringify(requestResult.message));
+
+    if (!messageContent) {
+      throw new Error("Request message content is empty or invalid");
+    }
+
+    console.log(`📝 요청 결과:`, {
+      analysis: requestResult.analysis,
+      messageType: typeof requestResult.message,
+      messageContent: messageContent
+    });
 
     // 채팅 메시지로 추가
     await addChatMessage(teamId, {
@@ -817,7 +1038,7 @@ async function executeMakeRequestAction(
       type: "make_request",
       payload: {
         type: "make_request",
-        content: requestResult.message.message,
+        content: messageContent,
         mention: requestResult.analysis.targetMember,
         target: requestResult.analysis.targetMember,
         requestType: requestResult.analysis.requestType,
@@ -827,34 +1048,130 @@ async function executeMakeRequestAction(
     console.log(`✅ ${agentProfile.name} 자율적 요청 완료:`, {
       target: requestResult.analysis.targetMember,
       type: requestResult.analysis.requestType,
-      message: requestResult.message.message,
+      message: messageContent,
     });
 
-    // 메모리 업데이트
+    // v2 메모리 업데이트
     try {
-      await processMemoryUpdate({
-        type: "REQUEST_MADE",
-        payload: {
-          teamId,
-          requesterId: agentId,
-          targetId: requestResult.analysis.targetMember,
-          requestType: requestResult.analysis.requestType,
-          content: requestResult.message.message,
-        },
-      });
+      // 대상이 사용자인지 에이전트인지 확인하여 적절한 ID 설정
+      const targetMember = teamMembers.find(m => m.name === requestResult.analysis.targetMember);
+      const relatedAgentId = targetMember?.isUser ? "나" : targetMember?.agentId;
+      
+      await triggerMemoryUpdate(
+        agentId,
+        "request",
+        `I made a ${requestResult.analysis.requestType} request to ${requestResult.analysis.targetMember}: "${messageContent}"`,
+        relatedAgentId,
+        teamId
+      );
       console.log(
-        `✅ 자율적 요청 후 메모리 업데이트 성공: ${agentId} -> ${requestResult.analysis.targetMember}`
+        `✅ 자율적 요청 후 v2 메모리 업데이트 성공: ${agentId} -> ${requestResult.analysis.targetMember}`
       );
     } catch (memoryError) {
-      console.error("❌ 자율적 요청 후 메모리 업데이트 실패:", memoryError);
+      console.error("❌ 자율적 요청 후 v2 메모리 업데이트 실패:", memoryError);
     }
 
     // 요청 처리는 채팅 API에서 자동으로 처리됨 (중복 메시지 방지를 위해 직접 호출 제거)
     console.log(
       `📨 자율적 요청이 채팅 메시지로 생성되었습니다. 채팅 API에서 요청을 자동 처리할 예정입니다.`
     );
+
+    // 작업 완료 후 idle 상태로 전환
+    await setAgentState(teamId, agentId, {
+      agentId,
+      currentState: "idle",
+      lastStateChange: new Date().toISOString(),
+      isProcessing: false,
+      idleTimer: createNewIdleTimer(),
+    });
+    
+    console.log(`🔄 에이전트 ${agentId} idle 상태로 전환 완료`);
   } catch (error) {
     console.error(`❌ ${agentProfile.name} 자율적 요청 실패:`, error);
+    
+    // 오류 발생 시에도 idle 상태로 전환
+    await setAgentState(teamId, agentId, {
+      agentId,
+      currentState: "idle",
+      lastStateChange: new Date().toISOString(),
+      isProcessing: false,
+      idleTimer: createNewIdleTimer(),
+    });
+    
+    console.log(`🔄 에이전트 ${agentId} 오류 후 idle 상태로 전환 완료`);
     throw error;
+  }
+}
+
+// 피드백 세션 시작을 위한 초기 피드백 메시지 생성
+async function generateInitialFeedbackMessage(
+  agentId: string,
+  agentProfile: any,
+  team: any,
+  ideas: any[]
+): Promise<string> {
+  try {
+    // 다른 팀원들의 아이디어 찾기
+    const otherMembers = team?.members?.filter(
+      (member: any) => !member.isUser && member.agentId !== agentId
+    ) || [];
+    
+    if (otherMembers.length === 0) {
+      return `${agentProfile.name}이 팀 협업에 대한 피드백을 제공하고 싶어합니다.`;
+    }
+
+    // 랜덤하게 타겟 멤버 선택
+    const targetMember = otherMembers[Math.floor(Math.random() * otherMembers.length)];
+    const targetAgent = await getAgentById(targetMember.agentId);
+    const targetMemberName = targetAgent?.name || targetMember.name;
+    
+    // 해당 멤버가 낸 아이디어들 찾기
+    const targetMemberIdeas = ideas.filter(idea => idea.author === targetMember.agentId);
+    
+    // allIdeas 변수 정의 (전체 아이디어 리스트)
+    const allIdeas = ideas;
+
+    // agent 메모리 가져오기
+    const agentMemory = await getNewAgentMemory(agentId);
+    
+    // 근본 해결: AI 판단 우회하고 실제 아이디어 개수로 직접 분기
+    const hasActualIdeas = targetMemberIdeas.length > 0;
+    console.log(`📊 직접 판단: ${targetMemberName}의 아이디어 ${targetMemberIdeas.length}개 → hasIdeas: ${hasActualIdeas}`);
+    
+    if (hasActualIdeas) {
+      // 아이디어가 있는 경우: AI 기반 실제 피드백 생성
+      const { giveFeedback } = await import("@/lib/openai");
+      
+      try {
+        const feedbackResponse = await giveFeedback(
+          targetMemberName,
+          targetMemberIdeas,
+          agentProfile,
+          { topic: team.topic, teamMembers: team.members },
+          agentMemory as any || undefined,
+          targetMember.roles,
+          allIdeas, // 전체 아이디어 리스트 전달
+          { hasIdeas: true, feedbackFocus: "specific ideas", feedbackApproach: "constructive", keyPoints: "detailed feedback on ideas" }
+        );
+        
+        return feedbackResponse.feedback || `안녕하세요, ${targetMemberName}님! 아이디어에 대한 피드백을 드리고 싶습니다.`;
+      } catch (error) {
+        console.error("AI 피드백 생성 실패:", error);
+        const ideaList = targetMemberIdeas.map((idea, idx) => 
+          `${idx + 1}. "${idea.content?.object || '제목 없음'}"`
+        ).join(', ');
+        return `안녕하세요, ${targetMemberName}님! ${agentProfile.name}입니다. 제출해주신 아이디어들(${ideaList})을 보고 몇 가지 피드백을 드리고 싶어서 연락드렸습니다.`;
+      }
+    } else {
+      // 아이디어가 없는 경우: 역할과 협업 중심 피드백 (아이디어 부족 언급 금지)
+      const roleText = targetMember.roles?.length > 0 
+        ? `${targetMember.roles.join(', ')} 역할에서` 
+        : '팀 활동에서';
+      
+      return `안녕하세요, ${targetMemberName}님! ${agentProfile.name}입니다. ${roleText}의 협업과 기여에 대해 이야기해보고 싶어서 연락드렸습니다.`;
+    }
+  } catch (error) {
+    console.error("초기 피드백 메시지 생성 실패:", error);
+    return `${agentProfile.name}이 피드백을 제공하고 싶어합니다.`;
   }
 }

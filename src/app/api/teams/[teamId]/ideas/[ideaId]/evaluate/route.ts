@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { getIdeas, updateIdea } from "@/lib/redis";
+import { getIdeas, updateIdea, getTeamById } from "@/lib/redis";
 import { Evaluation } from "@/lib/types";
-import { processMemoryUpdate } from "@/lib/memory";
+import { triggerMemoryUpdate } from "@/lib/memory-v2";
+import { canEvaluateIdea } from "@/lib/relationship-utils";
 
 export async function POST(
   request: NextRequest,
@@ -101,6 +102,28 @@ export async function POST(
       );
     }
 
+    // 관계 기반 평가 권한 확인
+    const team = await getTeamById(teamId);
+    if (!team) {
+      return NextResponse.json(
+        { error: "팀을 찾을 수 없습니다." },
+        { status: 404 }
+      );
+    }
+
+    const hasEvaluationPermission = canEvaluateIdea(evaluator, targetIdea.author, team);
+    if (!hasEvaluationPermission) {
+      return NextResponse.json(
+        { 
+          error: "아이디어를 평가할 권한이 없습니다. 관계가 연결된 팀원의 아이디어만 평가할 수 있습니다.",
+          relationshipRequired: true 
+        },
+        { status: 403 }
+      );
+    }
+
+    console.log("✅ 관계 기반 아이디어 평가 권한 확인 완료");
+
     // 이미 평가한 사용자인지 확인
     const existingEvaluation = targetIdea.evaluations.find(
       (evaluation) => evaluation.evaluator === evaluator
@@ -143,25 +166,38 @@ export async function POST(
       );
     }
 
-    // 메모리 업데이트 - 아이디어 평가 이벤트 기록
+    // v2 메모리 업데이트 - 평가자를 위한 업데이트
     try {
-      await processMemoryUpdate({
-        type: "IDEA_EVALUATED",
-        payload: {
-          teamId,
-          evaluatorId: evaluator,
-          ideaId: ideaId,
-          ideaAuthorId: targetIdea.author,
-          evaluation: newEvaluation,
-          isAutonomous: isSystemCall, // 시스템 호출이면 자율적 평가
-        },
-      });
+      await triggerMemoryUpdate(
+        evaluator,
+        "idea_evaluation",
+        `I evaluated an idea (ID: ${ideaId}) with scores: novelty=${newEvaluation.scores.novelty}, completeness=${newEvaluation.scores.completeness}, quality=${newEvaluation.scores.quality}. Comment: ${newEvaluation.comment || 'No comment'}`,
+        targetIdea.author !== "나" ? targetIdea.author : undefined,
+        teamId
+      );
       console.log(
-        `✅ 평가 완료 후 메모리 업데이트 성공: ${evaluator} -> idea ${ideaId}`
+        `✅ 평가자 ${evaluator} v2 메모리 업데이트 성공 -> idea ${ideaId}`
       );
     } catch (memoryError) {
-      console.error("❌ 평가 후 메모리 업데이트 실패:", memoryError);
-      // 메모리 업데이트 실패는 평가 성공에 영향을 주지 않음
+      console.error("❌ 평가자 메모리 업데이트 실패:", memoryError);
+    }
+
+    // v2 메모리 업데이트 - 아이디어 작성자를 위한 업데이트 (자기 아이디어가 아닌 경우만)
+    if (targetIdea.author !== evaluator && targetIdea.author !== "나") {
+      try {
+        await triggerMemoryUpdate(
+          targetIdea.author,
+          "feedback",
+          `My idea (ID: ${ideaId}) was evaluated by ${evaluator} with scores: novelty=${newEvaluation.scores.novelty}, completeness=${newEvaluation.scores.completeness}, quality=${newEvaluation.scores.quality}. Comment: ${newEvaluation.comment || 'No comment'}`,
+          evaluator,
+          teamId
+        );
+        console.log(
+          `✅ 아이디어 작성자 ${targetIdea.author} v2 메모리 업데이트 성공 -> idea ${ideaId}`
+        );
+      } catch (memoryError) {
+        console.error("❌ 아이디어 작성자 메모리 업데이트 실패:", memoryError);
+      }
     }
 
     return NextResponse.json({

@@ -1,5 +1,6 @@
 import React from "react";
 import { Team, AIAgent, RELATIONSHIP_TYPES } from "@/lib/types";
+import { findMemberById, getMemberActualId, getMemberDisplayName } from "@/lib/member-utils";
 
 interface MiniRelationshipNetworkProps {
   team: Team;
@@ -19,15 +20,16 @@ export default function MiniRelationshipNetwork({
     return agents.find(a => a.id === agentId)?.name || "";
   };
 
-  // Create nodes for each team member
+  // Create nodes for each team member using centralized utilities
   const nodes = team.members.map((member, index) => {
-    const memberName = member.isUser 
-      ? "나" 
-      : getAgentName(member.agentId || "") || `팀원 ${member.id}`;
+    const actualId = getMemberActualId(member);
+    const displayName = member.isUser 
+      ? getMemberDisplayName(member, agents)
+      : getAgentName(member.agentId || "") || getMemberDisplayName(member, agents);
     
     const node = {
-      id: member.isUser ? "나" : member.agentId || `slot-${index}`,
-      name: memberName,
+      id: actualId,
+      name: displayName,
       isUser: member.isUser,
       isLeader: member.isLeader,
     };
@@ -46,57 +48,16 @@ export default function MiniRelationshipNetwork({
         return;
       }
       
-      // Convert from and to to actual member IDs
-      let fromId = relationship.from;
-      let toId = relationship.to;
+      // Convert from and to to actual member IDs using centralized utilities
+      const fromMember = findMemberById(team, relationship.from);
+      const toMember = findMemberById(team, relationship.to);
       
-      
-      // from과 to가 agentId인 경우 그대로 사용, A,B,C,D인 경우 매핑 필요
-      if (fromId !== "나") {
-        // 먼저 agentId로 직접 매칭 시도
-        const directMatch = team.members.find(m => !m.isUser && m.agentId === fromId);
-        if (directMatch) {
-          fromId = directMatch.agentId!;
-        } else {
-          // A, B, C, D 같은 임시 ID인 경우 팀 멤버 순서로 매핑
-          const memberIndex = fromId.charCodeAt(0) - 65; // A=0, B=1, C=2, D=3
-          const nonUserMembers = team.members.filter(m => !m.isUser);
-          if (memberIndex >= 0 && memberIndex < nonUserMembers.length) {
-            fromId = nonUserMembers[memberIndex].agentId!;
-          } else {
-            // 에이전트 이름으로 매핑 시도 (백업)
-            const nameMatch = team.members.find(m => 
-              !m.isUser && getAgentName(m.agentId || "") === fromId
-            );
-            if (nameMatch) {
-              fromId = nameMatch.agentId!;
-            }
-          }
-        }
+      if (!fromMember || !toMember) {
+        return; // Skip invalid relationships
       }
       
-      if (toId !== "나") {
-        // 먼저 agentId로 직접 매칭 시도
-        const directMatch = team.members.find(m => !m.isUser && m.agentId === toId);
-        if (directMatch) {
-          toId = directMatch.agentId!;
-        } else {
-          // A, B, C, D 같은 임시 ID인 경우 팀 멤버 순서로 매핑
-          const memberIndex = toId.charCodeAt(0) - 65; // A=0, B=1, C=2, D=3
-          const nonUserMembers = team.members.filter(m => !m.isUser);
-          if (memberIndex >= 0 && memberIndex < nonUserMembers.length) {
-            toId = nonUserMembers[memberIndex].agentId!;
-          } else {
-            // 에이전트 이름으로 매핑 시도 (백업)
-            const nameMatch = team.members.find(m => 
-              !m.isUser && getAgentName(m.agentId || "") === toId
-            );
-            if (nameMatch) {
-              toId = nameMatch.agentId!;
-            }
-          }
-        }
-      }
+      const fromId = getMemberActualId(fromMember);
+      const toId = getMemberActualId(toMember);
       
       // Add edge if both nodes exist
       const fromNode = nodes.find(n => n.id === fromId);

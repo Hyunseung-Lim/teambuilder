@@ -21,7 +21,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ko" className="antialiased">
-      <body className={notoSansKR.className}>
+      <body className={notoSansKR.className} suppressHydrationWarning={true}>
         <AuthContext>{children}</AuthContext>
       </body>
     </html>

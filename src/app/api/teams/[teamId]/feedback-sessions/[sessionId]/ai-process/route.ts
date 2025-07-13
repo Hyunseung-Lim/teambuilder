@@ -100,6 +100,29 @@ export async function POST(
       const { getIdeas } = await import("@/lib/redis");
       const teamIdeas = await getIdeas(teamId);
 
+      // 팀 정보 및 상대방 역할/아이디어 조회
+      const { getTeamById } = await import("@/lib/redis");
+      const team = await getTeamById(teamId);
+      
+      let targetMemberRoles: string[] = [];
+      let targetMemberIdeas: any[] = [];
+      
+      if (team) {
+        // 상대방의 역할 조회
+        const targetMember = team.members.find(m => 
+          (m.agentId && m.agentId === otherParticipant.id) || 
+          (m.userId && m.userId === otherParticipant.id)
+        );
+        if (targetMember) {
+          targetMemberRoles = targetMember.roles || [];
+        }
+        
+        // 상대방의 아이디어 조회
+        targetMemberIdeas = teamIdeas.filter(idea => 
+          idea.author === otherParticipant.name
+        );
+      }
+
       // AI 응답 생성
       const responseResult = await generateFeedbackSessionResponse(
         agent,
@@ -109,6 +132,8 @@ export async function POST(
           messageHistory: session.messages,
           feedbackContext: session.feedbackContext,
           teamIdeas,
+          targetMemberRoles,
+          targetMemberIdeas,
         },
         agentMemory
       );

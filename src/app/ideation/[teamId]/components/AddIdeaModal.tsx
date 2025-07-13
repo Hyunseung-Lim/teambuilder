@@ -78,11 +78,25 @@ export default function AddIdeaModal({
     const behaviorData = newBehaviorPairs || behaviorPairs;
     const structureData = newStructurePairs || structurePairs;
     
+    const filteredBehavior = behaviorData.filter(p => p.key.trim() && p.value.trim());
+    const filteredStructure = structureData.filter(p => p.key.trim() && p.value.trim());
+    
+    // 빈 데이터인 경우 빈 문자열 반환
+    const behaviorJson = filteredBehavior.length > 0 ? JSON.stringify(filteredBehavior) : "";
+    const structureJson = filteredStructure.length > 0 ? JSON.stringify(filteredStructure) : "";
+    
     const newFormData = {
       ...formData,
-      behavior: JSON.stringify(behaviorData.filter(p => p.key.trim() || p.value.trim())),
-      structure: JSON.stringify(structureData.filter(p => p.key.trim() || p.value.trim())),
+      behavior: behaviorJson,
+      structure: structureJson,
     };
+    
+    console.log("🔄 FormData 업데이트:", {
+      behavior: behaviorJson,
+      structure: structureJson,
+      newFormData,
+    });
+    
     onFormDataChange(newFormData);
   };
 
@@ -154,7 +168,7 @@ export default function AddIdeaModal({
           <div className="space-y-6">
             {/* Object 필드 */}
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Object</label>
+              <label className="block text-sm font-medium text-gray-700">아이디어</label>
               <textarea
                 value={formData.object}
                 onChange={(e) => onFormDataChange({ ...formData, object: e.target.value })}
@@ -166,7 +180,7 @@ export default function AddIdeaModal({
 
             {/* Function 필드 */}
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Function</label>
+              <label className="block text-sm font-medium text-gray-700">기능 요약</label>
               <textarea
                 value={formData.function}
                 onChange={(e) => onFormDataChange({ ...formData, function: e.target.value })}
@@ -179,7 +193,7 @@ export default function AddIdeaModal({
             {/* Behavior 필드 (Key-Value) */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <label className="block text-sm font-medium text-gray-700">Behavior</label>
+                <label className="block text-sm font-medium text-gray-700">핵심 동작(행동)</label>
                 <button
                   onClick={addBehaviorPair}
                   className="px-3 py-1 text-sm bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
@@ -223,7 +237,7 @@ export default function AddIdeaModal({
             {/* Structure 필드 (Key-Value) */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <label className="block text-sm font-medium text-gray-700">Structure</label>
+                <label className="block text-sm font-medium text-gray-700">구조</label>
                 <button
                   onClick={addStructurePair}
                   className="px-3 py-1 text-sm bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors"

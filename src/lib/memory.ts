@@ -338,12 +338,21 @@ async function updateAgentMemoryForEvent(
     const isInFeedbackSession =
       currentState && isFeedbackSessionActive(currentState);
 
+    const isInPlanningState = currentState && currentState.currentState === "plan";
+    
     if (isInFeedbackSession) {
       console.log(
         `🔒 에이전트 ${agentId}는 피드백 세션 중이므로 reflecting 상태 전환 스킵 (메모리 업데이트는 진행)`
       );
+    } else if (isInPlanningState) {
+      // planning 중인 경우 회고를 큐에 추가
+      console.log(
+        `📋 에이전트 ${agentId}는 planning 중이므로 retrospective를 큐에 추가`
+      );
+      await queueRetrospective(teamId, agentId, event);
+      return; // 메모리 업데이트는 나중에 큐에서 처리할 때 진행
     } else {
-      // 피드백 세션 중이 아닌 경우에만 회고 상태로 변경
+      // 피드백 세션 중이 아니고 planning 중이 아닌 경우에만 회고 상태로 변경
       await updateAgentState(teamId, agentId, "reflecting");
     }
 
@@ -1004,11 +1013,7 @@ function getRelationKey(agentId: string): string {
   return agentId === "나" ? "나" : agentId;
 }
 
-// 기존 함수들은 호환성을 위해 유지하되 새 시스템으로 리다이렉트
-export async function recordEvent(event: any): Promise<void> {
-  console.log("⚠️ 구 recordEvent 사용됨. 새 시스템으로 마이그레이션 필요");
-  // 기존 이벤트를 새 형식으로 변환하여 처리할 수 있음
-}
+// Legacy compatibility functions
 
 export async function createAgentMemory(
   agent: AIAgent,
@@ -1493,5 +1498,37 @@ async function extractTeamIdFromAgentId(
   } catch (error) {
     console.error(`❌ ${agentId} 팀 ID 추출 오류:`, error);
     return null;
+  }
+}
+
+/**
+ * Planning 중인 에이전트의 retrospective를 큐에 추가
+ */
+async function queueRetrospective(
+  teamId: string,
+  agentId: string,
+  memoryEvent: MemoryEvent
+): Promise<void> {
+  try {
+    // retrospective 요청 생성
+    const retrospectiveRequest = {
+      id: `retro_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      type: "retrospective",
+      requesterName: "System",
+      payload: {
+        message: "Memory update retrospective",
+        memoryEvent: memoryEvent,
+      },
+      timestamp: new Date().toISOString(),
+      teamId: teamId,
+    };
+
+    // Redis 큐에 추가 (기존 요청 시스템과 동일한 방식)
+    const queueKey = `agent_queue:${teamId}:${agentId}`;
+    await redis.lpush(queueKey, JSON.stringify(retrospectiveRequest));
+    
+    console.log(`✅ ${agentId} retrospective Redis 큐에 추가됨 (key: ${queueKey})`);
+  } catch (error) {
+    console.error(`❌ ${agentId} retrospective 큐잉 실패:`, error);
   }
 }

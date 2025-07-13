@@ -151,11 +151,7 @@ export default function ReviewPage() {
           requestDescription += "요청을 했습니다.";
         }
         
-        // 실제 요청 내용이 있다면 추가
-        if (message.content || message.payload?.content) {
-          const requestContent = message.content || message.payload?.content;
-          requestDescription += ` 내용: "${requestContent}"`;
-        }
+        // 실제 요청 내용은 상세 페이지에서만 표시하고 타임라인에서는 숨김
 
         logs.push({
           timestamp: message.timestamp,
@@ -1333,10 +1329,6 @@ export default function ReviewPage() {
                   </div>
                 </div>
 
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h4 className="font-medium text-gray-900 mb-2">활동 설명</h4>
-                  <p className="text-gray-700">{activity.description}</p>
-                </div>
               </div>
 
               {/* 관련 콘텐츠 */}
@@ -1363,28 +1355,48 @@ export default function ReviewPage() {
                           .map(([key, value]) => (
                             <div key={key}>
                               <div className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">
-                                {key}
+                                {key === 'object' ? '아이디어' : 
+                                 key === 'function' ? '기능 요약' : 
+                                 key === 'behavior' ? '핵심 동작(행동)' : 
+                                 key === 'structure' ? '구조' : key}
                               </div>
                               <div className="bg-gray-50 rounded p-2 text-sm text-gray-800">
-                                {typeof value === 'string' ? (
-                                  (() => {
+                                {(() => {
+                                  // 문자열인 경우 JSON 파싱 시도
+                                  if (typeof value === 'string') {
                                     try {
                                       const parsed = JSON.parse(value);
                                       if (typeof parsed === 'object' && parsed !== null) {
-                                        return Object.entries(parsed).map(([subKey, subValue]) => (
-                                          <div key={subKey} className="mb-2">
-                                            <span className="font-medium">{subKey}:</span> {String(subValue)}
+                                        return (
+                                          <div className="space-y-2">
+                                            {Object.entries(parsed).map(([subKey, subValue]) => (
+                                              <div key={subKey}>
+                                                <div className="font-medium text-gray-800 mb-1">{subKey}</div>
+                                                <div className="text-gray-600 text-sm">{String(subValue)}</div>
+                                              </div>
+                                            ))}
                                           </div>
-                                        ));
+                                        );
                                       }
-                                      return value;
+                                      return <p className="text-sm text-gray-800 whitespace-pre-wrap">{value}</p>;
                                     } catch {
-                                      return value;
+                                      return <p className="text-sm text-gray-800 whitespace-pre-wrap">{value}</p>;
                                     }
-                                  })()
-                                ) : (
-                                  String(value)
-                                )}
+                                  } else if (typeof value === 'object' && value !== null) {
+                                    return (
+                                      <div className="space-y-2">
+                                        {Object.entries(value).map(([subKey, subValue]) => (
+                                          <div key={subKey}>
+                                            <div className="font-medium text-gray-800 mb-1">{subKey}</div>
+                                            <div className="text-gray-600 text-sm">{String(subValue)}</div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    );
+                                  } else {
+                                    return <p className="text-sm text-gray-800 whitespace-pre-wrap">{value.toString()}</p>;
+                                  }
+                                })()}
                               </div>
                             </div>
                           ))}
@@ -1660,7 +1672,10 @@ export default function ReviewPage() {
                     return (
                       <div key={key} className="space-y-2">
                         <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
-                          {key}
+                          {key === 'object' ? '아이디어' : 
+                           key === 'function' ? '기능 요약' : 
+                           key === 'behavior' ? '핵심 동작(행동)' : 
+                           key === 'structure' ? '구조' : key}
                         </h4>
                         <div className="bg-gray-50 rounded-lg p-3">
                           {(() => {
@@ -1997,9 +2012,6 @@ export default function ReviewPage() {
               <h1 className="text-xl font-bold text-gray-900">
                 {team?.teamName} - 세션 리뷰
               </h1>
-              <p className="text-sm text-gray-600">
-                아이디에이션 세션의 활동 내역과 결과를 확인하세요
-              </p>
             </div>
           </div>
           <div className="flex items-center gap-4 text-sm text-gray-600">
@@ -2358,7 +2370,7 @@ export default function ReviewPage() {
                 </div>
               </div>
               
-              <div className="space-y-4 max-h-96 overflow-y-auto">
+              <div className="space-y-4 max-h-[600px] overflow-y-auto">
                 {(() => {
                   const filteredAndSortedLogs = getFilteredAndSortedActivityLogs();
                   

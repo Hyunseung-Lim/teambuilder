@@ -5,14 +5,15 @@ import {
   getAgentMemory,
   updateAgentMemory,
 } from "@/lib/redis";
-import { generateIdea } from "@/lib/openai";
+import { generateIdeaAction } from "@/lib/openai";
+import { getAgentById } from "@/lib/redis";
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { teamId: string; agentId: string } }
+  { params }: { params: Promise<{ teamId: string; agentId: string }> }
 ) {
   try {
-    const { teamId, agentId } = params;
+    const { teamId, agentId } = await params;
     const body = await request.json();
     const { trigger, topic, teamContext } = body;
 
@@ -45,22 +46,17 @@ export async function POST(
       );
     }
 
-    // 에이전트 메모리 가져오기
+    // 에이전트 메모리 및 프로필 가져오기
     const agentMemory = await getAgentMemory(agentId);
+    const agentProfile = await getAgentById(agentId);
 
     // 아이디어 생성 요청
-    const ideaResult = await generateIdea({
-      agentId,
-      topic: topic || team.topic || "",
-      teamContext: {
-        teamName: team.teamName,
-        topic: topic || team.topic || "",
-        memberCount: team.members.length,
-        ...teamContext,
-      },
-      trigger: trigger || "manual",
-      memory: agentMemory,
-    });
+    const ideaResult = await generateIdeaAction(
+      topic || team.topic || "Carbon Emission Reduction",
+      agentProfile,
+      [], // 기존 아이디어는 별도 로직에서 처리
+      agentMemory
+    );
 
     if (!ideaResult.success || !ideaResult.idea) {
       console.error(

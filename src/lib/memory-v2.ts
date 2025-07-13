@@ -104,16 +104,45 @@ export async function createNewAgentMemory(
       };
     }
 
+    // 관계 찾기 - 사용자의 경우 "나"와 실제 이름 모두 확인
+    console.log(`🔍 ${agentProfile.name}와 ${otherAgentName} (${member.isUser ? '사용자' : 'AI'}) 간의 관계 찾는 중...`);
+    console.log(`팀 관계 데이터:`, team.relationships);
+    
     const relationship = team.relationships.find(
-      (rel) =>
-        (rel.from === agentProfile.name && rel.to === otherAgentName) ||
-        (rel.from === otherAgentName && rel.to === agentProfile.name)
+      (rel) => {
+        if (member.isUser) {
+          // 사용자의 경우 "나" 또는 실제 user 이름으로 관계 찾기
+          const match = (
+            (rel.from === agentProfile.name && (rel.to === "나" || rel.to === otherAgentName)) ||
+            (rel.from === "나" && rel.to === agentProfile.name) ||
+            (rel.from === otherAgentName && rel.to === agentProfile.name)
+          );
+          if (match) {
+            console.log(`✅ 사용자 관계 발견: ${rel.from} → ${rel.to} (${rel.type})`);
+          }
+          return match;
+        } else {
+          // AI 에이전트의 경우 기존 로직
+          const match = (
+            (rel.from === agentProfile.name && rel.to === otherAgentName) ||
+            (rel.from === otherAgentName && rel.to === agentProfile.name)
+          );
+          if (match) {
+            console.log(`✅ AI 관계 발견: ${rel.from} → ${rel.to} (${rel.type})`);
+          }
+          return match;
+        }
+      }
     );
+    
+    if (!relationship) {
+      console.log(`⚠️ ${agentProfile.name}와 ${otherAgentName} 간의 관계를 찾을 수 없음`);
+    }
 
     const relationKey = member.isUser ? "나" : otherAgentId;
     relations[relationKey] = {
       agentInfo: otherAgentProfile,
-      relationship: relationship ? relationship.type : "NULL",
+      relationship: relationship ? relationship.type : (member.isUser ? "PEER" : "NULL"),
       interactionHistory: [],
       myOpinion: "No interactions yet to form an opinion.",
     };
@@ -221,14 +250,79 @@ async function updateKnowledgeAndActionPlan(
 
   try {
     const response = await getTextResponse(prompt);
-    const parsed = JSON.parse(response);
+    
+    // console.log(`📝 ${agentProfile.name} 회고 원본 응답:`, response);
+    
+    let parsed;
+    let doubleCleanedResponse = "";
+    
+    try {
+      // JSON 마크다운 블록 제거 (```json ... ``` 형태)
+      const cleanedResponse = response
+        .replace(/```json\s*\n?/g, "")
+        .replace(/```\s*$/g, "")
+        .trim();
+      
+      parsed = JSON.parse(cleanedResponse);
+    } catch (parseError) {
+      console.error(`❌ ${agentProfile.name} JSON 파싱 실패:`, parseError);
+      console.error(`원본 응답:`, response);
+      
+      // 두 번째 시도: 더 강력한 정리
+      try {
+        doubleCleanedResponse = response
+          .replace(/```[\w]*\s*\n?/g, "")
+          .replace(/```\s*/g, "")
+          .replace(/^\s*\n/gm, "")
+          .trim();
+        
+        parsed = JSON.parse(doubleCleanedResponse);
+        console.log(`✅ ${agentProfile.name} 두 번째 시도로 JSON 파싱 성공`);
+      } catch (secondParseError) {
+        console.error(`❌ ${agentProfile.name} 두 번째 시도도 실패:`, secondParseError);
+        console.error(`정리된 응답:`, doubleCleanedResponse);
+        return;
+      }
+    }
+
+    // console.log(`🔍 ${agentProfile.name} 회고 응답 파싱 결과:`, {
+    //   hasKnowledge: !!parsed.knowledge,
+    //   hasActionPlan: !!parsed.actionPlan,
+    //   actionPlanKeys: parsed.actionPlan ? Object.keys(parsed.actionPlan) : [],
+    //   fullParsedResponse: parsed
+    // });
 
     if (parsed.knowledge) {
+      // console.log(`📚 Knowledge 업데이트 전:`, memory.longTerm.knowledge?.substring(0, 100) + "...");
       memory.longTerm.knowledge = parsed.knowledge;
+      // console.log(`📚 Knowledge 업데이트 후:`, memory.longTerm.knowledge?.substring(0, 100) + "...");
     }
 
     if (parsed.actionPlan) {
+      // console.log(`📋 ActionPlan 업데이트 전:`, {
+      //   idea_generation: memory.longTerm.actionPlan?.idea_generation?.substring(0, 50) + "...",
+      //   idea_evaluation: memory.longTerm.actionPlan?.idea_evaluation?.substring(0, 50) + "...",
+      //   feedback: memory.longTerm.actionPlan?.feedback?.substring(0, 50) + "...",
+      //   request: memory.longTerm.actionPlan?.request?.substring(0, 50) + "...",
+      //   response: memory.longTerm.actionPlan?.response?.substring(0, 50) + "...",
+      //   planning: memory.longTerm.actionPlan?.planning?.substring(0, 50) + "..."
+      // });
+      
+      // console.log(`📋 받은 ActionPlan 데이터:`, parsed.actionPlan);
+      
+      // 모든 actionPlan 필드를 업데이트하되, 기존 값을 유지하면서 새로운 값으로 덮어쓰기
       Object.assign(memory.longTerm.actionPlan, parsed.actionPlan);
+      
+      // console.log(`📋 ActionPlan 업데이트 후:`, {
+      //   idea_generation: memory.longTerm.actionPlan?.idea_generation?.substring(0, 50) + "...",
+      //   idea_evaluation: memory.longTerm.actionPlan?.idea_evaluation?.substring(0, 50) + "...",
+      //   feedback: memory.longTerm.actionPlan?.feedback?.substring(0, 50) + "...",
+      //   request: memory.longTerm.actionPlan?.request?.substring(0, 50) + "...",
+      //   response: memory.longTerm.actionPlan?.response?.substring(0, 50) + "...",
+      //   planning: memory.longTerm.actionPlan?.planning?.substring(0, 50) + "..."
+      // });
+    } else {
+      console.warn(`⚠️ ${agentProfile.name} ActionPlan이 응답에 포함되지 않음!`);
     }
 
     console.log(`✅ ${agentProfile.name} Knowledge & ActionPlan 업데이트 완료`);

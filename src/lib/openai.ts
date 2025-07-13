@@ -1,22 +1,18 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import {
-  generateIdeaPrompt,
-  evaluateIdeaPrompt,
-  feedbackPrompt,
+  ideationPrompt,
+  evaluationPrompt,
   requestPrompt,
   preIdeationPrompt,
   newIdeationPrompt,
   updateIdeationPrompt,
   preEvaluationPrompt,
-  executeEvaluationPrompt,
-  alreadyEvaluatedResponsePrompt,
-  createPlanningPrompt,
+  planningPrompt,
   preRequestPrompt,
-  executeRequestPrompt,
-  giveFeedbackOnIdeaPrompt,
-  planFeedbackStrategyPrompt,
-  generateFeedbackSessionResponsePrompt,
+  feedbackPrompt,
+  preFeedbackPrompt,
+  responsePrompt,
   generateFeedbackSessionSummaryPrompt,
   generateTeamMembersSummaryPrompt,
   generateAgentPersonaSummaryPrompt,
@@ -42,7 +38,7 @@ export async function getJsonResponse(prompt: string, agentProfile?: any) {
 
   // 시스템 프롬프트로 AI 에이전트 데모그래픽 정보 추가
   if (agentProfile) {
-    console.log("원본 agentProfile:", JSON.stringify(agentProfile, null, 2));
+    // console.log("원본 agentProfile:", JSON.stringify(agentProfile, null, 2));
 
     // 필드명 매핑 (professional -> occupation)
     const occupation =
@@ -76,20 +72,14 @@ export async function getJsonResponse(prompt: string, agentProfile?: any) {
     systemPrompt +=
       "\n\nGenerate responses that reflect your unique background, expertise, and perspective. Always respond in Korean.";
 
-    console.log("최종 시스템 프롬프트:", systemPrompt);
     messages.push(new SystemMessage(systemPrompt));
   }
-
-  console.log("최종 사용자 프롬프트:", prompt);
   messages.push(new HumanMessage(prompt));
 
   try {
     const response = await llm.invoke(messages);
     const rawResponse = response.content;
 
-    console.log("=== LLM 응답 로그 ===");
-    console.log("원본 LLM 응답:", rawResponse);
-    console.log("==================");
 
     if (!rawResponse) {
       throw new Error("OpenAI returned an empty response.");
@@ -102,7 +92,7 @@ export async function getJsonResponse(prompt: string, agentProfile?: any) {
       .trim();
 
     const parsedResponse = JSON.parse(cleanedResponse);
-    console.log("파싱된 JSON 응답:", JSON.stringify(parsedResponse, null, 2));
+    // console.log("파싱된 JSON 응답:", JSON.stringify(parsedResponse, null, 2));
     return parsedResponse;
   } catch (error) {
     console.error("LLM 응답 처리 오류:", error);
@@ -131,17 +121,17 @@ export async function getJsonResponse(prompt: string, agentProfile?: any) {
 // 에이전트 상태 복구 함수
 async function handleAgentStateRecovery(agentId: string, agentName: string) {
   try {
-    console.log(`🔧 ${agentName} 상태 복구 시작`);
+    console.log(`🔧 ${agentName} LLM 응답 파싱 실패 - 상태 복구 시작`);
 
     // 먼저 팀 ID 추출
     const teamId = await extractTeamIdFromContext(agentId);
     if (!teamId) {
-      console.log(`⚠️ ${agentName} 팀 ID 추출 실패 - 복구 스킵`);
+      console.error(`❌ ${agentName} 팀 ID 추출 실패 - 복구 불가능`);
       return;
     }
 
     // 에이전트 상태 관련 함수들 임포트
-    const { getAgentState, isFeedbackSessionActive } = await import(
+    const { getAgentState, setAgentState, isFeedbackSessionActive, createNewIdleTimer } = await import(
       "@/lib/agent-state-utils"
     );
 
@@ -149,29 +139,65 @@ async function handleAgentStateRecovery(agentId: string, agentName: string) {
     const currentState = await getAgentState(teamId, agentId);
 
     if (!currentState) {
-      console.log(`⚠️ ${agentName} 상태 정보 없음 - 바로 대기 상태로 전환`);
-      await transitionToIdleState(teamId, agentId, agentName);
+      console.log(`⚠️ ${agentName} 상태 정보 없음 - 새 idle 상태 생성`);
+      await setAgentState(teamId, agentId, {
+        agentId,
+        currentState: "idle",
+        lastStateChange: new Date().toISOString(),
+        isProcessing: false,
+        idleTimer: createNewIdleTimer(),
+      });
+      console.log(`✅ ${agentName} 새 idle 상태 생성 완료`);
       return;
     }
 
     // 피드백 세션 중인지 확인
     if (isFeedbackSessionActive(currentState)) {
       console.log(
-        `🔄 ${agentName} 피드백 세션 중 - 세션 종료 후 대기 상태로 전환`
+        `🔄 ${agentName} 피드백 세션 중 - 세션 유지하며 processing 플래그만 해제`
       );
-
-      // 피드백 세션 종료 처리
-      await terminateActiveFeedbackSessions(teamId, agentId, agentName);
+      
+      // 피드백 세션은 유지하되 processing 상태만 해제
+      await setAgentState(teamId, agentId, {
+        ...currentState,
+        isProcessing: false,
+        lastStateChange: new Date().toISOString(),
+      });
     } else {
-      console.log(`🔄 ${agentName} 일반 상태 - 바로 대기 상태로 전환`);
+      console.log(`🔄 ${agentName} 일반 상태 - idle로 전환`);
+      
+      // 즉시 idle 상태로 전환
+      await setAgentState(teamId, agentId, {
+        agentId,
+        currentState: "idle",
+        lastStateChange: new Date().toISOString(),
+        isProcessing: false,
+        idleTimer: createNewIdleTimer(),
+      });
     }
-
-    // 무조건 대기 상태로 전환
-    await transitionToIdleState(teamId, agentId, agentName);
 
     console.log(`✅ ${agentName} 상태 복구 완료`);
   } catch (error) {
     console.error(`❌ ${agentName} 상태 복구 중 오류:`, error);
+    
+    // 최후의 수단: 강제 idle 상태 설정
+    try {
+      const { setAgentState, createNewIdleTimer } = await import("@/lib/agent-state-utils");
+      const teamId = await extractTeamIdFromContext(agentId);
+      
+      if (teamId) {
+        await setAgentState(teamId, agentId, {
+          agentId,
+          currentState: "idle",
+          lastStateChange: new Date().toISOString(),
+          isProcessing: false,
+          idleTimer: createNewIdleTimer(),
+        });
+        console.log(`🛠️ ${agentName} 강제 idle 전환 완료`);
+      }
+    } catch (forceError) {
+      console.error(`💥 ${agentName} 강제 복구도 실패:`, forceError);
+    }
   }
 }
 
@@ -204,216 +230,9 @@ async function extractTeamIdFromContext(
   }
 }
 
-// 활성 피드백 세션 종료
-async function terminateActiveFeedbackSessions(
-  teamId: string,
-  agentId: string,
-  agentName: string
-) {
-  try {
-    const { redis } = await import("@/lib/redis");
-
-    // 활성 피드백 세션 찾기 - redis.keys() 대신 smembers() 사용
-    const activeSessionIds = await redis.smembers(
-      `team:${teamId}:active_feedback_sessions`
-    );
-
-    for (const sessionId of activeSessionIds) {
-      const sessionData = await redis.get(`feedback_session:${sessionId}`);
-      if (sessionData) {
-        const session =
-          typeof sessionData === "string"
-            ? JSON.parse(sessionData)
-            : sessionData;
-
-        // 에이전트가 참여 중인 활성 세션인지 확인
-        if (
-          session.status === "active" &&
-          session.participants.some((p: any) => p.id === agentId)
-        ) {
-          console.log(
-            `🛑 ${agentName} 활성 피드백 세션 ${session.id} 종료 처리`
-          );
-
-          // 세션 상태를 종료로 변경
-          session.status = "ended";
-          session.endedAt = new Date().toISOString();
-          session.endedBy = "system_recovery";
-
-          await redis.set(
-            `feedback_session:${sessionId}`,
-            JSON.stringify(session),
-            {
-              ex: 3600 * 24,
-            }
-          );
-
-          // 활성 세션 set에서도 제거
-          await redis.srem(
-            `team:${teamId}:active_feedback_sessions`,
-            sessionId
-          );
-
-          console.log(`✅ ${agentName} 피드백 세션 ${session.id} 종료 완료`);
-        }
-      } else {
-        // 존재하지 않는 세션은 set에서 제거
-        await redis.srem(`team:${teamId}:active_feedback_sessions`, sessionId);
-      }
-    }
-  } catch (error) {
-    console.error(`❌ ${agentName} 피드백 세션 종료 실패:`, error);
-  }
-}
-
-// 대기 상태로 전환
-async function transitionToIdleState(
-  teamId: string,
-  agentId: string,
-  agentName: string
-) {
-  try {
-    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
-
-    const response = await fetch(
-      `${baseUrl}/api/teams/${teamId}/agent-states`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": "TeamBuilder-Internal-Recovery",
-        },
-        body: JSON.stringify({
-          agentId,
-          currentState: "idle",
-          forceClear: true, // 강제 초기화
-        }),
-      }
-    );
-
-    if (response.ok) {
-      console.log(`😴 ${agentName} 대기 상태 전환 완료`);
-    } else {
-      console.error(`❌ ${agentName} 대기 상태 전환 실패:`, response.status);
-    }
-  } catch (error) {
-    console.error(`❌ ${agentName} 대기 상태 전환 오류:`, error);
-  }
-}
 
 // --- Action Functions ---
 
-export async function generateIdea({
-  agentId,
-  topic,
-  teamContext,
-  trigger = "manual",
-  memory,
-}: {
-  agentId: string;
-  topic: string;
-  teamContext: any;
-  trigger?: string;
-  memory?: AgentMemory | null;
-}): Promise<{
-  success: boolean;
-  idea?: any;
-  error?: string;
-  updatedMemory?: AgentMemory;
-}> {
-  try {
-    console.log(`🎯 에이전트 ${agentId} 아이디어 생성 시작`, {
-      topic,
-      trigger,
-    });
-
-    // 에이전트 프로필 정보 가져오기 (Redis에서)
-    let agentProfile = null;
-    try {
-      const { getAgentById } = await import("@/lib/redis");
-      agentProfile = await getAgentById(agentId);
-      console.log(
-        `📋 에이전트 프로필:`,
-        agentProfile?.name,
-        agentProfile?.professional
-      );
-    } catch (error) {
-      console.warn(`⚠️ 에이전트 프로필 로딩 실패:`, error);
-    }
-
-    // 트리거에 따른 컨텍스트 조정
-    let enhancedTopic = topic;
-    if (trigger === "initial_startup") {
-      enhancedTopic = `${topic}\n\n[Ideation Start] Team '${teamContext.teamName}' is starting ideation on the above topic. Please propose a creative and feasible first idea utilizing your expertise.`;
-    }
-
-    // 아이디어 생성 실행
-    const ideaResult = await generateIdeaAction(
-      enhancedTopic,
-      agentProfile,
-      [], // 초기에는 기존 아이디어 없음
-      memory || undefined,
-      teamContext
-    );
-
-    console.log(`✅ 에이전트 ${agentId} 아이디어 생성 결과:`, ideaResult);
-
-    // 메모리 업데이트 (아이디어 생성 기록)
-    let updatedMemory: AgentMemory | undefined = memory || undefined;
-    if (memory) {
-      try {
-        // 짧은 기간 메모리 업데이트
-        const newShortTermMemory = {
-          ...memory.shortTerm,
-          lastAction: {
-            type: "generate_idea",
-            timestamp: new Date().toISOString(),
-            payload: {
-              topic: topic,
-              trigger: trigger,
-              ideaGenerated: true,
-            },
-          },
-        };
-
-        // 긴 기간 메모리 업데이트 (자기 성찰 추가)
-        const newSelfReflection =
-          typeof memory.longTerm.self === "string" ? memory.longTerm.self : "";
-
-        const updatedSelf = `${newSelfReflection}\n\n[${new Date().toISOString()}] Generated an idea on the topic '${topic}'. ${
-          trigger === "initial_startup"
-            ? "Proposed as the first idea for team ideation."
-            : ""
-        }`;
-
-        updatedMemory = {
-          ...memory,
-          shortTerm: newShortTermMemory,
-          longTerm: {
-            ...memory.longTerm,
-            self: updatedSelf.trim(),
-          },
-        };
-
-        console.log(`🧠 에이전트 ${agentId} 메모리 업데이트 완료`);
-      } catch (memoryError) {
-        console.warn(`⚠️ 메모리 업데이트 실패:`, memoryError);
-      }
-    }
-
-    return {
-      success: true,
-      idea: ideaResult,
-      updatedMemory,
-    };
-  } catch (error) {
-    console.error(`❌ 에이전트 ${agentId} 아이디어 생성 실패:`, error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
-  }
-}
 
 export async function generateIdeaAction(
   context?: string,
@@ -425,15 +244,11 @@ export async function generateIdeaAction(
     function: string;
   }>,
   memory?: AgentMemory,
-  team?: any
+  _team?: any
 ) {
   // 기존 아이디어가 있으면 프롬프트에 포함
   let enhancedContext = context || "Carbon Emission Reduction";
 
-  // 공유 멘탈 모델 추가
-  if (team?.sharedMentalModel) {
-    enhancedContext += `\n\n**Team's Shared Mental Model:**\n${team.sharedMentalModel}\n\nBased on the above shared mental model, generate ideas that align with the team's direction and values.`;
-  }
 
   if (existingIdeas && existingIdeas.length > 0) {
     const existingIdeasText = existingIdeas
@@ -493,57 +308,82 @@ export async function generateIdeaAction(
     enhancedContext += `\nBased on the above memory, generate ideas that reflect your personality and experience.`;
   }
 
-  const prompt = generateIdeaPrompt(enhancedContext, userProfile, memory, team?.sharedMentalModel, userProfile?.personaSummary);
-  return getJsonResponse(prompt, userProfile);
+  const prompt = ideationPrompt(enhancedContext, userProfile, memory, userProfile?.personaSummary);
+  
+  try {
+    const ideaResponse = await getJsonResponse(prompt, userProfile);
+    
+    // 응답 형태 검증
+    if (!ideaResponse || typeof ideaResponse !== 'object') {
+      return {
+        success: false,
+        error: "Invalid response format from AI"
+      };
+    }
+    
+    // 필수 필드가 있는지 확인 (object는 필수, 나머지는 선택적)
+    if (!ideaResponse.object) {
+      return {
+        success: false,
+        error: "Missing required field 'object' in AI response"
+      };
+    }
+    
+    return {
+      success: true,
+      idea: ideaResponse,
+      updatedMemory: memory // 메모리 업데이트는 v2 시스템에서 처리하므로 기존 메모리 반환
+    };
+  } catch (error) {
+    console.error("generateIdeaAction 오류:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error occurred"
+    };
+  }
 }
 
 export async function evaluateIdeaAction(
   idea: any,
   context?: string,
-  team?: { sharedMentalModel?: string },
   agentProfile?: any,
   memory?: any
 ) {
-  const prompt = evaluateIdeaPrompt(idea, context, agentProfile, memory, team?.sharedMentalModel);
+  const prompt = evaluationPrompt(idea, context || "General evaluation", memory, agentProfile);
   return getJsonResponse(prompt, agentProfile);
 }
 
-export async function feedbackAction(
-  target: string, 
-  context: string, 
-  agentProfile?: any, 
-  memory?: any, 
-  sharedMentalModel?: string
-) {
-  const prompt = feedbackPrompt(target, context, agentProfile, memory, sharedMentalModel);
-  return getJsonResponse(prompt, agentProfile);
-}
 
-// Specific idea feedback function
-export async function giveFeedbackOnIdea(
-  targetIdea: any,
+// Initial feedback function for starting feedback sessions
+export async function giveFeedback(
+  targetMember: string,
+  targetMemberIdeas: any[],
   userProfile: any,
   teamContext: any,
-  memory?: AgentMemory
+  memory?: AgentMemory,
+  targetMemberRoles?: string[],
+  allIdeas?: any[],
+  feedbackStrategy?: any
 ) {
-  const ideaAuthor =
-    targetIdea.author === "나"
-      ? "나"
-      : (() => {
-          const member = teamContext.teamMembers.find(
-            (m: any) => m.agentId === targetIdea.author
-          );
-          return member?.name || targetIdea.author;
-        })();
+  console.log("🎯 giveFeedback 함수 실행 - 입력 매개변수:");
+  console.log("- targetMember:", targetMember);
+  console.log("- targetMemberIdeas:", targetMemberIdeas);
+  console.log("- userProfile:", userProfile);
+  console.log("- teamContext:", teamContext);
+  console.log("- memory:", memory);
+  console.log("- targetMemberRoles:", targetMemberRoles);
 
-  const { agentContext, mainPrompt } = giveFeedbackOnIdeaPrompt(
-    targetIdea,
-    ideaAuthor,
+  const { agentContext, mainPrompt } = feedbackPrompt(
+    targetMember,
+    targetMemberIdeas,
     teamContext,
     userProfile,
     memory,
-    teamContext.sharedMentalModel
+    targetMemberRoles,
+    allIdeas,
+    feedbackStrategy
   );
+
 
   const messages = [];
   
@@ -580,10 +420,9 @@ export async function requestAction(
   target: string, 
   context: string, 
   agentProfile?: any, 
-  memory?: any, 
-  sharedMentalModel?: string
+  memory?: any
 ) {
-  const prompt = requestPrompt(target, context, agentProfile, memory, sharedMentalModel);
+  const prompt = requestPrompt(target, "general_request", "Strategic request based on context", context, [], undefined, memory, undefined, undefined, undefined, agentProfile);
   return getJsonResponse(prompt, agentProfile);
 }
 
@@ -603,9 +442,9 @@ export async function planNextAction(
       object: string;
       function: string;
     }>;
-    sharedMentalModel?: string; // 공유 멘탈 모델 추가
   },
-  memory?: any
+  memory?: any,
+  team?: any
 ): Promise<{
   action:
     | "generate_idea"
@@ -630,13 +469,38 @@ export async function planNextAction(
   };
 
   try {
+    // 피드백 가능한 대상이 있는지 확인
+    let canGiveFeedback = false;
+    if (team && hasRole("피드백하기")) {
+      console.log(`🎯 ${userProfile.name} 피드백 계획 단계 확인 시작`);
+      const { canCreateFeedbackSession } = await import("@/lib/relationship-utils");
+      const otherMembers = team.members.filter(
+        (member: any) => !member.isUser && member.agentId !== userProfile.id
+      );
+      
+      console.log(`👥 피드백 대상 후보 (${otherMembers.length}명):`, otherMembers.map(m => ({ agentId: m.agentId, name: m.name })));
+      console.log(`📊 팀 관계 정보 (${team.relationships.length}개):`, team.relationships);
+      
+      for (const member of otherMembers) {
+        const canCreate = canCreateFeedbackSession(userProfile.id, member.agentId!, team);
+        console.log(`🎯 ${userProfile.name} → ${member.name || member.agentId}: ${canCreate ? '✅ 가능' : '❌ 불가능'}`);
+        if (canCreate) {
+          canGiveFeedback = true;
+          break;
+        }
+      }
+      
+      console.log(`📋 ${userProfile.name} 피드백 계획 결과: ${canGiveFeedback ? '✅ 가능' : '❌ 불가능'}`);
+    }
+
     // 더 많은 메시지 컨텍스트를 위해 최근 15개 메시지 전달
     const extendedTeamContext = {
       ...teamContext,
       recentMessages: teamContext.recentMessages.slice(-15), // 더 많은 히스토리 제공
+      canGiveFeedback, // 피드백 가능 여부 추가
     };
 
-    const { agentContext, mainPrompt } = createPlanningPrompt(userProfile, extendedTeamContext, memory);
+    const { agentContext, mainPrompt } = planningPrompt(userProfile, extendedTeamContext, memory);
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -785,10 +649,9 @@ export async function preIdeationAction(
     function: string;
   }[],
   userProfile?: any,
-  memory?: AgentMemory,
-  sharedMentalModel?: string
+  memory?: AgentMemory
 ) {
-  const prompt = preIdeationPrompt(requestMessage, ideaList, memory, userProfile, sharedMentalModel);
+  const prompt = preIdeationPrompt(requestMessage, ideaList, memory, userProfile);
   return getJsonResponse(prompt, userProfile);
 }
 
@@ -798,12 +661,11 @@ export async function executeIdeationAction(
   topic: string,
   referenceIdea?: any,
   userProfile?: any,
-  memory?: AgentMemory,
-  sharedMentalModel?: string
+  memory?: AgentMemory
 ) {
   let prompt;
   if (decision === "New") {
-    prompt = newIdeationPrompt(ideationStrategy, topic, memory, userProfile, sharedMentalModel);
+    prompt = newIdeationPrompt(ideationStrategy, topic, memory, userProfile);
   } else {
     if (!referenceIdea) {
       throw new Error("Reference idea is required for 'Update' decision.");
@@ -813,8 +675,7 @@ export async function executeIdeationAction(
       ideationStrategy,
       topic,
       memory,
-      userProfile,
-      sharedMentalModel
+      userProfile
     );
   }
   return getJsonResponse(prompt, userProfile);
@@ -831,10 +692,9 @@ export async function preEvaluationAction(
     function: string;
   }[],
   userProfile?: any,
-  memory?: AgentMemory,
-  sharedMentalModel?: string
+  memory?: AgentMemory
 ) {
-  const prompt = preEvaluationPrompt(requestMessage, ideaList, memory, userProfile, sharedMentalModel);
+  const prompt = preEvaluationPrompt(requestMessage, ideaList, memory, userProfile);
   return getJsonResponse(prompt, userProfile);
 }
 
@@ -842,40 +702,17 @@ export async function executeEvaluationAction(
   selectedIdea: any,
   evaluationStrategy: string,
   userProfile?: any,
-  memory?: AgentMemory,
-  sharedMentalModel?: string
+  memory?: AgentMemory
 ) {
-  const prompt = executeEvaluationPrompt(
+  const prompt = evaluationPrompt(
     selectedIdea,
     evaluationStrategy,
     memory,
-    userProfile,
-    sharedMentalModel
-  );
-  return getJsonResponse(prompt, userProfile);
-}
-
-// --- Function for generating responses when already evaluated ---
-
-export async function generateAlreadyEvaluatedResponse(
-  requesterName: string,
-  selectedIdea: any,
-  previousEvaluation: any,
-  relationshipType: string | null,
-  userProfile?: any
-) {
-  const prompt = alreadyEvaluatedResponsePrompt(
-    requesterName,
-    selectedIdea,
-    previousEvaluation,
-    relationshipType,
     userProfile
   );
   return getJsonResponse(prompt, userProfile);
 }
 
-// Alias for consistency
-export const alreadyEvaluatedResponseAction = generateAlreadyEvaluatedResponse;
 
 // New request-related functions
 
@@ -904,17 +741,67 @@ export async function preRequestAction(
   }>,
   userProfile?: any,
   memory?: AgentMemory,
-  sharedMentalModel?: string // 공유 멘탈 모델 추가
+  team?: any
 ) {
+  // 요청 권한이 있는 팀원만 필터링
+  let filteredTeamMembers = teamMembers;
+  if (team && userProfile) {
+    console.log(`🎯 ${userProfile.name} 요청 계획 단계 확인 시작`);
+    console.log(`👥 요청 대상 후보 (${teamMembers.length}명):`, teamMembers.map(m => ({ agentId: m.agentId, name: m.name, isUser: m.isUser })));
+    console.log(`📊 팀 관계 정보 (${team.relationships.length}개):`, team.relationships);
+    console.log(`🤖 userProfile.id: ${userProfile.id}`);
+    
+    const { canMakeRequest } = await import("@/lib/relationship-utils");
+    filteredTeamMembers = teamMembers.filter(member => {
+      let canRequest = false;
+      const targetId = member.isUser ? "나" : member.agentId;
+      console.log(`🔍 관계 검증: ${userProfile.id} → ${targetId}`);
+      
+      if (member.isUser) {
+        canRequest = canMakeRequest(userProfile.id, "나", team);
+      } else {
+        canRequest = member.agentId ? canMakeRequest(userProfile.id, member.agentId, team) : false;
+      }
+      console.log(`🎯 ${userProfile.name} → ${member.name || member.agentId || '나'}: ${canRequest ? '✅ 가능' : '❌ 불가능'}`);
+      return canRequest;
+    });
+    
+    console.log(`📋 ${userProfile.name} 요청 가능한 팀원: ${filteredTeamMembers.length}명`, filteredTeamMembers.map(m => m.name || m.agentId || '나'));
+    
+    // 요청 가능한 팀원이 없으면 에러 반환
+    if (filteredTeamMembers.length === 0) {
+      console.log(`❌ ${userProfile.name} 요청 가능한 팀원이 없음 (관계 제약)`);
+      console.log(`📊 원본 팀원 수: ${teamMembers.length}, 필터링 후: ${filteredTeamMembers.length}`);
+      console.log(`🔍 관계 확인 결과 상세:`);
+      teamMembers.forEach(member => {
+        const targetId = member.isUser ? "나" : member.agentId;
+        const relationshipType = team.relationships.find((rel: any) => 
+          (rel.from === userProfile.id && rel.to === targetId) ||
+          (rel.from === targetId && rel.to === userProfile.id)
+        );
+        console.log(`  - ${member.name || targetId}: 관계 ${relationshipType?.type || 'none'}`);
+      });
+      
+      return {
+        success: false,
+        error: "No team members available for requests due to relationship constraints"
+      };
+    }
+  }
+  
   const prompt = preRequestPrompt(
     triggerContext,
-    teamMembers,
+    filteredTeamMembers,
     currentIdeas,
     memory,
-    userProfile,
-    sharedMentalModel
+    userProfile
   );
-  return getJsonResponse(prompt, userProfile);
+  const analysisResult = await getJsonResponse(prompt, userProfile);
+  
+  return {
+    success: true,
+    ...analysisResult
+  };
 }
 
 export async function executeRequestAction(
@@ -936,10 +823,9 @@ export async function executeRequestAction(
     skills?: string;
     personality?: string;
     value?: string;
-  },
-  sharedMentalModel?: string // 공유 멘탈 모델 추가
+  }
 ) {
-  const prompt = executeRequestPrompt(
+  const prompt = requestPrompt(
     targetMember,
     requestType,
     requestStrategy,
@@ -950,8 +836,7 @@ export async function executeRequestAction(
     originalRequest,
     originalRequester,
     targetMemberInfo,
-    userProfile,
-    sharedMentalModel
+    userProfile
   );
   return getJsonResponse(prompt, userProfile);
 }
@@ -983,8 +868,8 @@ export async function makeRequestAction(
   userProfile?: any,
   memory?: AgentMemory,
   originalRequest?: string,
-  originalRequester?: string,
-  sharedMentalModel?: string // 공유 멘탈 모델 추가
+  _sharedMentalModel?: any,
+  team?: any // 관계 검증을 위한 팀 정보 추가
 ) {
   // Step 1: Analyze request
   const requestAnalysis = await preRequestAction(
@@ -993,8 +878,13 @@ export async function makeRequestAction(
     currentIdeas,
     userProfile,
     memory,
-    sharedMentalModel
+    team
   );
+
+  // 요청 가능한 팀원이 없는 경우 처리
+  if (!requestAnalysis.success) {
+    return requestAnalysis;
+  }
 
   // Step 2: Execute request
   const targetMemberInfo = teamMembers.find(
@@ -1003,6 +893,19 @@ export async function makeRequestAction(
 
   if (!targetMemberInfo) {
     throw new Error(`Target member ${requestAnalysis.targetMember} not found`);
+  }
+
+
+  // 관계 검증: 요청은 관계가 있는 팀원에게만 가능
+  if (team && userProfile) {
+    const { canMakeRequest } = await import("@/lib/relationship-utils");
+    const requesterId = userProfile.id || userProfile.agentId;
+    const targetId = targetMemberInfo.agentId || targetMemberInfo.name;
+    
+    if (!canMakeRequest(requesterId, targetId, team)) {
+      console.log(`⚠️ ${userProfile.name}이 ${requestAnalysis.targetMember}에게 요청할 권한이 없음 (관계 없음)`);
+      throw new Error(`요청 권한이 없습니다. ${requestAnalysis.targetMember}와의 관계가 설정되지 않았습니다.`);
+    }
   }
 
   const requestMessage = await executeRequestAction(
@@ -1015,7 +918,7 @@ export async function makeRequestAction(
     userProfile,
     memory,
     originalRequest,
-    originalRequester,
+    undefined, // originalRequester parameter not available
     targetMemberInfo.isUser
       ? {
           isUser: true,
@@ -1028,8 +931,7 @@ export async function makeRequestAction(
         }
       : {
           isUser: false,
-        },
-    sharedMentalModel
+        }
   );
 
   return {
@@ -1056,7 +958,8 @@ export async function generateFeedbackSessionResponse(
       };
     };
     teamIdeas?: any[];
-    sharedMentalModel?: string; // 공유 멘탈 모델 추가
+    targetMemberRoles?: string[];
+    targetMemberIdeas?: any[];
   },
   agentMemory?: any
 ): Promise<{
@@ -1069,8 +972,7 @@ export async function generateFeedbackSessionResponse(
       otherParticipant,
       messageHistory,
       feedbackContext,
-      teamIdeas,
-      sharedMentalModel,
+      teamIdeas: _teamIdeas,
     } = sessionContext;
 
     // 현재 메시지 수 확인 (system 메시지 제외하고 실제 대화 메시지만)
@@ -1097,62 +999,41 @@ export async function generateFeedbackSessionResponse(
       };
     }
 
-    // 최소 대화 횟수 미만이면 강제로 계속 진행
-    const minMessages = 4; // 최소 4개 메시지 (사용자 1회 + AI 1회 + 사용자 1회 + AI 1회)
+    // 최소 대화 횟수 미만이면 강제로 계속 진행, 최대 횟수 초과시 강제 종료
+    const minMessages = 4; // 최소 4개 메시지 (2회씩 주고받음)
+    const maxMessages = 8; // 최대 8개 메시지 (4회씩 주고받음)
     const shouldForceContinue = actualMessageCount < minMessages;
+    const shouldForceEnd = actualMessageCount >= maxMessages;
 
     // Memory context will be handled by the prompt function
 
-    // 팀 아이디어 컨텍스트 생성 (참고용, 특정 아이디어를 타겟하지 않음)
-    const teamIdeasContext =
-      teamIdeas && teamIdeas.length > 0
-        ? `\n## Team Ideas Status\nCurrently, ${teamIdeas.length} ideas have been proposed by the team. Various approaches and creative solutions are being discussed.\n`
-        : "";
 
-    // 공유 멘탈 모델 컨텍스트 생성
-    const sharedMentalModelContext = sharedMentalModel
-      ? `\n## Team's Shared Mental Model\n${sharedMentalModel}\nBased on the above shared mental model, provide feedback that aligns with the team's direction and values.\n`
-      : "";
-
-    // 피드백 가이드라인 생성
-    const feedbackGuideline = feedbackContext
-      ? `\n## Feedback Topic\n${
-          feedbackContext.category || feedbackContext.type
-        }: ${
-          feedbackContext.description || "General feedback on collaboration and teamwork"
-        }\n`
-      : `\n## Feedback Topic\nConstructive feedback on general collaboration, teamwork, and idea development processes\n`;
-
-    // 대화 히스토리 포맷팅
-    const conversationHistory =
-      messageHistory.length > 0
-        ? `\n## Conversation History\n${messageHistory
-            .filter((msg) => msg.type === "message")
-            .map(
-              (msg) =>
-                `${msg.sender === agent.id ? "나" : otherParticipant.name}: ${
-                  msg.content
-                }`
-            )
-            .join("\n")}\n`
-        : "\n## Conversation History\nNo conversation has started yet.\n";
-
-    // 종료 조건 가이드라인 생성
-    const endingGuideline = shouldForceContinue
-      ? `\n## Important: Continue Conversation Required\nCurrently only ${actualMessageCount} messages have been exchanged. Feedback sessions can only end after at least ${minMessages} messages have been exchanged. You must continue the conversation. (shouldEnd: false required)\n`
-      : `\n## Conversation End Decision\n${actualMessageCount} messages have been exchanged so far. You can naturally conclude if you believe sufficient feedback has been shared.\n`;
+    // Format message history for the prompt
+    const formattedMessageHistory = messageHistory
+      .filter((msg) => msg.type === "message")
+      .map((msg) => ({
+        sender: msg.sender === agent.id ? agent.name : otherParticipant.name,
+        content: msg.content,
+        timestamp: msg.timestamp
+      }));
 
     // Get prompt components from prompts.ts
-    const { agentContext, mainPrompt } = generateFeedbackSessionResponsePrompt(
+    const { agentContext, mainPrompt } = responsePrompt(
+      formattedMessageHistory,
+      otherParticipant.name,
       agent,
-      otherParticipant,
-      feedbackGuideline,
-      conversationHistory,
-      teamIdeasContext,
-      sharedMentalModelContext,
-      endingGuideline,
-      agentMemory
+      agentMemory,
+      sessionContext.targetMemberRoles,
+      sessionContext.targetMemberIdeas
     );
+
+    // 피드백 응답 생성시 프롬프트 전체 출력
+    console.log("📝 피드백 응답 생성 프롬프트:");
+    console.log("=== SYSTEM MESSAGE (agentContext) ===");
+    console.log(agentContext);
+    console.log("=== USER MESSAGE (mainPrompt) ===");
+    console.log(mainPrompt);
+    console.log("================================================");
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -1187,9 +1068,11 @@ ${agentContext}`,
 
     const parsed = JSON.parse(jsonString);
 
-    // 강제로 계속 진행해야 하는 경우 shouldEnd를 false로 override
+    // 강제로 계속 진행하거나 종료해야 하는 경우 shouldEnd를 override
     const finalShouldEnd = shouldForceContinue
       ? false
+      : shouldForceEnd
+      ? true
       : parsed.shouldEnd || false;
 
     return {
@@ -1197,6 +1080,8 @@ ${agentContext}`,
       shouldEnd: finalShouldEnd,
       reasoning: shouldForceContinue
         ? `대화 지속 필요 (현재 ${actualMessageCount}개 메시지, 최소 ${minMessages}개 필요)`
+        : shouldForceEnd
+        ? `대화 길이 제한으로 종료 (현재 ${actualMessageCount}개 메시지, 최대 ${maxMessages}개 초과)`
         : parsed.reasoning || "계속 대화하기로 결정",
     };
   } catch (error) {
@@ -1206,7 +1091,7 @@ ${agentContext}`,
     const actualMessageCount = sessionContext.messageHistory.filter(
       (msg) => msg.type === "message"
     ).length;
-    const shouldEndDefault = actualMessageCount >= 6; // 6개 이상이면 종료
+    const shouldEndDefault = actualMessageCount >= 8; // 8개 이상이면 종료
 
     // 기본값 반환
     return {
@@ -1292,7 +1177,7 @@ export async function generateFeedbackSessionSummary(
 // 피드백 전략 결정 함수 - AI가 모든 정보를 고려해서 피드백 대상과 방식을 결정
 export async function planFeedbackStrategy(
   agentProfile: any,
-  teamContext: {
+  _teamContext: {
     teamName: string;
     topic: string;
     teamMembers: Array<{
@@ -1314,11 +1199,6 @@ export async function planFeedbackStrategy(
       evaluations: any[];
     }>;
     recentMessages: any[];
-    sharedMentalModel?: string; // 공유 멘탈 모델 추가
-  },
-  requestContext: {
-    requesterName: string;
-    originalMessage: string;
   },
   memory?: AgentMemory
 ): Promise<{
@@ -1341,58 +1221,12 @@ export async function planFeedbackStrategy(
   reasoning: string;
 }> {
 
-  // 팀 멤버 정보 포맷팅
-  const teamMembersInfo = teamContext.teamMembers
-    .filter((member) => member.id !== agentProfile.id) // 본인 제외
-    .map(
-      (member) =>
-        `- ${member.name}${
-          member.isUser ? " (인간 팀원)" : " (AI 팀원)"
-        }: 역할 [${member.roles.join(", ")}], ${
-          member.isAvailable ? "사용 가능" : "현재 바쁨"
-        }`
-    )
-    .join("\n");
 
-  // 아이디어 정보 포맷팅
-  const ideasInfo =
-    teamContext.existingIdeas.length > 0
-      ? teamContext.existingIdeas
-          .map(
-            (idea) =>
-              `${idea.ideaNumber}. "${idea.object}" by ${idea.authorName}
-   - 기능: ${idea.function}
-   - 작성자: ${idea.authorName}
-   - 평가 수: ${idea.evaluations?.length || 0}개`
-          )
-          .join("\n")
-      : "No ideas have been generated yet.";
-
-  // 최근 메시지 포맷팅
-  const recentActivity =
-    teamContext.recentMessages.length > 0
-      ? teamContext.recentMessages
-          .slice(-5)
-          .map(
-            (msg) =>
-              `- ${msg.sender}: ${
-                typeof msg.payload === "object"
-                  ? msg.payload.content
-                  : msg.payload
-              }`
-          )
-          .join("\n")
-      : "No recent team activity.";
-
-  const { agentContext, mainPrompt } = planFeedbackStrategyPrompt(
-    agentProfile,
-    teamContext,
-    requestContext,
-    teamMembersInfo,
-    ideasInfo,
-    recentActivity,
+  const prompt = preFeedbackPrompt(
+    "target team member", // targetMemberName - we'll determine this
+    [], // targetMemberIdeas - we'll determine this
     memory,
-    teamContext.sharedMentalModel
+    agentProfile
   );
 
   const completion = await openai.chat.completions.create({
@@ -1400,11 +1234,11 @@ export async function planFeedbackStrategy(
     messages: [
       {
         role: "system",
-        content: `${agentContext}\n\nRespond only with valid JSON.`,
+        content: `You are an AI agent planning feedback strategy. Respond only with valid JSON.`,
       },
       {
         role: "user",
-        content: mainPrompt,
+        content: prompt,
       },
     ],
   });
@@ -1438,13 +1272,11 @@ export async function generateTeamMembersSummary(
     dislikes?: string;
     professional: string;
     isUser: boolean;
-  }>,
-  sharedMentalModel?: string
+  }>
 ): Promise<string> {
   try {
     const { agentContext, mainPrompt } = generateTeamMembersSummaryPrompt(
-      teamMembers,
-      sharedMentalModel
+      teamMembers
     );
 
     const completion = await openai.chat.completions.create({
@@ -1511,7 +1343,7 @@ export async function generateAgentPersonaSummary(
   }
 ): Promise<string> {
   try {
-    const { agentContext, mainPrompt } = generateAgentPersonaSummaryPrompt(agentProfile, teamContext);
+    const { agentContext, mainPrompt } = generateAgentPersonaSummaryPrompt(agentProfile, teamContext?.sharedMentalModel);
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",

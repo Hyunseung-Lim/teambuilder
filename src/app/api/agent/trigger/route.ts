@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTeamById, getAgentById } from "@/lib/redis";
-import { Agent } from "@/core/agent";
-// We'll need functions to get agent and team info from Redis
-// import { getAgentInfo, getTeamInfo } from '@/lib/redis';
+import { updateAgentStateTimer } from "@/lib/agent-state-manager";
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,10 +23,8 @@ export async function POST(req: NextRequest) {
       .map(async (member) => {
         const agentInfo = await getAgentById(member.agentId!);
         if (agentInfo) {
-          const agent = new Agent(agentInfo, teamId);
-          await agent.initialize();
-          // We don't wait for observe to finish, let them run in background
-          agent.observe(trigger, data);
+          // Trigger agent state update instead of legacy Agent class
+          await updateAgentStateTimer(teamId, member.agentId!, agentInfo);
         }
       });
 

@@ -28,6 +28,8 @@ export async function processRequestInBackground(
       await handleGenerateIdeaRequestDirect(teamId, agentId, requestData);
     } else if (requestData.type === "give_feedback") {
       await handleGiveFeedbackRequestDirect(teamId, agentId, requestData);
+    } else if (requestData.type === "retrospective") {
+      await handleRetrospectiveRequestDirect(teamId, agentId, requestData);
     }
 
     console.log(`✅ 에이전트 ${agentId} 요청 처리 완료`);
@@ -36,7 +38,7 @@ export async function processRequestInBackground(
     await handlePostProcessingStateTransition(teamId, agentId);
   } catch (error) {
     console.error(`❌ 에이전트 ${agentId} 백그라운드 요청 처리 실패:`, error);
-    await handleProcessingFailure(teamId, agentId);
+    await handleProcessingFailure(teamId, agentId, error);
   }
 }
 
@@ -63,20 +65,54 @@ async function handlePostProcessingStateTransition(
 }
 
 // 처리 실패 시 처리
-async function handleProcessingFailure(teamId: string, agentId: string) {
-  // 실패 시에도 피드백 세션 중인지 확인
-  const currentState = await getAgentState(teamId, agentId);
-  if (currentState && isFeedbackSessionActive(currentState)) {
-    console.log(
-      `🔒 에이전트 ${agentId}는 피드백 세션 중이므로 실패 후에도 idle 전환 스킵`
-    );
-    return;
-  }
+async function handleProcessingFailure(teamId: string, agentId: string, error?: any) {
+  console.log(`🔧 에이전트 ${agentId} 백그라운드 처리 실패 - 복구 시작`, { error: error?.message || 'Unknown error' });
+  
+  try {
+    // 실패 시에도 피드백 세션 중인지 확인
+    const currentState = await getAgentState(teamId, agentId);
+    if (currentState && isFeedbackSessionActive(currentState)) {
+      console.log(
+        `🔒 에이전트 ${agentId}는 피드백 세션 중이므로 processing 플래그만 해제`
+      );
+      
+      // 피드백 세션은 유지하되 processing 상태만 해제
+      await setAgentState(teamId, agentId, {
+        ...currentState,
+        isProcessing: false,
+        lastStateChange: new Date().toISOString(),
+      });
+      return;
+    }
 
-  // 실패 시에도 idle 상태로 전환 (피드백 세션 중이 아닌 경우만)
-  setTimeout(async () => {
-    await transitionToIdleIfNotInFeedbackSession(teamId, agentId, "실패 후");
-  }, 2000);
+    // 즉시 idle 상태로 전환 (딜레이 제거)
+    await setAgentState(teamId, agentId, {
+      agentId,
+      currentState: "idle",
+      lastStateChange: new Date().toISOString(),
+      isProcessing: false,
+      idleTimer: createNewIdleTimer(),
+    });
+    
+    console.log(`✅ 에이전트 ${agentId} 백그라운드 실패 후 idle 복구 완료`);
+    
+  } catch (recoveryError) {
+    console.error(`❌ 에이전트 ${agentId} 백그라운드 복구 실패:`, recoveryError);
+    
+    // 복구 실패 시 강제 초기화 시도
+    try {
+      await setAgentState(teamId, agentId, {
+        agentId,
+        currentState: "idle",
+        lastStateChange: new Date().toISOString(),
+        isProcessing: false,
+        idleTimer: createNewIdleTimer(),
+      });
+      console.log(`🛠️ 에이전트 ${agentId} 백그라운드 강제 초기화 완료`);
+    } catch (forceError) {
+      console.error(`💥 에이전트 ${agentId} 백그라운드 강제 초기화도 실패:`, forceError);
+    }
+  }
 }
 
 // 피드백 세션 중이 아니면 idle로 전환
@@ -202,6 +238,8 @@ function createActionState(agentId: string, requestData: any) {
         return "evaluate_idea" as const;
       case "give_feedback":
         return "give_feedback" as const;
+      case "retrospective":
+        return "reflecting" as const;
       default:
         return "thinking" as const;
     }
@@ -219,14 +257,18 @@ function createActionState(agentId: string, requestData: any) {
         return `${requester}의 요청: 아이디어 평가 중`;
       case "give_feedback":
         return `${requester}의 요청: 피드백 세션 준비 중`;
+      case "retrospective":
+        return `큐에서 retrospective 처리 중`;
       default:
         return `${requester}의 요청: ${message}`;
     }
   };
 
+  const currentState: "reflecting" | "action" = requestData.type === "retrospective" ? "reflecting" : "action";
+  
   return {
     agentId,
-    currentState: "action" as const,
+    currentState,
     lastStateChange: now.toISOString(),
     isProcessing: true,
     currentTask: {
@@ -234,7 +276,7 @@ function createActionState(agentId: string, requestData: any) {
       description: getDescription(),
       startTime: now.toISOString(),
       estimatedDuration: 30,
-      trigger: "user_request" as const,
+      trigger: requestData.type === "retrospective" ? "autonomous" as const : "user_request" as const,
       requestInfo: {
         requesterName: requestData.requesterName,
         requestMessage: requestData.payload?.message || "",
@@ -252,4 +294,43 @@ function createIdleState(agentId: string) {
     isProcessing: false,
     idleTimer: createNewIdleTimer(),
   };
+}
+
+// Retrospective 요청 처리
+async function handleRetrospectiveRequestDirect(
+  teamId: string,
+  agentId: string,
+  requestData: any
+) {
+  console.log(`🧠 에이전트 ${agentId} retrospective 처리 시작`);
+
+  try {
+    // reflecting 상태로 전환
+    await setAgentState(teamId, agentId, {
+      agentId,
+      currentState: "reflecting",
+      lastStateChange: new Date().toISOString(),
+      isProcessing: true,
+      currentTask: {
+        type: "reflecting",
+        description: "큐에서 retrospective 처리 중...",
+        startTime: new Date().toISOString(),
+        estimatedDuration: 30,
+        trigger: "autonomous",
+      },
+    });
+
+    // 메모리 이벤트를 다시 처리 (원래 processMemoryUpdate 호출)
+    const memoryEvent = requestData.payload.memoryEvent;
+    if (memoryEvent) {
+      const { processMemoryUpdate } = await import("@/lib/memory");
+      await processMemoryUpdate(memoryEvent);
+      console.log(`✅ 에이전트 ${agentId} 큐에서 retrospective 완료`);
+    } else {
+      console.error(`❌ 에이전트 ${agentId} retrospective 데이터 없음`);
+    }
+  } catch (error) {
+    console.error(`❌ 에이전트 ${agentId} retrospective 처리 실패:`, error);
+    throw error;
+  }
 }

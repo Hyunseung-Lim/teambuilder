@@ -11,6 +11,7 @@ import {
   isFeedbackSessionSummaryPayload,
 } from "../utils/typeGuards";
 import { formatTimestamp, getKoreanParticle } from "../utils/koreanUtils";
+import { canCreateFeedbackSession, canMakeRequest } from "@/lib/relationship-utils";
 
 interface FeedbackTab {
   id: string;
@@ -51,6 +52,7 @@ interface ChatAreaProps {
   onSendMessage: () => void;
   isAutoGenerating: boolean;
   isGeneratingIdea: boolean;
+  isCreatingFeedbackSession: boolean;
   scrollToBottom: () => void;
   isChatDisabled: () => boolean;
   getChatDisabledMessage: () => string;
@@ -84,6 +86,7 @@ export default function ChatArea({
   onSendMessage,
   isAutoGenerating,
   isGeneratingIdea,
+  isCreatingFeedbackSession,
   scrollToBottom,
   isChatDisabled,
   getChatDisabledMessage,
@@ -183,6 +186,15 @@ export default function ChatArea({
         {activeTab === "main" ? (
           <div className="p-4 space-y-4">
             {messages
+              // 먼저 중복 메시지 제거
+              .filter((message, index, array) => {
+                // 같은 id와 timestamp를 가진 메시지 중복 제거
+                return array.findIndex(m => 
+                  m.id === message.id && 
+                  m.timestamp === message.timestamp &&
+                  m.type === message.type
+                ) === index;
+              })
               .filter((message) => {
                 // 타입 가드를 사용하여 안전하게 접근
                 if (typeof message.payload === "string") {
@@ -216,7 +228,7 @@ export default function ChatArea({
                 }
                 return true;
               })
-              .map((message) => {
+              .map((message, index) => {
                 // 메시지 발송자 이름 가져오기
                 const getSenderName = (senderId: string) => {
                   if (senderId === "나") return "나";
@@ -264,7 +276,7 @@ export default function ChatArea({
                   };
 
                   return (
-                    <div key={message.id} className="flex justify-center mb-6">
+                    <div key={`${message.type}_${message.id}_${message.timestamp}_${index}`} className="flex justify-center mb-6">
                       <div className="bg-slate-50 rounded-2xl p-6 max-w-4xl w-full">
                         <div className="flex items-center gap-2 mb-4">
                           <div
@@ -277,7 +289,7 @@ export default function ChatArea({
                           <div>
                             <h4 className="text-slate-800">
                               {summaryPayload.participants?.join(" ↔ ")} 피드백
-                              세션 완료
+                              세션이 종료되었습니다
                             </h4>
                             <p className="text-xs text-slate-600 mt-1">
                               {getEndMessage()}
@@ -520,7 +532,7 @@ export default function ChatArea({
                     : "bg-blue-50 text-blue-600";
 
                   return (
-                    <div key={message.id} className="flex justify-center">
+                    <div key={`${message.type}_${message.id}_${message.timestamp}_${index}`} className="flex justify-center">
                       <div
                         className={`${messageStyle} max-w-xl px-8 py-3 rounded-full text-sm font-medium flex flex-col items-center gap-1 whitespace-pre-wrap text-center`}
                       >
@@ -696,7 +708,7 @@ export default function ChatArea({
 
                 return (
                   <div
-                    key={message.id}
+                    key={`${message.type}_${message.id}_${message.timestamp}_${index}`}
                     className={`flex ${
                       isMyMessage ? "justify-end" : "justify-start"
                     } mb-4`}
@@ -962,13 +974,17 @@ export default function ChatArea({
                 <div className="absolute bottom-full left-0 mb-2 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-10">
                   {teamAgents.map((agent) => {
                     const isInFeedback = isAgentInFeedbackSession(agent.id);
+                    const hasRelationship = 
+                      chatMode === "give_feedback" 
+                        ? canCreateFeedbackSession("나", agent.id, team)
+                        : canMakeRequest("나", agent.id, team);
                     const isAvailable =
                       chatMode === "give_feedback"
-                        ? !isInFeedback
+                        ? !isInFeedback && hasRelationship
                         : requestType
                         ? canAgentPerformRole(agent, requestType) &&
-                          !isInFeedback
-                        : !isInFeedback;
+                          !isInFeedback && hasRelationship
+                        : !isInFeedback && hasRelationship;
 
                     return (
                       <button
@@ -1001,7 +1017,13 @@ export default function ChatArea({
                             피드백 중
                           </span>
                         )}
+                        {!isInFeedback && !hasRelationship && (
+                          <span className="text-xs text-gray-500">
+                            관계 없음
+                          </span>
+                        )}
                         {!isInFeedback &&
+                          hasRelationship &&
                           chatMode === "make_request" &&
                           requestType &&
                           !canAgentPerformRole(agent, requestType) && (
@@ -1012,18 +1034,23 @@ export default function ChatArea({
                       </button>
                     );
                   })}
-                  {teamAgents.filter((agent) =>
-                    chatMode === "give_feedback"
-                      ? !isAgentInFeedbackSession(agent.id)
+                  {teamAgents.filter((agent) => {
+                    const isInFeedback = isAgentInFeedbackSession(agent.id);
+                    const hasRelationship = 
+                      chatMode === "give_feedback" 
+                        ? canCreateFeedbackSession("나", agent.id, team)
+                        : canMakeRequest("나", agent.id, team);
+                    return chatMode === "give_feedback"
+                      ? !isInFeedback && hasRelationship
                       : requestType
                       ? canAgentPerformRole(agent, requestType) &&
-                        !isAgentInFeedbackSession(agent.id)
-                      : !isAgentInFeedbackSession(agent.id)
-                  ).length === 0 && (
-                    <div className="px-3 py-2 text-sm text-gray-500">
+                        !isInFeedback && hasRelationship
+                      : !isInFeedback && hasRelationship;
+                  }).length === 0 && (
+                    <div className="px-3 py-2 text-xs text-gray-500">
                       {chatMode === "make_request" && requestType
-                        ? "해당 역할을 수행할 수 있는 에이전트가 없거나 모두 피드백 중입니다."
-                        : "모든 에이전트가 피드백 세션 중입니다."}
+                        ? "해당 역할을 수행할 수 있고 관계가 연결된 에이전트가 없거나 모두 피드백 중입니다."
+                        : "관계가 연결된 에이전트가 없거나 모두 피드백 세션 중입니다."}
                     </div>
                   )}
                 </div>
@@ -1109,7 +1136,7 @@ export default function ChatArea({
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  if (activeTab === "main" && !isChatDisabled()) {
+                  if (activeTab === "main" && !isChatDisabled() && !isCreatingFeedbackSession) {
                     onSendMessage();
                   }
                 }
@@ -1119,6 +1146,7 @@ export default function ChatArea({
                 isChatDisabled() ||
                 isAutoGenerating ||
                 isGeneratingIdea ||
+                isCreatingFeedbackSession ||
                 activeTab !== "main"
               }
             />
@@ -1129,6 +1157,7 @@ export default function ChatArea({
                 isChatDisabled() ||
                 isAutoGenerating ||
                 isGeneratingIdea ||
+                isCreatingFeedbackSession ||
                 activeTab !== "main" ||
                 !mentionedAgent ||
                 (chatMode === "make_request" && !requestType)

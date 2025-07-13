@@ -26,6 +26,7 @@ import {
   RelationshipType,
   Team,
 } from "@/lib/types";
+import { createMemberIdMapping } from "@/lib/member-utils";
 import { RelationshipGraph } from "@/components/RelationshipGraph";
 import {
   User,
@@ -312,7 +313,6 @@ export default function NewTeamPage() {
     .filter((member) => !member.isUser)
     .every((member) => member.agent);
 
-  const canProceedToStep5 = true; // 관계 설정은 선택사항
 
   const canSubmit = sharedMentalModel.trim().length > 0; // 공유 멘탈 모델은 필수
 
@@ -378,13 +378,22 @@ export default function NewTeamPage() {
         userProfile: member.isUser ? member.agent : undefined, // 사용자 프로필 정보 포함
       }));
 
+      // 3.5. 관계 데이터를 실제 agentId로 매핑 (중앙화된 유틸리티 사용)
+      const finalIdMapping = createMemberIdMapping(finalMemberSlots);
+
+      const finalRelationships = relationships.map(rel => ({
+        ...rel,
+        from: finalIdMapping[rel.from] || rel.from,
+        to: finalIdMapping[rel.to] || rel.to,
+      }));
+
       // 4. 팀 생성 액션 호출
 
       const teamFormData = new FormData();
       teamFormData.append("teamName", teamName.trim());
       teamFormData.append("topic", topic.trim());
       teamFormData.append("members", JSON.stringify(teamMembers));
-      teamFormData.append("relationships", JSON.stringify(relationships));
+      teamFormData.append("relationships", JSON.stringify(finalRelationships));
       teamFormData.append("nodePositions", JSON.stringify(nodePositions));
       teamFormData.append("sharedMentalModel", sharedMentalModel.trim());
 
@@ -766,6 +775,7 @@ export default function NewTeamPage() {
                     members={memberSlots}
                     relationships={relationships}
                     onAddRelationship={() => {}} // 읽기 전용
+                    agents={existingAgents}
                     onRemoveRelationship={() => {}} // 읽기 전용
                     readOnly={true}
                     initialNodePositions={nodePositions}
@@ -966,6 +976,7 @@ export default function NewTeamPage() {
                       members={memberSlots}
                       relationships={relationships}
                       onAddRelationship={() => {}} // 읽기 전용
+                      agents={existingAgents}
                       onRemoveRelationship={() => {}} // 읽기 전용
                       readOnly={true}
                       initialNodePositions={nodePositions}
@@ -1341,6 +1352,7 @@ export default function NewTeamPage() {
               onRemoveRelationship={removeRelationship}
               initialNodePositions={nodePositions}
               onNodePositionChange={setNodePositions}
+              agents={existingAgents}
             />
 
             <div className="flex justify-between pt-6 border-t border-gray-200">
@@ -1523,7 +1535,7 @@ function UserInfoForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.professional || (selectedSkills.length === 0 && customSkills.length === 0)) {
+    if (!formData.name) {
       return;
     }
 
@@ -1553,10 +1565,10 @@ function UserInfoForm({
         | undefined,
       professional: formData.professional,
       skills: formData.skills,
-      personality: formData.personality || undefined,
-      workStyle: formData.workStyle || undefined,
-      preferences: formData.preferences || undefined,
-      dislikes: formData.dislikes || undefined,
+      personality: formData.personality || "",
+      workStyle: formData.workStyle || "",
+      preferences: formData.preferences || "",
+      dislikes: formData.dislikes || "",
     };
 
     onSubmit(agentData);
@@ -1704,7 +1716,7 @@ function UserInfoForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="user-professional">직업/전문성 *</Label>
+        <Label htmlFor="user-professional">직업/전문성</Label>
         <div className="space-y-2">
           <Select
             id="user-professional"
@@ -1735,7 +1747,6 @@ function UserInfoForm({
                 setFormData((prev) => ({ ...prev, professional: e.target.value }))
               }
               placeholder="직업/전문성을 직접 입력해주세요"
-              required
               autoFocus
             />
           )}
@@ -1743,7 +1754,7 @@ function UserInfoForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="user-skills">스킬셋 *</Label>
+        <Label htmlFor="user-skills">스킬셋</Label>
         <div className="space-y-4">
           {/* 미리 정의된 스킬 옵션들 */}
           <div>
@@ -1838,10 +1849,6 @@ function UserInfoForm({
                 ))}
               </div>
             </div>
-          )}
-
-          {(selectedSkills.length === 0 && customSkills.length === 0) && (
-            <p className="text-sm text-red-600">최소 1개 스킬을 선택하거나 추가해주세요</p>
           )}
         </div>
       </div>
@@ -2021,11 +2028,7 @@ function AgentCreateForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (
-      !formData.name ||
-      !formData.professional ||
-      (selectedSkills.length === 0 && customSkills.length === 0)
-    ) {
+    if (!formData.name) {
       return;
     }
 
@@ -2055,10 +2058,10 @@ function AgentCreateForm({
         | undefined,
       professional: formData.professional,
       skills: formData.skills,
-      personality: formData.personality || undefined,
-      workStyle: formData.workStyle || undefined,
-      preferences: formData.preferences || undefined,
-      dislikes: formData.dislikes || undefined,
+      personality: formData.personality || "",
+      workStyle: formData.workStyle || "",
+      preferences: formData.preferences || "",
+      dislikes: formData.dislikes || "",
     };
 
     onSubmit(agentData, null);
@@ -2206,7 +2209,7 @@ function AgentCreateForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor={`professional-${memberKey}`}>직업/전문성 *</Label>
+        <Label htmlFor={`professional-${memberKey}`}>직업/전문성</Label>
         <div className="space-y-2">
           <Select
             id={`professional-${memberKey}`}
@@ -2237,7 +2240,6 @@ function AgentCreateForm({
                 setFormData((prev) => ({ ...prev, professional: e.target.value }))
               }
               placeholder="직업/전문성을 직접 입력해주세요"
-              required
               autoFocus
             />
           )}
@@ -2245,7 +2247,7 @@ function AgentCreateForm({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor={`skills-${memberKey}`}>스킬셋 *</Label>
+        <Label htmlFor={`skills-${memberKey}`}>스킬셋</Label>
         <div className="space-y-4">
           {/* 미리 정의된 스킬 옵션들 */}
           <div>
@@ -2341,13 +2343,8 @@ function AgentCreateForm({
               </div>
             </div>
           )}
-
-          {(selectedSkills.length === 0 && customSkills.length === 0) && (
-            <p className="text-sm text-red-600">최소 1개 스킬을 선택하거나 추가해주세요</p>
-          )}
         </div>
       </div>
-
 
       <div className="space-y-2">
         <Label htmlFor={`personality-${memberKey}`}>성격</Label>

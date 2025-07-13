@@ -246,10 +246,45 @@ async function handlePlanningFailure(
   teamId: string,
   agentId: string
 ): Promise<void> {
-  const failedState = await getAgentState(teamId, agentId);
-  if (failedState) {
-    const newState = resetToIdleState(failedState);
-    await setAgentState(teamId, agentId, newState);
+  console.log(`🔧 에이전트 ${agentId} 계획 수립 실패 - 복구 시작`);
+  
+  try {
+    const failedState = await getAgentState(teamId, agentId);
+    if (failedState) {
+      // 피드백 세션 중인지 확인
+      if (isFeedbackSessionActive(failedState)) {
+        console.log(
+          `🔒 ${agentId} 계획 실패했지만 피드백 세션 중이므로 processing 플래그만 해제`
+        );
+        
+        await setAgentState(teamId, agentId, {
+          ...failedState,
+          isProcessing: false,
+          lastStateChange: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const newState = resetToIdleState(failedState);
+      await setAgentState(teamId, agentId, newState);
+      console.log(`✅ 에이전트 ${agentId} 계획 실패 후 idle 복구 완료`);
+    }
+  } catch (error) {
+    console.error(`❌ 에이전트 ${agentId} 계획 실패 복구 중 오류:`, error);
+    
+    // 강제 초기화 시도
+    try {
+      await setAgentState(teamId, agentId, {
+        agentId,
+        currentState: "idle",
+        lastStateChange: new Date().toISOString(),
+        isProcessing: false,
+        idleTimer: createNewIdleTimer(),
+      });
+      console.log(`🛠️ 에이전트 ${agentId} 계획 실패 강제 초기화 완료`);
+    } catch (forceError) {
+      console.error(`💥 에이전트 ${agentId} 계획 실패 강제 초기화도 실패:`, forceError);
+    }
   }
 }
 
@@ -258,18 +293,45 @@ async function handleActionExecutionFailure(
   teamId: string,
   agentId: string
 ): Promise<void> {
-  const failedState = await getAgentState(teamId, agentId);
-  if (failedState) {
-    // 피드백 세션 중인지 확인
-    if (isFeedbackSessionActive(failedState)) {
-      console.log(
-        `🔒 ${agentId} 액션 실행 실패했지만 피드백 세션 중이므로 idle 전환 스킵`
-      );
-      return;
-    }
+  console.log(`🔧 에이전트 ${agentId} 액션 실행 실패 - 복구 시작`);
+  
+  try {
+    const failedState = await getAgentState(teamId, agentId);
+    if (failedState) {
+      // 피드백 세션 중인지 확인
+      if (isFeedbackSessionActive(failedState)) {
+        console.log(
+          `🔒 ${agentId} 액션 실행 실패했지만 피드백 세션 중이므로 processing 플래그만 해제`
+        );
+        
+        await setAgentState(teamId, agentId, {
+          ...failedState,
+          isProcessing: false,
+          lastStateChange: new Date().toISOString(),
+        });
+        return;
+      }
 
-    const newState = resetToIdleState(failedState);
-    await setAgentState(teamId, agentId, newState);
+      const newState = resetToIdleState(failedState);
+      await setAgentState(teamId, agentId, newState);
+      console.log(`✅ 에이전트 ${agentId} 액션 실행 실패 후 idle 복구 완료`);
+    }
+  } catch (error) {
+    console.error(`❌ 에이전트 ${agentId} 액션 실행 실패 복구 중 오류:`, error);
+    
+    // 강제 초기화 시도
+    try {
+      await setAgentState(teamId, agentId, {
+        agentId,
+        currentState: "idle",
+        lastStateChange: new Date().toISOString(),
+        isProcessing: false,
+        idleTimer: createNewIdleTimer(),
+      });
+      console.log(`🛠️ 에이전트 ${agentId} 액션 실행 실패 강제 초기화 완료`);
+    } catch (forceError) {
+      console.error(`💥 에이전트 ${agentId} 액션 실행 실패 강제 초기화도 실패:`, forceError);
+    }
   }
 }
 

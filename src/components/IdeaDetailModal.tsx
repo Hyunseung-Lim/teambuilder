@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Idea, AIAgent, Team, Evaluation } from "@/lib/types";
 import { ArrowLeft, ArrowRight } from "lucide-react";
+import { canEvaluateIdea } from "@/lib/relationship-utils";
 
 interface IdeaDetailModalProps {
   isOpen: boolean;
@@ -20,6 +21,7 @@ interface IdeaDetailModalProps {
     comment: string;
   }) => Promise<void>;
   isSubmittingEvaluation?: boolean;
+  onIdeaUpdate?: () => Promise<void>;
 }
 
 export default function IdeaDetailModal({
@@ -33,6 +35,7 @@ export default function IdeaDetailModal({
   agents,
   onSubmitEvaluation,
   isSubmittingEvaluation = false,
+  onIdeaUpdate,
 }: IdeaDetailModalProps) {
   const [isEditMode, setIsEditMode] = useState(false);
   const [showEvaluationForm, setShowEvaluationForm] = useState(false);
@@ -60,9 +63,17 @@ export default function IdeaDetailModal({
   const parseJsonToPairs = (
     jsonString: string
   ): Array<{ key: string; value: string }> => {
+    if (!jsonString || jsonString.trim() === "") {
+      return [{ key: "", value: "" }];
+    }
+    
     try {
       const parsed = JSON.parse(jsonString);
-      if (typeof parsed === "object" && parsed !== null) {
+      if (Array.isArray(parsed)) {
+        // 배열인 경우 - 새로운 형태의 데이터
+        return parsed.length > 0 ? parsed : [{ key: "", value: "" }];
+      } else if (typeof parsed === "object" && parsed !== null) {
+        // 객체인 경우 - 기존 형태의 데이터
         return Object.entries(parsed).map(([key, value]) => ({
           key,
           value: String(value),
@@ -83,24 +94,49 @@ export default function IdeaDetailModal({
     );
     if (validPairs.length === 0) return "";
 
-    const obj = validPairs.reduce((acc, pair) => {
-      acc[pair.key] = pair.value;
-      return acc;
-    }, {} as Record<string, string>);
-
-    return JSON.stringify(obj);
+    // AddIdeaModal과 동일한 형태로 배열로 저장
+    return JSON.stringify(validPairs);
   };
 
   // 안전한 데이터 렌더링 함수
   const renderSafeData = (data: any): React.ReactElement => {
+    // 빈 데이터 처리
+    if (!data || data === "" || data === "[]" || data === "{}") {
+      return (
+        <div className="text-gray-400 italic text-sm">
+          정보가 입력되지 않았습니다.
+        </div>
+      );
+    }
+    
     if (typeof data === "string") {
       try {
         const parsed = JSON.parse(data);
-        if (typeof parsed === "object" && parsed !== null) {
+        if (Array.isArray(parsed)) {
+          // 배열인 경우 - key-value 쌍으로 처리
+          if (parsed.length === 0) {
+            return (
+              <div className="text-gray-400 italic text-sm">
+                정보가 입력되지 않았습니다.
+              </div>
+            );
+          }
+          return (
+            <div className="space-y-4">
+              {parsed.map((item, index) => (
+                <div key={index} className="border-l-4 border-blue-200 pl-4">
+                  <div className="font-medium text-gray-800 mb-1">{item.key}</div>
+                  <div className="text-gray-600 text-sm">{item.value}</div>
+                </div>
+              ))}
+            </div>
+          );
+        } else if (typeof parsed === "object" && parsed !== null) {
+          // 객체인 경우
           return (
             <div className="space-y-4">
               {Object.entries(parsed).map(([key, value]) => (
-                <div key={key} className="">
+                <div key={key} className="border-l-4 border-blue-200 pl-4">
                   <div className="font-medium text-gray-800 mb-1">{key}</div>
                   <div className="text-gray-600 text-sm">{String(value)}</div>
                 </div>
@@ -108,26 +144,46 @@ export default function IdeaDetailModal({
             </div>
           );
         }
-        return <p>{data}</p>;
+        return <p className="text-gray-600">{data}</p>;
       } catch {
         // JSON 파싱 실패 시 문자열로 표시
-        return <p>{data}</p>;
+        return <p className="text-gray-600">{data}</p>;
       }
     } else if (typeof data === "object" && data !== null) {
       // 이미 객체인 경우
-      return (
-        <div className="space-y-4">
-          {Object.entries(data).map(([key, value]) => (
-            <div key={key} className="">
-              <div className="font-medium text-gray-800 mb-1">{key}</div>
-              <div className="text-gray-600 text-sm">{String(value)}</div>
+      if (Array.isArray(data)) {
+        if (data.length === 0) {
+          return (
+            <div className="text-gray-400 italic text-sm">
+              정보가 입력되지 않았습니다.
             </div>
-          ))}
-        </div>
-      );
+          );
+        }
+        return (
+          <div className="space-y-4">
+            {data.map((item, index) => (
+              <div key={index} className="border-l-4 border-blue-200 pl-4">
+                <div className="font-medium text-gray-800 mb-1">{item.key}</div>
+                <div className="text-gray-600 text-sm">{item.value}</div>
+              </div>
+            ))}
+          </div>
+        );
+      } else {
+        return (
+          <div className="space-y-4">
+            {Object.entries(data).map(([key, value]) => (
+              <div key={key} className="border-l-4 border-blue-200 pl-4">
+                <div className="font-medium text-gray-800 mb-1">{key}</div>
+                <div className="text-gray-600 text-sm">{String(value)}</div>
+              </div>
+            ))}
+          </div>
+        );
+      }
     } else {
       // 다른 타입인 경우 문자열로 변환
-      return <p>{String(data)}</p>;
+      return <p className="text-gray-600">{String(data)}</p>;
     }
   };
 
@@ -185,17 +241,45 @@ export default function IdeaDetailModal({
     setStructurePairs(parseJsonToPairs(idea.content.structure));
   };
 
-  const handleSave = () => {
-    if (!idea) return;
+  const handleSave = async () => {
+    if (!idea || !team) return;
 
-    // 새로운 아이디어 생성 로직은 부모 컴포넌트에서 처리
-    setIsEditMode(false);
-    console.log("아이디어 업데이트:", {
-      object: editFormData.object,
-      function: editFormData.function,
-      behavior: pairsToJsonString(behaviorPairs),
-      structure: pairsToJsonString(structurePairs),
-    });
+    try {
+      const updatedContent = {
+        object: editFormData.object,
+        function: editFormData.function,
+        behavior: pairsToJsonString(behaviorPairs),
+        structure: pairsToJsonString(structurePairs),
+      };
+
+      console.log("아이디어 업데이트:", updatedContent);
+
+      const response = await fetch(`/api/teams/${team.id}/ideas/${idea.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: updatedContent,
+        }),
+      });
+
+      if (response.ok) {
+        // 업데이트 성공 시 편집 모드 종료
+        setIsEditMode(false);
+        
+        // 부모 컴포넌트에서 아이디어 목록 새로고침
+        if (onIdeaUpdate) {
+          await onIdeaUpdate();
+        }
+        
+        console.log("아이디어 업데이트 성공");
+      } else {
+        console.error("아이디어 업데이트 실패:", response.status);
+        alert("아이디어 업데이트에 실패했습니다.");
+      }
+    } catch (error) {
+      console.error("아이디어 업데이트 오류:", error);
+      alert("아이디어 업데이트 중 오류가 발생했습니다.");
+    }
   };
 
   const handleCancel = () => {
@@ -252,7 +336,9 @@ export default function IdeaDetailModal({
   const userMember = team?.members.find((member) => member.isUser);
   const userRoles = userMember?.roles || [];
   const canUpdateIdeas = userRoles.includes("아이디어 생성하기");
-  const canEvaluateIdeas = userRoles.includes("아이디어 평가하기");
+  const hasEvaluationRole = userRoles.includes("아이디어 평가하기");
+  const hasEvaluationRelationship = team && idea ? canEvaluateIdea("나", idea.author, team) : false;
+  const canEvaluateIdeas = hasEvaluationRole && hasEvaluationRelationship;
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
@@ -359,8 +445,8 @@ export default function IdeaDetailModal({
 
                 {/* 아이디어 제목 */}
                 <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Object
+                  <label className="block text-base font-semibold text-gray-800 mb-3 uppercase tracking-wide border-b border-gray-200 pb-2">
+                    아이디어
                   </label>
                   {isEditMode ? (
                     <textarea
@@ -384,8 +470,8 @@ export default function IdeaDetailModal({
 
                 {/* 기능 설명 */}
                 <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Function
+                  <label className="block text-base font-semibold text-gray-800 mb-3 uppercase tracking-wide border-b border-gray-200 pb-2">
+                    기능 요약
                   </label>
                   {isEditMode ? (
                     <textarea
@@ -412,7 +498,7 @@ export default function IdeaDetailModal({
                   {isEditMode ? (
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
-                        <label className="block text-sm font-medium text-gray-700">Behavior</label>
+                        <label className="block text-sm font-medium text-gray-700">핵심 동작(행동)</label>
                         <button
                           onClick={() =>
                             setBehaviorPairs([
@@ -471,8 +557,8 @@ export default function IdeaDetailModal({
                     </div>
                   ) : (
                     <div>
-                      <label className="text-sm font-medium text-gray-500 mb-2 block">
-                        BEHAVIOR
+                      <label className="text-base font-semibold text-gray-800 mb-3 uppercase tracking-wide border-b border-gray-200 pb-2 block">
+                        핵심 동작(행동)
                       </label>
                       <div className="text-gray-700 leading-relaxed">
                         {renderSafeData(idea.content.behavior)}
@@ -486,7 +572,7 @@ export default function IdeaDetailModal({
                   {isEditMode ? (
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
-                        <label className="block text-sm font-medium text-gray-700">Structure</label>
+                        <label className="block text-sm font-medium text-gray-700">구조</label>
                         <button
                           onClick={() =>
                             setStructurePairs([
@@ -545,8 +631,8 @@ export default function IdeaDetailModal({
                     </div>
                   ) : (
                     <div>
-                      <label className="text-sm font-medium text-gray-500 mb-2 block">
-                        STRUCTURE
+                      <label className="text-base font-semibold text-gray-800 mb-3 uppercase tracking-wide border-b border-gray-200 pb-2 block">
+                        구조
                       </label>
                       <div className="text-gray-700 leading-relaxed">
                         {renderSafeData(idea.content.structure)}
@@ -594,7 +680,11 @@ export default function IdeaDetailModal({
                       )}
                       {!canUpdateIdeas && !canEvaluateIdeas && (
                         <div className="flex-1 text-center py-3 px-4 text-gray-500 text-sm">
-                          권한이 없어 편집 및 평가할 수 없습니다
+                          {!hasEvaluationRole 
+                            ? "권한이 없어 편집 및 평가할 수 없습니다"
+                            : !hasEvaluationRelationship
+                            ? "관계가 연결되지 않아 평가할 수 없습니다"
+                            : "편집 및 평가할 수 없습니다"}
                         </div>
                       )}
                     </>
@@ -637,7 +727,7 @@ export default function IdeaDetailModal({
                       <div className="grid grid-cols-3 gap-2 mb-3">
                         <div className="text-center">
                           <div className="text-xs text-gray-500 mb-1">
-                            Novelty
+                            참신성
                           </div>
                           <div className="text-lg font-bold text-gray-900">
                             {evaluation.scores.novelty}
@@ -645,7 +735,7 @@ export default function IdeaDetailModal({
                         </div>
                         <div className="text-center">
                           <div className="text-xs text-gray-500 mb-1">
-                            Completeness
+                            완성도
                           </div>
                           <div className="text-lg font-bold text-gray-900">
                             {evaluation.scores.completeness}
@@ -653,7 +743,7 @@ export default function IdeaDetailModal({
                         </div>
                         <div className="text-center">
                           <div className="text-xs text-gray-500 mb-1">
-                            Quality
+                            품질
                           </div>
                           <div className="text-lg font-bold text-gray-900">
                             {evaluation.scores.quality}
@@ -662,7 +752,7 @@ export default function IdeaDetailModal({
                       </div>
                       <div>
                         <div className="text-xs text-gray-500 mb-1">
-                          comments
+                          코멘트
                         </div>
                         <p className="text-sm text-gray-700">
                           {evaluation.comment}
@@ -696,7 +786,7 @@ export default function IdeaDetailModal({
                     {/* Novelty */}
                     <div className="mb-4">
                       <label className="text-sm font-medium text-gray-700 mb-2 block">
-                        Novelty (1=매우 나쁨 ~ 7=매우 좋음)
+                        참신성 (1=매우 나쁨 ~ 7=매우 좋음)
                       </label>
                       <div className="flex justify-between gap-1">
                         {[1, 2, 3, 4, 5, 6, 7].map((value) => (
@@ -723,7 +813,7 @@ export default function IdeaDetailModal({
                     {/* Completeness */}
                     <div className="mb-4">
                       <label className="text-sm font-medium text-gray-700 mb-2 block">
-                        Completeness (1=매우 나쁨 ~ 7=매우 좋음)
+                        완성도 (1=매우 나쁨 ~ 7=매우 좋음)
                       </label>
                       <div className="flex justify-between gap-1">
                         {[1, 2, 3, 4, 5, 6, 7].map((value) => (
@@ -750,7 +840,7 @@ export default function IdeaDetailModal({
                     {/* Quality */}
                     <div className="mb-4">
                       <label className="text-sm font-medium text-gray-700 mb-2 block">
-                        Quality (1=매우 나쁨 ~ 7=매우 좋음)
+                        품질 (1=매우 나쁨 ~ 7=매우 좋음)
                       </label>
                       <div className="flex justify-between gap-1">
                         {[1, 2, 3, 4, 5, 6, 7].map((value) => (
@@ -777,7 +867,7 @@ export default function IdeaDetailModal({
                     {/* Comment */}
                     <div className="mb-4">
                       <label className="text-sm font-medium text-gray-700 mb-2 block">
-                        Comment
+                        코멘트
                       </label>
                       <textarea
                         value={evaluationFormData.comment}
@@ -787,9 +877,15 @@ export default function IdeaDetailModal({
                             comment: e.target.value,
                           })
                         }
-                        className="w-full p-2 border border-gray-300 rounded text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        rows={3}
+                        className="w-full p-3 border border-gray-300 rounded text-base resize-y focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[120px]"
+                        rows={6}
                         placeholder="평가 의견을 작성해주세요..."
+                        style={{
+                          minHeight: '120px',
+                          maxHeight: '300px',
+                          height: 'auto',
+                          resize: 'vertical'
+                        }}
                       />
                     </div>
 

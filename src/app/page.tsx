@@ -18,6 +18,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { AIAgent, Team } from "@/lib/types";
+import { mapActualIdToDisplayName } from "@/lib/member-utils";
 import { User, Users, Plus, LogOut, LogIn, Crown, Trash2 } from "lucide-react";
 import Link from "next/link";
 
@@ -44,21 +45,6 @@ export default function HomePage() {
             getUserAgentsAction(),
             getUserTeamsAction(),
           ]);
-          console.log("🔍 데이터 디버깅:", {
-            session: session?.user?.email,
-            agentsCount: userAgents.length,
-            agents: userAgents.map((a) => ({ id: a.id, name: a.name })),
-            teamsCount: userTeams.length,
-            teams: userTeams.map((t) => ({
-              id: t.id,
-              name: t.teamName,
-              members: t.members.map((m) => ({
-                agentId: m.agentId,
-                isUser: m.isUser,
-                roles: m.roles,
-              })),
-            })),
-          });
           setAgents(userAgents);
           setTeams(userTeams);
         } catch (error) {
@@ -1024,15 +1010,6 @@ export default function HomePage() {
                         ? null
                         : agents.find((agent) => agent.id === member.agentId);
 
-                      // 디버깅 로그
-                      if (process.env.NODE_ENV === "development") {
-                        console.log(`모달 팀원 ${index}:`, {
-                          isUser: member.isUser,
-                          agentId: member.agentId,
-                          found: member.isUser ? "user" : !!agent,
-                          agentName: member.isUser ? "나" : agent?.name,
-                        });
-                      }
 
                       return (
                         <div
@@ -1152,18 +1129,9 @@ export default function HomePage() {
                       <div className="bg-gray-50 rounded-xl p-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           {selectedTeam.relationships.map((rel, index) => {
-                            const fromMember = selectedTeam.members.find((m) =>
-                              m.isUser
-                                ? rel.from === "나"
-                                : agents.find((a) => a.id === m.agentId)
-                                    ?.name === rel.from
-                            );
-                            const toMember = selectedTeam.members.find((m) =>
-                              m.isUser
-                                ? rel.to === "나"
-                                : agents.find((a) => a.id === m.agentId)
-                                    ?.name === rel.to
-                            );
+                            // 관계 표시용 이름 가져오기 (중앙화된 유틸리티 사용)
+                            const fromName = mapActualIdToDisplayName(selectedTeam, rel.from, agents);
+                            const toName = mapActualIdToDisplayName(selectedTeam, rel.to, agents);
 
                             const getRelationshipIcon = (type: string) => {
                               switch (type) {
@@ -1199,10 +1167,10 @@ export default function HomePage() {
                                 </span>
                                 <div className="flex-1 text-sm">
                                   <span className="font-medium">
-                                    {rel.from}
+                                    {fromName}
                                   </span>
                                   <span className="mx-2">→</span>
-                                  <span className="font-medium">{rel.to}</span>
+                                  <span className="font-medium">{toName}</span>
                                   <div className="text-xs opacity-75 mt-1">
                                     {rel.type}
                                   </div>

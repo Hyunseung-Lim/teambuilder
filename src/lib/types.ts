@@ -90,6 +90,13 @@ export const RELATIONSHIP_TYPES = {
     strokeDasharray: undefined,
     hidden: false,
   },
+  SUBORDINATE: {
+    label: "부하-상사",
+    color: "#111827", // gray-900
+    strokeWidth: 2.5,
+    strokeDasharray: undefined,
+    hidden: false,
+  },
   NULL: {
     label: "관계 없음",
     color: "#9ca3af", // gray-400
@@ -366,11 +373,12 @@ export type AgentState = "idle" | "plan" | "action" | "reflecting";
 
 export interface AgentRequest {
   id: string;
-  type: "generate_idea" | "evaluate_idea";
+  type: "generate_idea" | "evaluate_idea" | "retrospective";
   requesterName: string;
   payload: {
     message: string;
     ideaId?: number; // for evaluation requests
+    memoryEvent?: any; // for retrospective requests
     [key: string]: any;
   };
   timestamp: string;
