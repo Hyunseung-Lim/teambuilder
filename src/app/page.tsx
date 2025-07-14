@@ -170,7 +170,7 @@ export default function HomePage() {
             <h1 className="text-xl font-bold text-gray-900">AI Team Builder</h1>
             <div className="flex items-center space-x-4">
               <span className="text-sm font-semibold text-gray-800">
-                {session.user?.name || session.user?.email}
+                {session?.user?.name || session?.user?.email || "사용자"}
               </span>
               <Button variant="ghost" size="sm" onClick={() => signOut()}>
                 <LogOut className="h-4 w-4 mr-2" />
@@ -272,7 +272,7 @@ export default function HomePage() {
                   </Card>
                 ))}
               </div>
-            ) : agents.length > 0 ? (
+            ) : agents && agents.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                 {agents.map((agent) => (
                   <Card
@@ -459,19 +459,19 @@ export default function HomePage() {
                   </div>
                 </div>
               </div>
-            ) : teams.length > 0 ? (
+            ) : teams && teams.length > 0 ? (
               <div className="space-y-8">
                 {/* 현재 활성 팀 (가장 최근 팀) */}
                 {(() => {
-                  const sortedTeams = [...teams].sort(
+                  const sortedTeams = [...(teams || [])].sort(
                     (a, b) =>
                       new Date(b.createdAt).getTime() -
                       new Date(a.createdAt).getTime()
                   );
                   const currentTeam = sortedTeams[0];
-                  const teamAgents = currentTeam.members
+                  const teamAgents = (currentTeam?.members || [])
                     .map((member) =>
-                      agents.find((agent) => agent.id === member.agentId)
+                      (agents || []).find((agent) => agent.id === member.agentId)
                     )
                     .filter(Boolean);
 
@@ -495,7 +495,7 @@ export default function HomePage() {
                                 <div className="flex items-center gap-2">
                                   <Users className="h-4 w-4" />
                                   <span>
-                                    {currentTeam.members.length}명의 팀원
+                                    {(currentTeam?.members || []).length}명의 팀원
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-2">
@@ -548,7 +548,7 @@ export default function HomePage() {
                               팀원 구성
                             </h4>
                             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                              {currentTeam.members.map(
+                              {(currentTeam?.members || []).map(
                                 (member, memberIndex) => {
                                   if (member.isUser) {
                                     // 사용자 본인 카드
@@ -604,7 +604,7 @@ export default function HomePage() {
                                     );
                                   } else {
                                     // AI 팀원 카드
-                                    const agent = agents.find(
+                                    const agent = (agents || []).find(
                                       (agent) => agent.id === member.agentId
                                     );
 
@@ -693,14 +693,14 @@ export default function HomePage() {
                 })()}
 
                 {/* 팀 히스토리 */}
-                {teams.length > 1 && (
+                {teams && teams.length > 1 && (
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900 mb-4">
                       팀 히스토리
                     </h3>
                     <div className="space-y-3">
                       {(() => {
-                        const sortedTeams = [...teams].sort(
+                        const sortedTeams = [...(teams || [])].sort(
                           (a, b) =>
                             new Date(b.createdAt).getTime() -
                             new Date(a.createdAt).getTime()
@@ -719,7 +719,7 @@ export default function HomePage() {
                                       {team.teamName}
                                     </h4>
                                     <p className="text-sm text-gray-600">
-                                      {team.members.length}명 •{" "}
+                                      {(team.members || []).length}명 •{" "}
                                       {new Date(
                                         team.createdAt
                                       ).toLocaleDateString()}
@@ -956,7 +956,7 @@ export default function HomePage() {
                       <div className="flex items-center gap-4 text-sm text-gray-600">
                         <div className="flex items-center gap-2">
                           <Users className="h-4 w-4" />
-                          <span>{selectedTeam.members.length}명의 팀원</span>
+                          <span>{(selectedTeam?.members || []).length}명의 팀원</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span>
@@ -972,12 +972,12 @@ export default function HomePage() {
                           <span>
                             리더:{" "}
                             {(() => {
-                              const leader = selectedTeam.members.find(
+                              const leader = (selectedTeam?.members || []).find(
                                 (m) => m.isLeader
                               );
                               if (!leader) return "없음";
                               if (leader.isUser) return "나";
-                              const leaderAgent = agents.find(
+                              const leaderAgent = (agents || []).find(
                                 (a) => a.id === leader.agentId
                               );
                               return leaderAgent?.name || "알 수 없음";
@@ -1005,10 +1005,10 @@ export default function HomePage() {
                     팀원 구성
                   </h4>
                   <div className="grid grid-cols-2 gap-4">
-                    {selectedTeam.members.map((member, index) => {
+                    {(selectedTeam?.members || []).map((member, index) => {
                       const agent = member.isUser
                         ? null
-                        : agents.find((agent) => agent.id === member.agentId);
+                        : (agents || []).find((agent) => agent.id === member.agentId);
 
 
                       return (
@@ -1120,7 +1120,7 @@ export default function HomePage() {
                 </div>
 
                 {/* 팀원 간 관계 */}
-                {selectedTeam.relationships &&
+                {selectedTeam?.relationships &&
                   selectedTeam.relationships.length > 0 && (
                     <div>
                       <h4 className="text-lg font-semibold text-gray-900 mb-4">
@@ -1128,10 +1128,10 @@ export default function HomePage() {
                       </h4>
                       <div className="bg-gray-50 rounded-xl p-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {selectedTeam.relationships.map((rel, index) => {
+                          {(selectedTeam?.relationships || []).map((rel, index) => {
                             // 관계 표시용 이름 가져오기 (중앙화된 유틸리티 사용)
-                            const fromName = mapActualIdToDisplayName(selectedTeam, rel.from, agents);
-                            const toName = mapActualIdToDisplayName(selectedTeam, rel.to, agents);
+                            const fromName = mapActualIdToDisplayName(selectedTeam, rel.from, agents || []);
+                            const toName = mapActualIdToDisplayName(selectedTeam, rel.to, agents || []);
 
                             const getRelationshipIcon = (type: string) => {
                               switch (type) {
@@ -1179,7 +1179,7 @@ export default function HomePage() {
                             );
                           })}
                         </div>
-                        {selectedTeam.relationships.length === 0 && (
+                        {(selectedTeam?.relationships || []).length === 0 && (
                           <p className="text-sm text-gray-600 text-center py-4">
                             설정된 관계가 없습니다
                           </p>
