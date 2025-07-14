@@ -209,7 +209,6 @@ async function executePlanningLogic(
       object: idea.content.object,
       function: idea.content.function,
     })),
-    sharedMentalModel: team?.sharedMentalModel,
   });
 
   // planning 완료 후 상태 업데이트

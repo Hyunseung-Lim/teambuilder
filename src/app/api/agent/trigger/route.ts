@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTeamById, getAgentById } from "@/lib/redis";
 import { updateAgentStateTimer } from "@/lib/agent-state-manager";
+import { getAgentState } from "@/lib/agent-state-utils";
 
 export async function POST(req: NextRequest) {
   try {
@@ -21,10 +22,10 @@ export async function POST(req: NextRequest) {
     const agentPromises = team.members
       .filter((member) => !member.isUser && member.agentId)
       .map(async (member) => {
-        const agentInfo = await getAgentById(member.agentId!);
-        if (agentInfo) {
+        const agentState = await getAgentState(teamId, member.agentId!);
+        if (agentState) {
           // Trigger agent state update instead of legacy Agent class
-          await updateAgentStateTimer(teamId, member.agentId!, agentInfo);
+          await updateAgentStateTimer(teamId, agentState);
         }
       });
 

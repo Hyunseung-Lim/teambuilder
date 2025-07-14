@@ -55,7 +55,7 @@ export async function POST(
       topic || team.topic || "Carbon Emission Reduction",
       agentProfile,
       [], // 기존 아이디어는 별도 로직에서 처리
-      agentMemory
+      agentMemory || undefined
     );
 
     if (!ideaResult.success || !ideaResult.idea) {

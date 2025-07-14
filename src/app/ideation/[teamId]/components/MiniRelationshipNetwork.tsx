@@ -70,7 +70,7 @@ export default function MiniRelationshipNetwork({
           to: toId,
           type: relationship.type,
           color: RELATIONSHIP_TYPES[relationship.type]?.color || "#9ca3af",
-          isHierarchical: relationship.type === "SUPERVISOR" || relationship.type === "SUPERIOR_SUBORDINATE",
+          isHierarchical: relationship.type === "SUPERVISOR" || (relationship.type as any) === "SUPERIOR_SUBORDINATE",
         };
         edges.push(edge);
       }
@@ -83,7 +83,7 @@ export default function MiniRelationshipNetwork({
   const radius = 60;
   
   // 첫 번째 패스: 원본 위치 수집
-  const originalPositions = [];
+  const originalPositions: any[] = [];
   
   nodes.forEach((node, index) => {
     let positionFound = false;

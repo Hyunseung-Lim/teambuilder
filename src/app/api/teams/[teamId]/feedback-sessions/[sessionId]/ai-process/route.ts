@@ -111,7 +111,7 @@ export async function POST(
         // 상대방의 역할 조회
         const targetMember = team.members.find(m => 
           (m.agentId && m.agentId === otherParticipant.id) || 
-          (m.userId && m.userId === otherParticipant.id)
+          ((m as any).userId && (m as any).userId === otherParticipant.id)
         );
         if (targetMember) {
           targetMemberRoles = targetMember.roles || [];
@@ -121,8 +121,8 @@ export async function POST(
         targetMemberIdeas = teamIdeas.filter(idea => 
           idea.author === otherParticipant.name || 
           idea.author === otherParticipant.id ||
-          idea.authorId === otherParticipant.id ||
-          idea.authorId === otherParticipant.name
+          (idea as any).authorId === otherParticipant.id ||
+          (idea as any).authorId === otherParticipant.name
         );
       }
 
@@ -281,12 +281,11 @@ export async function POST(
 
         const summary = await generateFeedbackSessionSummary(
           session.messages,
-          session.participants,
-          session.feedbackContext
+          session.participants
         );
 
         // 요약을 세션에 저장
-        session.summary = summary;
+        session.summary = summary as any;
 
         // 각 참가자의 메모리에 요약 저장
         for (const participant of session.participants) {
@@ -304,7 +303,7 @@ export async function POST(
                   summary: summary.summary,
                   keyInsights: summary.keyInsights,
                   messageCount: session.messages.length,
-                },
+                } as any,
               });
 
               console.log(

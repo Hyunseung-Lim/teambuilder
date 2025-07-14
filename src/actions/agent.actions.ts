@@ -55,7 +55,7 @@ export async function createAgentAction(formData: FormData) {
       ...agentData,
       updatedAt: new Date(),
       userId: session.user.email, // 이메일을 ID로 사용
-    });
+    } as any);
 
     revalidatePath("/");
     return createdAgent;

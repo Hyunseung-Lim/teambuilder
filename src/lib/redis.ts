@@ -243,7 +243,7 @@ export async function createTeam(
                 workStyle: agentProfile.workStyle,
                 preferences: agentProfile.preferences,
                 dislikes: agentProfile.dislikes,
-                professional: agentProfile.professional,
+                professional: agentProfile.professional || "",
                 age: agentProfile.age,
                 gender: agentProfile.gender,
                 value: agentProfile.value,

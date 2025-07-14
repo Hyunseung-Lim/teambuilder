@@ -60,7 +60,7 @@ export async function GET(
           const agent = team.members.find((m) => m.agentId === id);
           return {
             agentId: id,
-            agentName: agent?.name || "Unknown",
+            agentName: (agent as any)?.name || "Unknown",
             hasNewMemory: !!newMemory,
             lastUpdate: newMemory?.lastMemoryUpdate || null,
             knowledgePreview:

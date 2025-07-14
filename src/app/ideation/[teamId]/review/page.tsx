@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, MessageSquare, Lightbulb, Clock, Users, Network, Crown, User, X, Star } from "lucide-react";
-import { Team, Idea, ChatMessage } from "@/lib/types";
+import { Team, Idea, ChatMessage, AgentRole } from "@/lib/types";
 import { getAgentByIdAction } from "@/actions/agent.actions";
 
 interface ActionLog {
@@ -110,7 +110,7 @@ export default function ReviewPage() {
     
     messages.forEach((message) => {
       if (message.type === "system" && message.payload && typeof message.payload === "object") {
-        const content = message.payload.content;
+        const content = (message.payload as any).content;
         if (typeof content === "string") {
           let actionType = "";
           let description = content;
@@ -137,8 +137,8 @@ export default function ReviewPage() {
       } else if (message.type === "make_request") {
         // 요청 메시지 처리
         const requester = getAgentName(message.sender);
-        const target = message.payload?.mention ? getAgentName(message.payload.mention) : "팀원";
-        const requestType = message.payload?.requestType;
+        const target = (message.payload as any)?.mention ? getAgentName((message.payload as any).mention) : "팀원";
+        const requestType = (message.payload as any)?.requestType;
         
         let requestDescription = `${requester}이 ${target}에게 `;
         if (requestType === "generate") {
@@ -310,9 +310,9 @@ export default function ReviewPage() {
       (m.isUser && fromMemberId === "나") || (!m.isUser && m.agentId === fromMemberId)
     );
     
-    if (!fromMember?.relationships) return "";
+    if (!(fromMember as any)?.relationships) return "";
     
-    const relationship = fromMember.relationships.find((rel) => 
+    const relationship = (fromMember as any).relationships.find((rel: any) => 
       (rel.targetIsUser && toMemberId === "나") || (!rel.targetIsUser && rel.targetAgentId === toMemberId)
     );
     
@@ -335,9 +335,9 @@ export default function ReviewPage() {
       (m.isUser && toMemberId === "나") || (!m.isUser && m.agentId === toMemberId)
     );
     
-    if (!toMember?.relationships) return "";
+    if (!(toMember as any)?.relationships) return "";
     
-    const relationship = toMember.relationships.find((rel) => 
+    const relationship = (toMember as any).relationships.find((rel: any) => 
       (rel.targetIsUser && fromMemberId === "나") || (!rel.targetIsUser && rel.targetAgentId === fromMemberId)
     );
     
@@ -365,8 +365,8 @@ export default function ReviewPage() {
       const otherMemberId = otherMember.isUser ? "나" : otherMember.agentId;
       const otherMemberName = otherMember.isUser ? "나" : getAgentName(otherMember.agentId || "");
       
-      const relationToOther = getRelationshipToMember(memberId, otherMemberId);
-      const relationFromOther = getRelationshipFromMember(memberId, otherMemberId);
+      const relationToOther = getRelationshipToMember(memberId, otherMemberId!);
+      const relationFromOther = getRelationshipFromMember(memberId, otherMemberId!);
       
       if (relationToOther) {
         relationships.push(`${otherMemberName}의 ${relationToOther}`);
@@ -447,9 +447,9 @@ export default function ReviewPage() {
       
       // 직접 피드백 메시지들도 확인
       if (message.type === "give_feedback" || 
-          message.type === "feedback") {
+          (message.type as any) === "feedback") {
         const sender = message.sender;
-        const mention = message.payload?.mention || message.payload?.target || message.payload?.to;
+        const mention = (message.payload as any)?.mention || (message.payload as any)?.target || (message.payload as any)?.to;
         
         if (sender && mention && sender !== mention) {
           const key = `${sender}->${mention}`;
@@ -459,7 +459,7 @@ export default function ReviewPage() {
       
       // 시스템 메시지에서 피드백 관련 활동 추출 (backup)
       if (message.type === "system" && message.payload && typeof message.payload === "object") {
-        const content = message.payload.content;
+        const content = (message.payload as any).content;
         if (typeof content === "string" && content.includes("피드백")) {
           const sender = message.sender;
           
@@ -542,7 +542,7 @@ export default function ReviewPage() {
     chatMessages.forEach((message) => {
       if (message.type === "make_request") {
         const sender = message.sender;
-        const mention = message.payload?.mention;
+        const mention = (message.payload as any)?.mention;
         
         if (sender && mention && sender !== mention) {
           const key = `${sender}->${mention}`;
@@ -873,7 +873,7 @@ export default function ReviewPage() {
           let isHierarchical;
           if (relationship.type === "PEER") {
             isHierarchical = false;
-          } else if (relationship.type === "SUPERVISOR" || relationship.type === "SUPERIOR_SUBORDINATE") {
+          } else if (relationship.type === "SUPERVISOR" || (relationship.type as any) === "SUPERIOR_SUBORDINATE") {
             isHierarchical = true;
           } else {
             return;
@@ -910,7 +910,7 @@ export default function ReviewPage() {
     
     
     // 첫 번째 패스: 원본 위치 수집
-    const originalPositions = [];
+    const originalPositions: any[] = [];
     
     nodes.forEach((node, index) => {
       let positionFound = false;
@@ -1203,7 +1203,7 @@ export default function ReviewPage() {
           
           // 참여자가 일치하는지 확인
           const messageSender = getAgentName(message.sender);
-          const messageReceiver = message.payload?.mention ? getAgentName(message.payload.mention) : "";
+          const messageReceiver = (message.payload as any)?.mention ? getAgentName((message.payload as any).mention) : "";
           
           // 피드백 세션 참여자 중 하나가 보낸 메시지인지 확인
           const isFromParticipant = messageSender === feedbackGiver || messageSender === feedbackReceiver;
@@ -1212,10 +1212,10 @@ export default function ReviewPage() {
           
           // 다양한 메시지 타입 포함 (요약 메시지는 제외)
           const isValidMessageType = message.type === "give_feedback" || 
-                                    message.type === "feedback" ||
-                                    message.type === "message" ||
-                                    message.type === "chat" ||
-                                    (message.content && message.content.trim() !== "");
+                                    (message.type as any) === "feedback" ||
+                                    (message.type as any) === "message" ||
+                                    (message.type as any) === "chat" ||
+                                    ((message as any).content && (message as any).content.trim() !== "");
           
           // feedback_session_summary는 제외
           if (message.type === "feedback_session_summary") return false;
@@ -1248,7 +1248,7 @@ export default function ReviewPage() {
             const notSummary = message.type !== "feedback_session_summary";
             
             // 메시지에 실제 내용이 있는지 확인
-            const hasContent = message.content || message.payload?.content || message.payload?.message;
+            const hasContent = (message as any).content || (message.payload as any)?.content || (message.payload as any)?.message;
             
             return isFromParticipant && notSummary && hasContent;
           });
@@ -1394,7 +1394,7 @@ export default function ReviewPage() {
                                       </div>
                                     );
                                   } else {
-                                    return <p className="text-sm text-gray-800 whitespace-pre-wrap">{value.toString()}</p>;
+                                    return <p className="text-sm text-gray-800 whitespace-pre-wrap">{String(value)}</p>;
                                   }
                                 })()}
                               </div>
@@ -1711,7 +1711,7 @@ export default function ReviewPage() {
                                 </div>
                               );
                             } else {
-                              return <p className="text-sm text-gray-800 whitespace-pre-wrap">{value.toString()}</p>;
+                              return <p className="text-sm text-gray-800 whitespace-pre-wrap">{String(value)}</p>;
                             }
                           })()}
                         </div>
@@ -1738,9 +1738,9 @@ export default function ReviewPage() {
                           <span>품질: {evaluation.scores.quality}</span>
                         </div>
                       </div>
-                      {evaluation.feedback && (
+                      {evaluation.comment && (
                         <p className="text-sm text-gray-700 bg-gray-50 p-2 rounded">
-                          {evaluation.feedback}
+                          {evaluation.comment}
                         </p>
                       )}
                     </div>
@@ -1749,15 +1749,6 @@ export default function ReviewPage() {
               </div>
             )}
 
-            {/* 아이디어 태그/카테고리 (있다면) */}
-            {selectedIdea.content.category && (
-              <div>
-                <h4 className="font-semibold text-gray-900 mb-2">카테고리</h4>
-                <span className="inline-block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
-                  {selectedIdea.content.category}
-                </span>
-              </div>
-            )}
           </div>
           </div>
         </div>
@@ -2226,7 +2217,7 @@ export default function ReviewPage() {
                             
                             // 2. 채팅 메시지에서 직접 피드백 활동 카운트
                             const directFeedbacks = chatMessages.filter(message => 
-                              (message.type === "give_feedback" || message.type === "feedback") && 
+                              message.type === "give_feedback" && 
                               message.sender === memberId
                             );
                             feedbackCount += directFeedbacks.length;
@@ -2275,7 +2266,7 @@ export default function ReviewPage() {
                             };
                             
                             return Object.entries(roleActivityMap).map(([roleKey, activity]) => {
-                              const hasRole = member.roles.includes(roleKey);
+                              const hasRole = member.roles.includes(roleKey as AgentRole);
                               
                               
                               const displayName = roleKey.replace("하기", "");

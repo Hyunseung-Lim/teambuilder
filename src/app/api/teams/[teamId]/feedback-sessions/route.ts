@@ -507,8 +507,7 @@ export async function POST(
 
           const summaryResult = await generateFeedbackSessionSummary(
             session.messages,
-            session.participants,
-            session.feedbackContext
+            session.participants
           );
 
           // 각 참가자의 메모리에 요약 저장 (AI 에이전트만)

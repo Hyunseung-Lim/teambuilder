@@ -23,7 +23,7 @@ export default async function TeamsPage() {
     teams.map(async (team) => {
       const teamAgents = await Promise.all(
         team.members.map(async (member) => {
-          const agent = await getAgentById(member.agentId);
+          const agent = await getAgentById(member.agentId!);
           return { ...member, agent };
         })
       );

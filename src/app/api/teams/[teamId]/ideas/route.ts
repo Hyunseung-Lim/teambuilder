@@ -78,16 +78,16 @@ export async function POST(
           author: author === "나" ? "나" : (author || session.user.email),
           timestamp: new Date().toISOString(),
           content: {
-            object: generatedContent.object || "생성된 아이디어",
-            function: generatedContent.function || "기능 설명",
+            object: (generatedContent as any).object || "생성된 아이디어",
+            function: (generatedContent as any).function || "기능 설명",
             behavior:
-              typeof generatedContent.behavior === "object"
-                ? JSON.stringify(generatedContent.behavior)
-                : generatedContent.behavior || "동작 설명",
+              typeof (generatedContent as any).behavior === "object"
+                ? JSON.stringify((generatedContent as any).behavior)
+                : (generatedContent as any).behavior || "동작 설명",
             structure:
-              typeof generatedContent.structure === "object"
-                ? JSON.stringify(generatedContent.structure)
-                : generatedContent.structure || "구조 설명",
+              typeof (generatedContent as any).structure === "object"
+                ? JSON.stringify((generatedContent as any).structure)
+                : (generatedContent as any).structure || "구조 설명",
           },
           evaluations: [],
         });
@@ -272,16 +272,16 @@ export async function POST(
             author: member.agentId,
             timestamp: new Date().toISOString(),
             content: {
-              object: generatedContent.object || "생성된 아이디어",
-              function: generatedContent.function || "기능 설명",
+              object: (generatedContent as any).object || "생성된 아이디어",
+              function: (generatedContent as any).function || "기능 설명",
               behavior:
-                typeof generatedContent.behavior === "object"
-                  ? JSON.stringify(generatedContent.behavior)
-                  : generatedContent.behavior || "동작 설명",
+                typeof (generatedContent as any).behavior === "object"
+                  ? JSON.stringify((generatedContent as any).behavior)
+                  : (generatedContent as any).behavior || "동작 설명",
               structure:
-                typeof generatedContent.structure === "object"
-                  ? JSON.stringify(generatedContent.structure)
-                  : generatedContent.structure || "구조 설명",
+                typeof (generatedContent as any).structure === "object"
+                  ? JSON.stringify((generatedContent as any).structure)
+                  : (generatedContent as any).structure || "구조 설명",
             },
             evaluations: [],
           });

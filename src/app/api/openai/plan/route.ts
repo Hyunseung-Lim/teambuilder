@@ -17,14 +17,14 @@ export async function POST(request: NextRequest) {
     let systemPrompt = "You are an AI agent planning your next action in a team ideation session. Respond only with valid JSON.";
     
     if (agentProfile) {
-      const { profileContext, memoryContext, sharedMentalModelContext } = createAgentContextSections(
+      const { profileContext, memoryContext } = createAgentContextSections(
         agentProfile,
         memory,
         sharedMentalModel,
         "Plan your actions strategically based on your personality, relationships, and team dynamics."
-      );
+      ) as any;
       
-      systemPrompt = `${profileContext}${memoryContext}${sharedMentalModelContext}
+      systemPrompt = `${profileContext}${memoryContext}
 
 ## Planning Guidelines
 You are planning your next action in a team ideation session. Consider:

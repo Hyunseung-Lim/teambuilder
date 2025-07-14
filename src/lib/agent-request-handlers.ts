@@ -8,6 +8,7 @@ import {
   getChatHistory,
   redis,
 } from "@/lib/redis";
+import { Evaluation, TeamMember } from "@/lib/types";
 import {
   generateIdeaAction,
   evaluateIdeaAction,
@@ -211,7 +212,7 @@ export async function handleGenerateIdeaRequestDirect(
       generatedContent.object
     );
   } catch (error) {
-    console.error(`❌ ${agentProfile.name} 아이디어 생성 실패:`, error);
+    console.error(`❌ ${agentId} 아이디어 생성 실패:`, error);
 
     // LLM 응답 파싱 실패인지 확인
     const isJsonParseError =
@@ -510,7 +511,7 @@ function getUnevaluatedIdeas(ideas: any[], agentId: string) {
   const otherIdeas = ideas.filter((idea) => idea.author !== agentId);
   return otherIdeas.filter((idea) => {
     const hasAlreadyEvaluated = idea.evaluations.some(
-      (evaluation) => evaluation.evaluator === agentId
+      (evaluation: Evaluation) => evaluation.evaluator === agentId
     );
     return !hasAlreadyEvaluated;
   });
@@ -675,8 +676,8 @@ async function prepareFeedbackContext(
   const [agents, ideas, recentMessages, agentMemory] = await Promise.all([
     Promise.all(
       (team?.members || [])
-        .filter((m) => !m.isUser && m.agentId)
-        .map((m) => getAgentById(m.agentId!))
+        .filter((m: TeamMember) => !m.isUser && m.agentId)
+        .map((m: TeamMember) => getAgentById(m.agentId!))
     ),
     getIdeas(teamId),
     getChatHistory(teamId, 5),
@@ -734,7 +735,7 @@ async function prepareFeedbackContext(
   }
 
   // 인간 사용자 추가
-  const humanMember = team.members.find((member) => member.isUser);
+  const humanMember = team.members.find((member: TeamMember) => member.isUser);
   if (humanMember) {
     teamMembers.push({
       id: "나",
@@ -753,7 +754,7 @@ async function prepareFeedbackContext(
         ? "나"
         : (() => {
             const member = team?.members.find(
-              (tm) => tm.agentId === idea.author
+              (tm: TeamMember) => tm.agentId === idea.author
             );
             if (member && !member.isUser) {
               const agent = validAgents.find((a: any) => a?.id === idea.author);
