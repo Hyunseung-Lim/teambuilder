@@ -51,14 +51,6 @@ export async function executeAgentAction(
       isLeader: teamMember?.isLeader || false
     };
 
-    console.log(`🎭 ${agentProfile.name} 역할 확인:`, {
-      roles: agentProfile.roles,
-      hasIdeation: agentProfile.roles?.includes("아이디어 생성하기"),
-      hasEvaluation: agentProfile.roles?.includes("아이디어 평가하기"),
-      hasFeedback: agentProfile.roles?.includes("피드백하기"),
-      hasRequest: agentProfile.roles?.includes("요청하기"),
-      isLeader: agentProfile.isLeader
-    });
 
     console.log(
       `🎯 ${agentProfile.name} 자율 행동 실행: ${plannedAction.action}`
@@ -499,9 +491,6 @@ async function executeGiveFeedbackAction(
   }
 
   // 피드백 세션을 생성할 수 있는 관계인 팀원들만 필터링
-  console.log(`🔍 ${agentProfile.name} 피드백 세션 권한 확인 시작`);
-  console.log(`👥 다른 팀원들 (${otherMembers.length}명):`, otherMembers.map((m: any) => ({ agentId: m.agentId, name: m.name })));
-  console.log(`📊 팀 관계 정보 (${team.relationships.length}개):`, team.relationships);
   
   const availableMembers = otherMembers.filter((member: any) => {
     const canCreate = canCreateFeedbackSession(agentId, member.agentId!, team);
@@ -932,7 +921,7 @@ async function executeMakeRequestAction(
     const allTeamMembers = await Promise.all(team.members.map(async (member: any) => {
       if (member.isUser) {
         return {
-          name: "나",
+          name: member.userProfile?.name || "나",
           roles: member.roles.map((role: any) => role.toString()),
           isUser: true,
           agentId: undefined,
@@ -1182,7 +1171,7 @@ async function generateInitialFeedbackMessage(
     // 요청 기반이 아닌 경우 기존 랜덤 선택 로직 사용
     if (!targetMember) {
       const otherMembers = team?.members?.filter(
-        (member: any) => !member.isUser && member.agentId !== agentId
+        (member: any) => member.isUser || member.agentId !== agentId
       ) || [];
       
       if (otherMembers.length === 0) {
@@ -1193,11 +1182,18 @@ async function generateInitialFeedbackMessage(
       targetMember = otherMembers[Math.floor(Math.random() * otherMembers.length)];
     }
     
-    const targetAgent = await getAgentById(targetMember.agentId);
-    const targetMemberName = targetAgent?.name || targetMember.name;
+    let targetMemberName: string;
+    if (targetMember.isUser) {
+      targetMemberName = targetMember.userProfile?.name || "나";
+    } else {
+      const targetAgent = await getAgentById(targetMember.agentId);
+      targetMemberName = targetAgent?.name || targetMember.name;
+    }
     
     // 해당 멤버가 낸 아이디어들 찾기
-    const targetMemberIdeas = ideas.filter(idea => idea.author === targetMember.agentId);
+    const targetMemberIdeas = targetMember.isUser 
+      ? ideas.filter(idea => idea.author === "나")
+      : ideas.filter(idea => idea.author === targetMember.agentId);
     
     // allIdeas 변수 정의 (전체 아이디어 리스트)
     const allIdeas = ideas;

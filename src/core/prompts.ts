@@ -1726,7 +1726,7 @@ ${interactionSummary}
 • Deduce motivations & preferences, forecast future behavior  
 • Deliver actionable collaboration tips  
 
-### ✏️ Output
+### Output
 - **English only, ≤ 250 characters**  
 - Objective, causal (“Their habit of X implies Y”), predictive (“Thus they’ll respond to Z”), strategic (“Best approach: …”)  
 - Return **only** the updated opinion string—no headers or extra text.
@@ -1775,7 +1775,8 @@ export const generateAgentPersonaSummaryPrompt = (
   agentProfile: any,
   sharedMentalModel?: string
 ) => `
-You are an AI assistant who turns individual profiles into concise, actionable persona summaries.
+You are an AI assistant who turns individual Agent profiles into concise, actionable persona summaries.
+Rather than simply summarizing the persona, please infer how that persona might behave.
 
 ### 🧑‍💼 Agent Profile
 - **Name**: ${agentProfile.name}
@@ -1791,7 +1792,7 @@ You are an AI assistant who turns individual profiles into concise, actionable p
 - **Preferences**: ${agentProfile.preferences || "정보 없음"}
 - **Dislikes**: ${agentProfile.dislikes || "정보 없음"}
 
-${sharedMentalModel ? `### 🤝 Team Context
+${sharedMentalModel ? `### 🤝 Shared Mental Model of the team
 ${sharedMentalModel}
 ` : ""}
 
@@ -1801,7 +1802,7 @@ ${sharedMentalModel}
 3. **Collaboration Style** - Preferred ways of working with others  
 4. **Communication** - Likely tone, channels, cadence  
 5. **Decision-Making** - How they choose & handle challenges  
-6. **Team Contribution** - Unique value they add  
+6. **Team Contribution** - Reflects the mental model shared by the team
 
 **Guidelines:**  
 • English only (internal use) • Specific & behavior-focused • Cohesive narrative
@@ -1812,65 +1813,3 @@ ${sharedMentalModel}
 }
 `;
 
-// Team members summary prompt
-export const generateTeamMembersSummaryPrompt = (
-  teamMembers: Array<{
-    name: string;
-    skills: string;
-    personality?: string;
-    workStyle?: string;
-    preferences?: string;
-    dislikes?: string;
-    professional: string;
-    isUser: boolean;
-  }>,
-  sharedMentalModel?: string
-) => {
-  const membersInfo = teamMembers
-    .map((member) => {
-      return `**${member.name}** (${member.isUser ? "Human User" : "AI Agent"}):
-- Professional Background: ${member.professional}
-- Skills: ${member.skills}
-- Personality: ${member.personality || "정보 없음"}
-- Work Style: ${member.workStyle || "정보 없음"}
-- Preferences: ${member.preferences || "정보 없음"}
-- Dislikes: ${member.dislikes || "정보 없음"}`;
-    })
-    .join("\n\n");
-
-  const agentContext = `You are an AI assistant specialized in analyzing team compositions and generating comprehensive team summaries that capture the collective strengths, dynamics, and collaboration potential.`;
-
-  const mainPrompt = `Please create a comprehensive team summary based on the following team member information:
-
-## Team Members Information
-${membersInfo}
-
-${sharedMentalModel ? `## Shared Mental Model
-${sharedMentalModel}
-
-` : ""}## Summary Requirements
-
-Create a comprehensive team summary that includes:
-
-1. **Team Composition Overview**: Brief overview of the team's professional diversity and capabilities
-2. **Collective Strengths**: Key strengths and expertise areas when combined as a team
-3. **Collaboration Dynamics**: How team members' personalities and work styles might interact
-4. **Innovation Potential**: The team's potential for creative problem-solving and ideation
-5. **Team Culture**: The likely team culture based on shared values and preferences
-6. **Strategic Advantages**: Unique advantages this team composition provides
-
-**Guidelines:**
-- Write in Korean
-- Be specific and actionable rather than generic
-- Highlight synergies between team members
-- Consider both technical and soft skills
-- Focus on how the team can work together effectively
-- Keep the summary concise but comprehensive (400-600 characters)
-
-Respond in the following JSON format:
-{
-  "teamSummary": "팀의 구성, 강점, 협업 역학, 혁신 잠재력을 종합한 간결하고 실용적인 요약"
-}`;
-
-  return { agentContext, mainPrompt };
-};

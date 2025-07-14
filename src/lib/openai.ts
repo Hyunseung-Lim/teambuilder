@@ -14,7 +14,6 @@ import {
   preFeedbackPrompt,
   responsePrompt,
   generateFeedbackSessionSummaryPrompt,
-  generateTeamMembersSummaryPrompt,
   generateAgentPersonaSummaryPrompt,
 } from "@/core/prompts";
 import { AgentMemory } from "@/lib/types";
@@ -570,8 +569,6 @@ export async function planNextAction(
         (member: any) => !member.isUser && member.agentId !== userProfile.id
       );
       
-      console.log(`👥 피드백 대상 후보 (${otherMembers.length}명):`, otherMembers.map((m: any) => ({ agentId: m.agentId, name: m.name })));
-      console.log(`📊 팀 관계 정보 (${team.relationships.length}개):`, team.relationships);
       
       for (const member of otherMembers) {
         const canCreate = canCreateFeedbackSession(userProfile.id, member.agentId!, team);
@@ -699,10 +696,6 @@ ${agentContext}`,
       };
     }
 
-    console.log(
-      `🧠 ${userProfile.name} 계획 결과 (팀 밸런스 고려, 역할 확인 완료):`,
-      planResult
-    );
 
     return {
       action: planResult.action,
@@ -852,10 +845,6 @@ export async function preRequestAction(
   // 요청 권한이 있는 팀원만 필터링
   let filteredTeamMembers = teamMembers;
   if (team && userProfile) {
-    console.log(`🎯 ${userProfile.name} 요청 계획 단계 확인 시작`);
-    console.log(`👥 요청 대상 후보 (${teamMembers.length}명):`, teamMembers.map(m => ({ agentId: m.agentId, name: m.name, isUser: m.isUser })));
-    console.log(`📊 팀 관계 정보 (${team.relationships.length}개):`, team.relationships);
-    console.log(`🤖 userProfile.id: ${userProfile.id}`);
     
     const { canMakeRequest } = await import("@/lib/relationship-utils");
     filteredTeamMembers = teamMembers.filter(member => {
@@ -897,7 +886,6 @@ export async function preRequestAction(
   
   // 역할 기반으로 가능한 요청 타입 결정 및 팀원 추가 필터링
   const roleBasedRequests = analyzeAvailableRequestTypes(filteredTeamMembers);
-  console.log(`🎭 역할 기반 분석 결과:`, roleBasedRequests);
   
   if (roleBasedRequests.availableTypes.length === 0) {
     console.log(`❌ ${userProfile.name} 요청 가능한 역할을 가진 팀원이 없음`);
@@ -1350,66 +1338,6 @@ export async function generateFeedbackSessionSummary(
 }
 
 
-// Team members summary generation function
-export async function generateTeamMembersSummary(
-  teamMembers: Array<{
-    name: string;
-    skills: string;
-    personality?: string;
-    workStyle?: string;
-    preferences?: string;
-    dislikes?: string;
-    professional: string;
-    isUser: boolean;
-  }>
-): Promise<string> {
-  try {
-    const { agentContext, mainPrompt } = generateTeamMembersSummaryPrompt(
-      teamMembers
-    );
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "system",
-          content: agentContext,
-        },
-        {
-          role: "user",
-          content: mainPrompt,
-        },
-      ],
-      temperature: 0.7,
-      max_tokens: 1500,
-    });
-
-    const result = completion.choices[0]?.message?.content;
-    if (!result) {
-      throw new Error("OpenAI 응답이 비어있습니다");
-    }
-
-    // JSON 마크다운 블록 제거
-    let jsonString = result.trim();
-    if (jsonString.startsWith("```json")) {
-      jsonString = jsonString.replace(/^```json\s*/, "").replace(/\s*```$/, "");
-    } else if (jsonString.startsWith("```")) {
-      jsonString = jsonString.replace(/^```\s*/, "").replace(/\s*```$/, "");
-    }
-
-    const parsed = JSON.parse(jsonString);
-    return parsed.teamSummary || "팀원들의 다양한 배경과 전문성을 바탕으로 효과적인 협업이 기대됩니다.";
-  } catch (error) {
-    console.error("팀 요약 생성 실패:", error);
-    
-    // 기본값 반환
-    const memberCount = teamMembers.length;
-    const humanCount = teamMembers.filter(m => m.isUser).length;
-    const aiCount = memberCount - humanCount;
-    
-    return `${memberCount}명의 팀원(인간 ${humanCount}명, AI ${aiCount}명)으로 구성된 다양한 전문성을 가진 팀입니다. 각자의 고유한 배경과 역량을 바탕으로 창의적인 협업이 기대됩니다.`;
-  }
-}
 
 // Individual agent persona summary generation function
 export async function generateAgentPersonaSummary(
@@ -1432,18 +1360,14 @@ export async function generateAgentPersonaSummary(
   }
 ): Promise<string> {
   try {
-    const { agentContext, mainPrompt } = generateAgentPersonaSummaryPrompt(agentProfile, teamContext?.sharedMentalModel);
+    const prompt = generateAgentPersonaSummaryPrompt(agentProfile, teamContext?.sharedMentalModel);
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
-          role: "system",
-          content: agentContext,
-        },
-        {
           role: "user",
-          content: mainPrompt,
+          content: prompt,
         },
       ],
       temperature: 0.7,

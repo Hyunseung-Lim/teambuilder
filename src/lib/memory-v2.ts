@@ -105,8 +105,6 @@ export async function createNewAgentMemory(
     }
 
     // 관계 찾기 - 사용자의 경우 "나"와 실제 이름 모두 확인
-    console.log(`🔍 ${agentProfile.name}와 ${otherAgentName} (${member.isUser ? '사용자' : 'AI'}) 간의 관계 찾는 중...`);
-    console.log(`팀 관계 데이터:`, team.relationships);
     
     const relationship = team.relationships.find(
       (rel) => {
@@ -117,9 +115,6 @@ export async function createNewAgentMemory(
             (rel.from === "나" && rel.to === agentProfile.name) ||
             (rel.from === otherAgentName && rel.to === agentProfile.name)
           );
-          if (match) {
-            console.log(`✅ 사용자 관계 발견: ${rel.from} → ${rel.to} (${rel.type})`);
-          }
           return match;
         } else {
           // AI 에이전트의 경우 기존 로직
@@ -127,17 +122,11 @@ export async function createNewAgentMemory(
             (rel.from === agentProfile.name && rel.to === otherAgentName) ||
             (rel.from === otherAgentName && rel.to === agentProfile.name)
           );
-          if (match) {
-            console.log(`✅ AI 관계 발견: ${rel.from} → ${rel.to} (${rel.type})`);
-          }
           return match;
         }
       }
     );
     
-    if (!relationship) {
-      console.log(`⚠️ ${agentProfile.name}와 ${otherAgentName} 간의 관계를 찾을 수 없음`);
-    }
 
     const relationKey = member.isUser ? "나" : otherAgentId;
     relations[relationKey] = {
@@ -214,7 +203,7 @@ export async function processMemoryConsolidation(
     await updateKnowledgeAndActionPlan(memory, updateLogs, agentId);
 
     // 2. Relation 업데이트
-    await updateRelationMemories(memory, updateLogs, agentId);
+    await updateRelationMemories(memory, updateLogs);
 
     // 3. 메모리 저장
     memory.lastMemoryUpdate = new Date().toISOString();
@@ -302,8 +291,8 @@ async function updateKnowledgeAndActionPlan(
         if (!memory.longTerm.knowledge.includes(newKnowledge)) {
           const updatedKnowledge = memory.longTerm.knowledge + "\n\n" + newKnowledge;
           
-          // Knowledge 길이 제한 (2500자 초과 시 앞부분 제거)
-          if (updatedKnowledge.length > 2500) {
+          // Knowledge 길이 제한 (2000자 초과 시 앞부분 제거)
+          if (updatedKnowledge.length > 2000) {
             const lines = updatedKnowledge.split('\n\n');
             // 마지막 몇 개 섹션만 유지
             const keptLines = lines.slice(-3); // 최신 3개 섹션 유지
@@ -358,8 +347,7 @@ async function updateKnowledgeAndActionPlan(
  */
 async function updateRelationMemories(
   memory: NewAgentMemory,
-  updateLogs: MemoryUpdateLog[],
-  agentId: string
+  updateLogs: MemoryUpdateLog[]
 ): Promise<void> {
   // 로그에서 관련된 다른 에이전트들 추출
   const relatedAgents = new Set(

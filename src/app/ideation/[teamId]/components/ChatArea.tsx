@@ -739,9 +739,17 @@ export default function ChatArea({
                                 ? "bg-indigo-500 text-white"
                                 : "bg-blue-500 text-white";
                             } else {
-                              return isRequest
-                                ? "bg-yellow-100 text-gray-900"
-                                : "bg-slate-200 text-gray-900";
+                              if (isRequest) {
+                                // 나에게 온 요청인지 확인
+                                const isRequestToMe = message.payload && 
+                                  typeof message.payload === "object" &&
+                                  "mention" in message.payload &&
+                                  (message.payload.mention === "나" || message.payload.target === "나");
+                                return isRequestToMe 
+                                  ? "bg-green-100 text-gray-900" 
+                                  : "bg-yellow-100 text-gray-900";
+                              }
+                              return "bg-slate-200 text-gray-900";
                             }
                           }
                           // 기본값
