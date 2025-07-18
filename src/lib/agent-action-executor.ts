@@ -268,6 +268,13 @@ async function executeEvaluateIdeaAction(
 
   if (ideas.length === 0) {
     console.log(`⚠️ ${agentProfile.name} 평가할 아이디어가 없음`);
+    await setAgentState(teamId, agentId, {
+      agentId,
+      currentState: "idle",
+      lastStateChange: new Date().toISOString(),
+      isProcessing: false,
+      idleTimer: createNewIdleTimer(),
+    });
     return;
   }
 
@@ -275,6 +282,13 @@ async function executeEvaluateIdeaAction(
 
   if (otherIdeas.length === 0) {
     console.log(`⚠️ 에이전트 ${agentId} 평가할 다른 사람의 아이디어가 없음`);
+    await setAgentState(teamId, agentId, {
+      agentId,
+      currentState: "idle",
+      lastStateChange: new Date().toISOString(),
+      isProcessing: false,
+      idleTimer: createNewIdleTimer(),
+    });
     return;
   }
 
@@ -289,6 +303,13 @@ async function executeEvaluateIdeaAction(
     console.log(
       `⚠️ 에이전트 ${agentId} 평가할 새로운 아이디어가 없음 (모두 평가 완료)`
     );
+    await setAgentState(teamId, agentId, {
+      agentId,
+      currentState: "idle",
+      lastStateChange: new Date().toISOString(),
+      isProcessing: false,
+      idleTimer: createNewIdleTimer(),
+    });
     return;
   }
 
