@@ -17,7 +17,11 @@ export function findMemberById(team: Team, id: string): TeamMember | null {
   const byAgentId = team.members.find(m => !m.isUser && m.agentId === id);
   if (byAgentId) return byAgentId;
 
-  // 3. 슬롯 ID 매치 (A, B, C, D 등)
+  // 3. 사용자 이름 매치 (userProfile.name)
+  const byUserName = team.members.find(m => m.isUser && m.userProfile?.name === id);
+  if (byUserName) return byUserName;
+
+  // 4. 슬롯 ID 매치 (A, B, C, D 등)
   if (id.match(/^[A-Z]$/)) {
     const memberIndex = id.charCodeAt(0) - 65; // A=0, B=1, C=2, D=3
     const aiMembers = team.members.filter(m => !m.isUser);
