@@ -59,6 +59,21 @@ export default function IdeaDetailModal({
     comment: "",
   });
 
+  // textarea 자동 높이 조절 함수
+  const adjustTextareaHeight = (textarea: HTMLTextAreaElement) => {
+    textarea.style.height = 'auto';
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  };
+
+  // textarea ref를 사용하여 높이 자동 조절
+  const handleTextareaChange = (
+    e: React.ChangeEvent<HTMLTextAreaElement>,
+    callback: (value: string) => void
+  ) => {
+    adjustTextareaHeight(e.target);
+    callback(e.target.value);
+  };
+
   // JSON 문자열을 키-값 쌍 배열로 변환
   const parseJsonToPairs = (
     jsonString: string
@@ -284,6 +299,8 @@ export default function IdeaDetailModal({
       });
 
       if (response.ok) {
+        const result = await response.json();
+        
         // 업데이트 성공 시 편집 모드 종료
         setIsEditMode(false);
         
@@ -292,6 +309,8 @@ export default function IdeaDetailModal({
           await onIdeaUpdate();
         }
         
+        // API에서 받은 메시지 표시
+        alert(result.message || "아이디어 업데이트 성공");
         console.log("아이디어 업데이트 성공");
       } else {
         console.error("아이디어 업데이트 실패:", response.status);
@@ -471,19 +490,21 @@ export default function IdeaDetailModal({
                 {/* 아이디어 제목 */}
                 <div className="mb-6">
                   <label className="block text-base font-semibold text-gray-800 mb-3 uppercase tracking-wide border-b border-gray-200 pb-2">
-                    아이디어
+                    아이디어(제목)
                   </label>
                   {isEditMode ? (
                     <textarea
                       value={editFormData.object}
                       onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          object: e.target.value,
-                        })
+                        handleTextareaChange(e, (value) =>
+                          setEditFormData({
+                            ...editFormData,
+                            object: value,
+                          })
+                        )
                       }
                       className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      rows={3}
+                      rows={1}
                       placeholder="아이디어의 대상이나 객체에 대해 설명하세요..."
                     />
                   ) : (
@@ -502,13 +523,15 @@ export default function IdeaDetailModal({
                     <textarea
                       value={editFormData.function}
                       onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          function: e.target.value,
-                        })
+                        handleTextareaChange(e, (value) =>
+                          setEditFormData({
+                            ...editFormData,
+                            function: value,
+                          })
+                        )
                       }
                       className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      rows={3}
+                      rows={1}
                       placeholder="아이디어의 기능이나 목적에 대해 설명하세요..."
                     />
                   ) : (
@@ -569,12 +592,14 @@ export default function IdeaDetailModal({
                           <textarea
                             value={pair.value}
                             onChange={(e) => {
-                              const newPairs = [...behaviorPairs];
-                              newPairs[index].value = e.target.value;
-                              setBehaviorPairs(newPairs);
+                              handleTextareaChange(e, (value) => {
+                                const newPairs = [...behaviorPairs];
+                                newPairs[index].value = value;
+                                setBehaviorPairs(newPairs);
+                              });
                             }}
                             className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            rows={3}
+                            rows={1}
                             placeholder={`${pair.key || '행동 요소'}에 대한 설명을 입력하세요...`}
                           />
                         </div>
@@ -643,12 +668,14 @@ export default function IdeaDetailModal({
                           <textarea
                             value={pair.value}
                             onChange={(e) => {
-                              const newPairs = [...structurePairs];
-                              newPairs[index].value = e.target.value;
-                              setStructurePairs(newPairs);
+                              handleTextareaChange(e, (value) => {
+                                const newPairs = [...structurePairs];
+                                newPairs[index].value = value;
+                                setStructurePairs(newPairs);
+                              });
                             }}
                             className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            rows={3}
+                            rows={1}
                             placeholder={`${pair.key || '구조 요소'}에 대한 설명을 입력하세요...`}
                           />
                         </div>
@@ -897,20 +924,16 @@ export default function IdeaDetailModal({
                       <textarea
                         value={evaluationFormData.comment}
                         onChange={(e) =>
-                          setEvaluationFormData({
-                            ...evaluationFormData,
-                            comment: e.target.value,
-                          })
+                          handleTextareaChange(e, (value) =>
+                            setEvaluationFormData({
+                              ...evaluationFormData,
+                              comment: value,
+                            })
+                          )
                         }
-                        className="w-full p-3 border border-gray-300 rounded text-base resize-y focus:ring-2 focus:ring-blue-500 focus:border-transparent min-h-[120px]"
-                        rows={6}
+                        className="w-full p-3 border border-gray-300 rounded text-base resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        rows={1}
                         placeholder="평가 의견을 작성해주세요..."
-                        style={{
-                          minHeight: '120px',
-                          maxHeight: '300px',
-                          height: 'auto',
-                          resize: 'vertical'
-                        }}
                       />
                     </div>
 

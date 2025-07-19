@@ -151,13 +151,13 @@ export interface Conversation {
 // 폼 데이터 타입들
 export interface CreateAgentData {
   name: string;
-  age: number;
-  gender: "여자" | "남자" | "정의하지 않음" | "알 수 없음";
+  age?: number;
+  gender?: "여자" | "남자" | "정의하지 않음" | "알 수 없음";
   nationality?: string;
   major?: string;
   education?: "고졸" | "대졸" | "석사" | "박사" | "기타";
-  professional: string;
-  skills: string;
+  professional?: string;
+  skills?: string;
   personality?: string;
   value?: string;
   workStyle?: string;

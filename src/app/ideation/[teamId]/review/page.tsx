@@ -545,12 +545,16 @@ export default function ReviewPage() {
         const mention = (message.payload as any)?.mention;
         
         if (sender && mention && sender !== mention) {
+          // sender가 mention에게 요청을 보낸 것
           const key = `${sender}->${mention}`;
           requestCounts[key] = (requestCounts[key] || 0) + 1;
+          
+          console.log(`요청 데이터: ${sender} -> ${mention} (카운트: ${requestCounts[key]})`);
         }
       }
     });
     
+    console.log("전체 요청 카운트:", requestCounts);
     return requestCounts;
   };
 
@@ -727,6 +731,7 @@ export default function ReviewPage() {
           const fromMember = team?.members.find(m => {
             const memberName = m.isUser ? "나" : getAgentName(m.agentId || "");
             
+            // '나'에 대한 매칭 개선
             if (m.isUser && (cleanFromId === "나" || fromId === "나")) {
               return true;
             }
@@ -750,6 +755,7 @@ export default function ReviewPage() {
           const toMember = team?.members.find(m => {
             const memberName = m.isUser ? "나" : getAgentName(m.agentId || "");
             
+            // '나'에 대한 매칭 개선
             if (m.isUser && (cleanToId === "나" || toId === "나")) {
               return true;
             }
@@ -1355,7 +1361,7 @@ export default function ReviewPage() {
                           .map(([key, value]) => (
                             <div key={key}>
                               <div className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">
-                                {key === 'object' ? '아이디어' : 
+                                {key === 'object' ? '아이디어(제목)' : 
                                  key === 'function' ? '기능 요약' : 
                                  key === 'behavior' ? '핵심 동작(행동)' : 
                                  key === 'structure' ? '구조' : key}
@@ -1746,7 +1752,7 @@ export default function ReviewPage() {
                     return (
                       <div key={key} className="space-y-2">
                         <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
-                          {key === 'object' ? '아이디어' : 
+                          {key === 'object' ? '아이디어(제목)' : 
                            key === 'function' ? '기능 요약' : 
                            key === 'behavior' ? '핵심 동작(행동)' : 
                            key === 'structure' ? '구조' : key}

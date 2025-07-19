@@ -321,8 +321,15 @@ async function updateKnowledgeAndActionPlan(
       
       // console.log(`📋 받은 ActionPlan 데이터:`, parsed.actionPlan);
       
-      // 모든 actionPlan 필드를 업데이트하되, 기존 값을 유지하면서 새로운 값으로 덮어쓰기
-      Object.assign(memory.longTerm.actionPlan, parsed.actionPlan);
+      // 모든 actionPlan 필드를 업데이트하되, 메타 정보는 제외하고 실제 내용만 업데이트
+      const filteredActionPlan: any = {};
+      for (const [key, value] of Object.entries(parsed.actionPlan)) {
+        // "unchanged", "updated" 같은 메타 정보는 제외하고 실제 액션 플랜 내용만 저장
+        if (typeof value === 'string' && value !== 'unchanged' && value !== 'updated' && value.trim().length > 0) {
+          filteredActionPlan[key] = value;
+        }
+      }
+      Object.assign(memory.longTerm.actionPlan, filteredActionPlan);
       
       // console.log(`📋 ActionPlan 업데이트 후:`, {
       //   idea_generation: memory.longTerm.actionPlan?.idea_generation?.substring(0, 50) + "...",

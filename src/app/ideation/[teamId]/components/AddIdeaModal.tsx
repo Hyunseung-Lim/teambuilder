@@ -38,6 +38,21 @@ export default function AddIdeaModal({
   const [behaviorPairs, setBehaviorPairs] = useState<KeyValuePair[]>([{ key: '', value: '' }]);
   const [structurePairs, setStructurePairs] = useState<KeyValuePair[]>([{ key: '', value: '' }]);
 
+  // textarea 자동 높이 조절 함수
+  const adjustTextareaHeight = (textarea: HTMLTextAreaElement) => {
+    textarea.style.height = 'auto';
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  };
+
+  // textarea ref를 사용하여 높이 자동 조절
+  const handleTextareaChange = (
+    e: React.ChangeEvent<HTMLTextAreaElement>,
+    callback: (value: string) => void
+  ) => {
+    adjustTextareaHeight(e.target);
+    callback(e.target.value);
+  };
+
   // formData에서 behavior와 structure를 파싱하여 key-value 쌍으로 변환
   useEffect(() => {
     // behavior 파싱
@@ -168,12 +183,12 @@ export default function AddIdeaModal({
           <div className="space-y-6">
             {/* Object 필드 */}
             <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">아이디어</label>
+              <label className="block text-sm font-medium text-gray-700">아이디어(제목)</label>
               <textarea
                 value={formData.object}
-                onChange={(e) => onFormDataChange({ ...formData, object: e.target.value })}
+                onChange={(e) => handleTextareaChange(e, (value) => onFormDataChange({ ...formData, object: value }))}
                 className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                rows={3}
+                rows={1}
                 placeholder="아이디어의 대상이나 객체에 대해 설명하세요..."
               />
             </div>
@@ -183,9 +198,9 @@ export default function AddIdeaModal({
               <label className="block text-sm font-medium text-gray-700">기능 요약</label>
               <textarea
                 value={formData.function}
-                onChange={(e) => onFormDataChange({ ...formData, function: e.target.value })}
+                onChange={(e) => handleTextareaChange(e, (value) => onFormDataChange({ ...formData, function: value }))}
                 className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                rows={3}
+                rows={1}
                 placeholder="아이디어의 기능이나 목적에 대해 설명하세요..."
               />
             </div>
@@ -225,9 +240,9 @@ export default function AddIdeaModal({
                   </div>
                   <textarea
                     value={pair.value}
-                    onChange={(e) => updateBehaviorPair(index, 'value', e.target.value)}
+                    onChange={(e) => handleTextareaChange(e, (value) => updateBehaviorPair(index, 'value', value))}
                     className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    rows={3}
+                    rows={1}
                     placeholder={`${pair.key || '행동 요소'}에 대한 설명을 입력하세요...`}
                   />
                 </div>
@@ -269,9 +284,9 @@ export default function AddIdeaModal({
                   </div>
                   <textarea
                     value={pair.value}
-                    onChange={(e) => updateStructurePair(index, 'value', e.target.value)}
+                    onChange={(e) => handleTextareaChange(e, (value) => updateStructurePair(index, 'value', value))}
                     className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    rows={3}
+                    rows={1}
                     placeholder={`${pair.key || '구조 요소'}에 대한 설명을 입력하세요...`}
                   />
                 </div>

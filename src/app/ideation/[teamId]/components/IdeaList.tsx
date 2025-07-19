@@ -170,7 +170,7 @@ export default function IdeaList({
               <div className="space-y-3 pt-2">
                 <div>
                   <h4 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
-                    아이디어
+                    아이디어(제목)
                   </h4>
                   <p className="text-sm font-medium text-gray-800 truncate mt-0.5">
                     {idea.content.object}

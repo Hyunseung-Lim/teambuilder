@@ -187,7 +187,9 @@ async function executeGenerateIdeaAction(
     sender: agentId,
     type: "system",
     payload: {
-      content: `새로운 아이디어를 생성했습니다.`,
+      content: preAnalysis.decision === "Update" 
+        ? `기존 아이디어를 업데이트하여 새로운 아이디어를 생성했습니다.`
+        : `새로운 아이디어를 생성했습니다.`,
     },
   });
 
@@ -1205,6 +1207,7 @@ async function generateInitialFeedbackMessage(
     
     let targetMemberName: string;
     if (targetMember.isUser) {
+      // 사용자의 실제 이름 사용, 없으면 "나"로 폴백
       targetMemberName = targetMember.userProfile?.name || "나";
     } else {
       const targetAgent = await getAgentById(targetMember.agentId);

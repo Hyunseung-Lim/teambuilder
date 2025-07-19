@@ -78,25 +78,32 @@ export async function POST(
       // 🔒 피드백 세션 중복 방지를 위한 상태 확인
       console.log("🔍 참가자들의 피드백 세션 상태 확인 중...");
 
-      // 공통 상태 확인 함수
+      // 공통 상태 확인 함수 - 실제 활성 세션만 확인 (기존 패턴 사용)
       const checkParticipantSession = async (participantId: string, role: string) => {
-        if (participantId === "나") {
-          const userStateKey = `team:${teamId}:user_state`;
-          const userStateData = await redis.get(userStateKey);
-          if (userStateData) {
-            const userState = typeof userStateData === "string" ? JSON.parse(userStateData) : userStateData;
-            if (userState.currentState === "feedback_session") {
-              console.log(`❌ ${role}(인간)가 이미 피드백 세션 중`);
-              return true;
+        // 기존 active 세션 조회 로직과 동일한 패턴 사용
+        const activeSessionIds = await redis.smembers(
+          `team:${teamId}:active_feedback_sessions`
+        );
+        
+        for (const sessionId of activeSessionIds) {
+          const sessionData = await redis.get(`feedback_session:${sessionId}`);
+          if (sessionData) {
+            const session: FeedbackSession =
+              typeof sessionData === "string"
+                ? JSON.parse(sessionData)
+                : sessionData;
+
+            // 실제로 활성 상태이고 해당 참가자가 포함된 세션인지 확인
+            if (session.status === "active") {
+              const isParticipant = session.participants.some(p => p.id === participantId);
+              if (isParticipant) {
+                console.log(`❌ ${role}(${participantId})가 이미 피드백 세션 중 (세션 ID: ${sessionId})`);
+                return true;
+              }
             }
           }
-        } else {
-          const agentState = await getAgentState(teamId, participantId);
-          if (agentState?.currentState === "feedback_session") {
-            console.log(`❌ ${role}(${participantId})가 이미 피드백 세션 중`);
-            return true;
-          }
         }
+        
         return false;
       };
 
@@ -123,7 +130,7 @@ export async function POST(
           targetAgentId !== "나" ? await getAgentById(targetAgentId) : null;
         const targetName =
           targetAgentId === "나"
-            ? "사용자"
+            ? "나"
             : targetAgentData?.name || targetAgentId;
 
         return NextResponse.json(

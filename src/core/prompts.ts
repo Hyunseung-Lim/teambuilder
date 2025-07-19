@@ -1683,20 +1683,20 @@ Apply the 4-step lens **(Pattern → Context → Prediction → Meta-reflection)
 
 If updating:
 1. **Knowledge** - Append insights; keep existing content.
-2. **Action Plan** - Refine **max TWO** most relevant categories (2-3 sentences each); leave others unchanged.
+2. **Action Plan** - Update **max TWO** most relevant categories with actual action plans (2-3 sentences each). For unchanged categories, provide the current action plan content.
 
 ==================== ⑤ OUTPUT FORMAT ===================
-Return valid JSON, English only.
+Return valid JSON, English only. For actionPlan, provide the ACTUAL action plan content, not meta-information like "updated" or "unchanged".
 
 {
-  "knowledge": "<keep or extend>",
+  "knowledge": "<your updated knowledge content>",
   "actionPlan": {
-    "idea_generation": "<updated or unchanged>",
-    "idea_evaluation": "<updated or unchanged>",
-    "feedback": "<updated or unchanged>",
-    "request": "<updated or unchanged>",
-    "response": "<updated or unchanged>",
-    "planning": "<updated or unchanged>"
+    "idea_generation": "<actual action plan for idea generation>",
+    "idea_evaluation": "<actual action plan for idea evaluation>", 
+    "feedback": "<actual action plan for feedback>",
+    "request": "<actual action plan for requests>",
+    "response": "<actual action plan for responses>",
+    "planning": "<actual action plan for planning>"
   }
 }
 `;

@@ -60,8 +60,10 @@ export default function FeedbackSessionModal({
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
   const [sessionEnded, setSessionEnded] = useState(false);
+  const [countdown, setCountdown] = useState(5);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Auto-resize textarea with max 4 lines
@@ -156,6 +158,21 @@ export default function FeedbackSessionModal({
             ) {
               setAiGenerating(false);
               setSessionEnded(true);
+              setCountdown(5); // 5초 카운트다운 시작
+
+              // 카운트다운 시작
+              countdownIntervalRef.current = setInterval(() => {
+                setCountdown((prev) => {
+                  if (prev <= 1) {
+                    if (countdownIntervalRef.current) {
+                      clearInterval(countdownIntervalRef.current);
+                    }
+                    onClose(); // 5초 후 모달 닫기
+                    return 0;
+                  }
+                  return prev - 1;
+                });
+              }, 1000);
             }
           }
         }
@@ -226,11 +243,21 @@ export default function FeedbackSessionModal({
               if (aiData.sessionEnded) {
                 setAiGenerating(false);
                 setSessionEnded(true);
+                setCountdown(5); // 5초 카운트다운 시작
 
-                // 세션 종료 시 3초 후 모달 닫기
-                setTimeout(() => {
-                  onClose();
-                }, 3000);
+                // 카운트다운 시작
+                countdownIntervalRef.current = setInterval(() => {
+                  setCountdown((prev) => {
+                    if (prev <= 1) {
+                      if (countdownIntervalRef.current) {
+                        clearInterval(countdownIntervalRef.current);
+                      }
+                      onClose(); // 5초 후 모달 닫기
+                      return 0;
+                    }
+                    return prev - 1;
+                  });
+                }, 1000);
               }
             }
           } catch (error) {
@@ -291,11 +318,14 @@ export default function FeedbackSessionModal({
     return `${hours}시간 ${minutes}분`;
   };
 
-  // 컴포넌트 언마운트 시 폴링 정리
+  // 컴포넌트 언마운트 시 모든 인터벌 정리
   useEffect(() => {
     return () => {
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
+      }
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
       }
     };
   }, []);
@@ -544,12 +574,69 @@ export default function FeedbackSessionModal({
                   {sessionData.mentionedAgent.name}가 피드백 세션을
                   종료했습니다.
                 </p>
-                <Button
-                  onClick={onClose}
-                  className="bg-red-500 hover:bg-red-600 text-white px-6 py-2"
-                >
-                  대화 종료하기
-                </Button>
+                <div className="mb-4">
+                  <p className="text-sm text-gray-500">
+                    {countdown}초 후 자동으로 닫힙니다
+                  </p>
+                </div>
+                <div className="flex gap-3 justify-center">
+                  <Button
+                    onClick={() => {
+                      // 카운트다운 중지
+                      if (countdownIntervalRef.current) {
+                        clearInterval(countdownIntervalRef.current);
+                      }
+                      onClose();
+                    }}
+                    variant="outline"
+                    className="px-4 py-2"
+                  >
+                    닫기
+                  </Button>
+                  <Button
+                    onClick={async () => {
+                      // 카운트다운 중지
+                      if (countdownIntervalRef.current) {
+                        clearInterval(countdownIntervalRef.current);
+                      }
+                      
+                      // 새로운 피드백 세션 시작
+                      try {
+                        setSessionEnded(false);
+                        setIsLoading(true);
+                        
+                        const response = await fetch(`/api/teams/${teamId}/feedback-sessions`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            action: "create",
+                            targetAgentId: sessionData.mentionedAgent.id,
+                          }),
+                        });
+
+                        if (response.ok) {
+                          const newSessionData = await response.json();
+                          setSession(newSessionData.session);
+                          setNewMessage("");
+                          console.log("새로운 피드백 세션 시작:", newSessionData.session.id);
+                        } else {
+                          const error = await response.json();
+                          console.error("새 세션 생성 실패:", error);
+                          alert(error.error || "새 피드백 세션 시작에 실패했습니다.");
+                        }
+                      } catch (error) {
+                        console.error("새 세션 생성 중 오류:", error);
+                        alert("새 피드백 세션 시작 중 오류가 발생했습니다.");
+                      } finally {
+                        setIsLoading(false);
+                      }
+                    }}
+                    className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? "시작 중..." : "새 대화 시작"}
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
