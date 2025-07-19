@@ -678,6 +678,8 @@ export default function IdeationPage() {
             setIdeaDetailModalData(updatedIdea);
           }
         }
+        // 명시적으로 성공 상태 반환
+        return { success: true };
       } else {
         const errorData = await response.json();
         throw new Error(errorData.error || "평가 제출에 실패했습니다.");

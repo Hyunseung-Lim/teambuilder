@@ -141,8 +141,8 @@ export function useAgentStates(teamId: string) {
         // 요청 완료 후 연속 오류 횟수에 따라 대기 시간 조정
         const waitTime =
           consecutiveErrors > 0
-            ? Math.min(5000, 1000 * consecutiveErrors) // 오류 시 최대 10초 대기
-            : 1000; // 정상 시 3초 간격으로 증가
+            ? Math.min(10000, 2000 * consecutiveErrors) // 오류 시 최대 10초 대기
+            : 3000; // 정상 시 3초 간격
 
         if (isActive) {
           timeoutId = setTimeout(fetchAgentStates, waitTime);

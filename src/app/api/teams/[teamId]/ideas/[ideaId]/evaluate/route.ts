@@ -166,20 +166,24 @@ export async function POST(
       );
     }
 
-    // v2 메모리 업데이트 - 평가자를 위한 업데이트
-    try {
-      await triggerMemoryUpdate(
-        evaluator,
-        "idea_evaluation",
-        `I evaluated an idea (ID: ${ideaId}) with scores: novelty=${newEvaluation.scores.novelty}, completeness=${newEvaluation.scores.completeness}, quality=${newEvaluation.scores.quality}. Comment: ${newEvaluation.comment || 'No comment'}`,
-        targetIdea.author !== "나" ? targetIdea.author : undefined,
-        teamId
-      );
-      console.log(
-        `✅ 평가자 ${evaluator} v2 메모리 업데이트 성공 -> idea ${ideaId}`
-      );
-    } catch (memoryError) {
-      console.error("❌ 평가자 메모리 업데이트 실패:", memoryError);
+    // v2 메모리 업데이트 - 평가자를 위한 업데이트 (AI 에이전트만)
+    if (evaluator !== "나") {
+      try {
+        await triggerMemoryUpdate(
+          evaluator,
+          "idea_evaluation",
+          `I evaluated an idea (ID: ${ideaId}) with scores: novelty=${newEvaluation.scores.novelty}, completeness=${newEvaluation.scores.completeness}, quality=${newEvaluation.scores.quality}. Comment: ${newEvaluation.comment || 'No comment'}`,
+          targetIdea.author !== "나" ? targetIdea.author : undefined,
+          teamId
+        );
+        console.log(
+          `✅ 평가자 ${evaluator} v2 메모리 업데이트 성공 -> idea ${ideaId}`
+        );
+      } catch (memoryError) {
+        console.error("❌ 평가자 메모리 업데이트 실패:", memoryError);
+      }
+    } else {
+      console.log(`🙋‍♂️ 사용자 평가 - 메모리 업데이트 건너뜀`);
     }
 
     // v2 메모리 업데이트 - 아이디어 작성자를 위한 업데이트 (자기 아이디어가 아닌 경우만)

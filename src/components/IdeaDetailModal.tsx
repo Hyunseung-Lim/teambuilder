@@ -109,6 +109,18 @@ export default function IdeaDetailModal({
       );
     }
     
+    // 값을 안전하게 표시하는 헬퍼 함수
+    const renderValue = (value: any): string => {
+      if (typeof value === 'object' && value !== null) {
+        try {
+          return JSON.stringify(value, null, 2);
+        } catch {
+          return '[object Object]';
+        }
+      }
+      return String(value);
+    };
+    
     if (typeof data === "string") {
       try {
         const parsed = JSON.parse(data);
@@ -125,8 +137,8 @@ export default function IdeaDetailModal({
             <div className="space-y-4">
               {parsed.map((item, index) => (
                 <div key={index} className="border-l-4 border-blue-200 pl-4">
-                  <div className="font-medium text-gray-800 mb-1">{item.key}</div>
-                  <div className="text-gray-600 text-sm">{item.value}</div>
+                  <div className="font-medium text-gray-800 mb-1">{item.key || `요소 ${index + 1}`}</div>
+                  <div className="text-gray-600 text-sm whitespace-pre-wrap">{renderValue(item.value || item)}</div>
                 </div>
               ))}
             </div>
@@ -138,16 +150,25 @@ export default function IdeaDetailModal({
               {Object.entries(parsed).map(([key, value]) => (
                 <div key={key} className="border-l-4 border-blue-200 pl-4">
                   <div className="font-medium text-gray-800 mb-1">{key}</div>
-                  <div className="text-gray-600 text-sm">{String(value)}</div>
+                  <div className="text-gray-600 text-sm whitespace-pre-wrap">{renderValue(value)}</div>
                 </div>
               ))}
             </div>
           );
         }
         return <p className="text-gray-600">{data}</p>;
-      } catch {
-        // JSON 파싱 실패 시 문자열로 표시
-        return <p className="text-gray-600">{data}</p>;
+      } catch (parseError) {
+        // JSON 파싱 실패 시 raw JSON 표시
+        return (
+          <div className="space-y-2">
+            <div className="text-yellow-600 text-sm font-medium">
+              ⚠️ JSON 파싱 실패 - Raw 데이터:
+            </div>
+            <pre className="bg-gray-100 p-3 rounded text-sm text-gray-700 whitespace-pre-wrap overflow-x-auto">
+              {data}
+            </pre>
+          </div>
+        );
       }
     } else if (typeof data === "object" && data !== null) {
       // 이미 객체인 경우
@@ -163,8 +184,8 @@ export default function IdeaDetailModal({
           <div className="space-y-4">
             {data.map((item, index) => (
               <div key={index} className="border-l-4 border-blue-200 pl-4">
-                <div className="font-medium text-gray-800 mb-1">{item.key}</div>
-                <div className="text-gray-600 text-sm">{item.value}</div>
+                <div className="font-medium text-gray-800 mb-1">{item.key || `요소 ${index + 1}`}</div>
+                <div className="text-gray-600 text-sm whitespace-pre-wrap">{renderValue(item.value || item)}</div>
               </div>
             ))}
           </div>
@@ -175,7 +196,7 @@ export default function IdeaDetailModal({
             {Object.entries(data).map(([key, value]) => (
               <div key={key} className="border-l-4 border-blue-200 pl-4">
                 <div className="font-medium text-gray-800 mb-1">{key}</div>
-                <div className="text-gray-600 text-sm">{String(value)}</div>
+                <div className="text-gray-600 text-sm whitespace-pre-wrap">{renderValue(value)}</div>
               </div>
             ))}
           </div>
@@ -183,7 +204,7 @@ export default function IdeaDetailModal({
       }
     } else {
       // 다른 타입인 경우 문자열로 변환
-      return <p className="text-gray-600">{String(data)}</p>;
+      return <p className="text-gray-600">{renderValue(data)}</p>;
     }
   };
 
@@ -311,19 +332,23 @@ export default function IdeaDetailModal({
     }
 
     try {
-      await onSubmitEvaluation(evaluationFormData);
+      const result = await onSubmitEvaluation(evaluationFormData);
+      
+      // 성공 시에만 폼 초기화 및 숨기기
+      if (result && result.success !== false) {
+        setEvaluationFormData({
+          novelty: 0,
+          completeness: 0,
+          quality: 0,
+          comment: "",
+        });
+        setShowEvaluationForm(false);
 
-      // 성공 시 폼 초기화 및 숨기기
-      setEvaluationFormData({
-        novelty: 0,
-        completeness: 0,
-        quality: 0,
-        comment: "",
-      });
-      setShowEvaluationForm(false);
-
-      // 성공 메시지 표시
-      alert("평가가 성공적으로 제출되었습니다!");
+        // 성공 메시지 표시
+        alert("평가가 성공적으로 제출되었습니다!");
+      } else {
+        throw new Error("평가 제출에 실패했습니다.");
+      }
     } catch (error) {
       console.error("평가 제출 실패:", error);
       alert("평가 제출에 실패했습니다. 다시 시도해주세요.");
