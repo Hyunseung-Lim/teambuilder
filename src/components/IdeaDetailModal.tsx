@@ -19,7 +19,7 @@ interface IdeaDetailModalProps {
     completeness: number;
     quality: number;
     comment: string;
-  }) => Promise<void>;
+  }) => Promise<{ success: boolean } | undefined>;
   isSubmittingEvaluation?: boolean;
   onIdeaUpdate?: () => Promise<void>;
 }

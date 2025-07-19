@@ -1424,7 +1424,7 @@ export default function ReviewPage() {
                                     if (Array.isArray(value)) {
                                       return (
                                         <div className="space-y-2">
-                                          {value.map((item, index) => {
+                                          {(value as any[]).map((item, index) => {
                                             if (typeof item === 'object' && item !== null && 'key' in item && 'value' in item) {
                                               return (
                                                 <div key={index}>
@@ -1815,7 +1815,7 @@ export default function ReviewPage() {
                               if (Array.isArray(value)) {
                                 return (
                                   <div className="space-y-4">
-                                    {value.map((item, index) => {
+                                    {(value as any[]).map((item, index) => {
                                       if (typeof item === 'object' && item !== null && 'key' in item && 'value' in item) {
                                         return (
                                           <div key={index}>
