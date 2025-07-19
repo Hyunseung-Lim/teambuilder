@@ -741,10 +741,16 @@ export default function ChatArea({
                             } else {
                               if (isRequest) {
                                 // 나에게 온 요청인지 확인
+                                const userMember = team.members.find(m => m.isUser);
+                                const userName = userMember?.userProfile?.name || "나";
+                                
                                 const isRequestToMe = message.payload && 
                                   typeof message.payload === "object" &&
                                   "mention" in message.payload &&
-                                  (message.payload.mention === "나" || message.payload.target === "나");
+                                  (message.payload.mention === "나" || 
+                                   message.payload.target === "나" ||
+                                   message.payload.mention === userName ||
+                                   message.payload.target === userName);
                                 return isRequestToMe 
                                   ? "bg-green-100 text-gray-900" 
                                   : "bg-yellow-100 text-gray-900";

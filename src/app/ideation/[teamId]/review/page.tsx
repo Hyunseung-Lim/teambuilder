@@ -1367,12 +1367,49 @@ export default function ReviewPage() {
                                     try {
                                       const parsed = JSON.parse(value);
                                       if (typeof parsed === 'object' && parsed !== null) {
+                                        // 배열인 경우 key-value 객체들을 처리
+                                        if (Array.isArray(parsed)) {
+                                          return (
+                                            <div className="space-y-2">
+                                              {parsed.map((item, index) => {
+                                                if (typeof item === 'object' && item !== null && 'key' in item && 'value' in item) {
+                                                  return (
+                                                    <div key={index}>
+                                                      <div className="font-medium text-gray-800 mb-1">{item.key}</div>
+                                                      <div className="text-gray-600 text-sm">{item.value}</div>
+                                                    </div>
+                                                  );
+                                                }
+                                                return (
+                                                  <div key={index}>
+                                                    <div className="text-gray-600 text-sm">{String(item)}</div>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          );
+                                        }
+                                        // 객체인 경우 기존 로직 유지
                                         return (
                                           <div className="space-y-2">
                                             {Object.entries(parsed).map(([subKey, subValue]) => (
                                               <div key={subKey}>
                                                 <div className="font-medium text-gray-800 mb-1">{subKey}</div>
-                                                <div className="text-gray-600 text-sm">{String(subValue)}</div>
+                                                <div className="text-gray-600 text-sm">
+                                                  {(() => {
+                                                    if (typeof subValue === 'object' && subValue !== null) {
+                                                      // key-value 형태의 객체인 경우
+                                                      if ('key' in subValue && 'value' in subValue) {
+                                                        return `${subValue.key}: ${subValue.value}`;
+                                                      }
+                                                      // 그 외의 객체
+                                                      return Object.entries(subValue)
+                                                        .map(([k, v]) => `${k}: ${v}`)
+                                                        .join(', ');
+                                                    }
+                                                    return String(subValue);
+                                                  })()}
+                                                </div>
                                               </div>
                                             ))}
                                           </div>
@@ -1383,12 +1420,49 @@ export default function ReviewPage() {
                                       return <p className="text-sm text-gray-800 whitespace-pre-wrap">{value}</p>;
                                     }
                                   } else if (typeof value === 'object' && value !== null) {
+                                    // 배열인 경우 key-value 객체들을 처리
+                                    if (Array.isArray(value)) {
+                                      return (
+                                        <div className="space-y-2">
+                                          {value.map((item, index) => {
+                                            if (typeof item === 'object' && item !== null && 'key' in item && 'value' in item) {
+                                              return (
+                                                <div key={index}>
+                                                  <div className="font-medium text-gray-800 mb-1">{item.key}</div>
+                                                  <div className="text-gray-600 text-sm">{item.value}</div>
+                                                </div>
+                                              );
+                                            }
+                                            return (
+                                              <div key={index}>
+                                                <div className="text-gray-600 text-sm">{String(item)}</div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      );
+                                    }
+                                    // 객체인 경우 기존 로직 유지
                                     return (
                                       <div className="space-y-2">
                                         {Object.entries(value).map(([subKey, subValue]) => (
                                           <div key={subKey}>
                                             <div className="font-medium text-gray-800 mb-1">{subKey}</div>
-                                            <div className="text-gray-600 text-sm">{String(subValue)}</div>
+                                            <div className="text-gray-600 text-sm">
+                                              {(() => {
+                                                if (typeof subValue === 'object' && subValue !== null) {
+                                                  // key-value 형태의 객체인 경우
+                                                  if ('key' in subValue && 'value' in subValue) {
+                                                    return `${subValue.key}: ${subValue.value}`;
+                                                  }
+                                                  // 그 외의 객체
+                                                  return Object.entries(subValue)
+                                                    .map(([k, v]) => `${k}: ${v}`)
+                                                    .join(', ');
+                                                }
+                                                return String(subValue);
+                                              })()}
+                                            </div>
                                           </div>
                                         ))}
                                       </div>
@@ -1684,12 +1758,49 @@ export default function ReviewPage() {
                               try {
                                 const parsed = JSON.parse(value);
                                 if (typeof parsed === 'object' && parsed !== null) {
+                                  // 배열인 경우 key-value 객체들을 처리
+                                  if (Array.isArray(parsed)) {
+                                    return (
+                                      <div className="space-y-4">
+                                        {parsed.map((item, index) => {
+                                          if (typeof item === 'object' && item !== null && 'key' in item && 'value' in item) {
+                                            return (
+                                              <div key={index}>
+                                                <div className="font-medium text-gray-800 mb-1">{item.key}</div>
+                                                <div className="text-gray-600 text-sm">{item.value}</div>
+                                              </div>
+                                            );
+                                          }
+                                          return (
+                                            <div key={index}>
+                                              <div className="text-gray-600 text-sm">{String(item)}</div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    );
+                                  }
+                                  // 객체인 경우 기존 로직 유지
                                   return (
                                     <div className="space-y-4">
                                       {Object.entries(parsed).map(([subKey, subValue]) => (
                                         <div key={subKey}>
                                           <div className="font-medium text-gray-800 mb-1">{subKey}</div>
-                                          <div className="text-gray-600 text-sm">{String(subValue)}</div>
+                                          <div className="text-gray-600 text-sm">
+                                            {(() => {
+                                              if (typeof subValue === 'object' && subValue !== null) {
+                                                // key-value 형태의 객체인 경우
+                                                if ('key' in subValue && 'value' in subValue) {
+                                                  return `${subValue.key}: ${subValue.value}`;
+                                                }
+                                                // 그 외의 객체
+                                                return Object.entries(subValue)
+                                                  .map(([k, v]) => `${k}: ${v}`)
+                                                  .join(', ');
+                                              }
+                                              return String(subValue);
+                                            })()}
+                                          </div>
                                         </div>
                                       ))}
                                     </div>
@@ -1700,12 +1811,49 @@ export default function ReviewPage() {
                                 return <p className="text-sm text-gray-800 whitespace-pre-wrap">{value}</p>;
                               }
                             } else if (typeof value === 'object' && value !== null) {
+                              // 배열인 경우 key-value 객체들을 처리
+                              if (Array.isArray(value)) {
+                                return (
+                                  <div className="space-y-4">
+                                    {value.map((item, index) => {
+                                      if (typeof item === 'object' && item !== null && 'key' in item && 'value' in item) {
+                                        return (
+                                          <div key={index}>
+                                            <div className="font-medium text-gray-800 mb-1">{item.key}</div>
+                                            <div className="text-gray-600 text-sm">{item.value}</div>
+                                          </div>
+                                        );
+                                      }
+                                      return (
+                                        <div key={index}>
+                                          <div className="text-gray-600 text-sm">{String(item)}</div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                );
+                              }
+                              // 객체인 경우 기존 로직 유지
                               return (
                                 <div className="space-y-4">
                                   {Object.entries(value).map(([subKey, subValue]) => (
                                     <div key={subKey}>
                                       <div className="font-medium text-gray-800 mb-1">{subKey}</div>
-                                      <div className="text-gray-600 text-sm">{String(subValue)}</div>
+                                      <div className="text-gray-600 text-sm">
+                                        {(() => {
+                                          if (typeof subValue === 'object' && subValue !== null) {
+                                            // key-value 형태의 객체인 경우
+                                            if ('key' in subValue && 'value' in subValue) {
+                                              return `${subValue.key}: ${subValue.value}`;
+                                            }
+                                            // 그 외의 객체
+                                            return Object.entries(subValue)
+                                              .map(([k, v]) => `${k}: ${v}`)
+                                              .join(', ');
+                                          }
+                                          return String(subValue);
+                                        })()}
+                                      </div>
                                     </div>
                                   ))}
                                 </div>
