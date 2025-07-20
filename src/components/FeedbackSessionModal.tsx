@@ -187,6 +187,7 @@ export default function FeedbackSessionModal({
               }
             }
           }
+        }
       } catch (error) {
         console.error("세션 폴링 실패:", error);
       }
