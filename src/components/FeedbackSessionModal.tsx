@@ -145,37 +145,48 @@ export default function FeedbackSessionModal({
         );
         if (response.ok) {
           const data = await response.json();
-          if (
-            data.session &&
-            data.session.messages.length !== session.messages.length
-          ) {
-            setSession(data.session);
-
-            // 세션이 종료되었는지 확인
+          if (data.session) {
+            // 메시지 수 변경이나 상태 변경 시 업데이트
             if (
-              data.session.status === "completed" ||
-              data.session.status === "ended"
+              data.session.messages.length !== session.messages.length ||
+              data.session.status !== session.status
             ) {
-              setAiGenerating(false);
-              setSessionEnded(true);
-              setCountdown(5); // 5초 카운트다운 시작
+              console.log("🔍 [피드백세션] 폴링 업데이트:", {
+                oldStatus: session.status,
+                newStatus: data.session.status,
+                oldMessageCount: session.messages.length,
+                newMessageCount: data.session.messages.length,
+                sessionId: data.session.id
+              });
+              
+              setSession(data.session);
 
-              // 카운트다운 시작
-              countdownIntervalRef.current = setInterval(() => {
-                setCountdown((prev) => {
-                  if (prev <= 1) {
-                    if (countdownIntervalRef.current) {
-                      clearInterval(countdownIntervalRef.current);
+              // 세션이 종료되었는지 확인
+              if (
+                data.session.status === "completed" ||
+                data.session.status === "ended"
+              ) {
+                console.log("🏁 [피드백세션] 폴링에서 세션 종료 감지 - 모달 닫기 프로세스 시작");
+                setAiGenerating(false);
+                setSessionEnded(true);
+                setCountdown(5); // 5초 카운트다운 시작
+
+                // 카운트다운 시작
+                countdownIntervalRef.current = setInterval(() => {
+                  setCountdown((prev) => {
+                    if (prev <= 1) {
+                      if (countdownIntervalRef.current) {
+                        clearInterval(countdownIntervalRef.current);
+                      }
+                      onClose(); // 5초 후 모달 닫기
+                      return 0;
                     }
-                    onClose(); // 5초 후 모달 닫기
-                    return 0;
-                  }
-                  return prev - 1;
-                });
-              }, 1000);
+                    return prev - 1;
+                  });
+                }, 1000);
+              }
             }
           }
-        }
       } catch (error) {
         console.error("세션 폴링 실패:", error);
       }
@@ -240,7 +251,15 @@ export default function FeedbackSessionModal({
               aiData = await aiResponse.json();
               setSession(aiData.session);
 
+              console.log("🔍 [피드백세션] AI 응답 결과:", {
+                sessionEnded: aiData.sessionEnded,
+                sessionStatus: aiData.session?.status,
+                sessionId: aiData.session?.id,
+                messageCount: aiData.session?.messages?.length
+              });
+
               if (aiData.sessionEnded) {
+                console.log("🏁 [피드백세션] AI가 세션 종료 - 모달 닫기 프로세스 시작");
                 setAiGenerating(false);
                 setSessionEnded(true);
                 setCountdown(5); // 5초 카운트다운 시작

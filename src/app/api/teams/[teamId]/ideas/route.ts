@@ -166,6 +166,20 @@ export async function POST(
 
     if (action === "add") {
       // 사용자가 수동으로 추가하는 아이디어
+      console.log("🔍 [사용자 아이디어 추가] 전체 요청 데이터:", {
+        action,
+        author,
+        content,
+        contentKeys: Object.keys(content || {}),
+        behaviorType: typeof content?.behavior,
+        behaviorValue: content?.behavior,
+        behaviorLength: content?.behavior?.length || 0,
+        structureType: typeof content?.structure, 
+        structureValue: content?.structure,
+        structureLength: content?.structure?.length || 0,
+        timestamp: new Date().toISOString()
+      });
+      
       const newIdea = await addIdea(teamId, {
         author: author || session.user.email,
         timestamp: new Date().toISOString(),
@@ -177,6 +191,8 @@ export async function POST(
         },
         evaluations: [],
       });
+      
+      console.log("🔍 [사용자 아이디어 추가] 저장된 아이디어:", newIdea);
 
       // v2 메모리 업데이트 - 수동 아이디어 추가 (AI 에이전트만)
       if (author && author !== "나") {

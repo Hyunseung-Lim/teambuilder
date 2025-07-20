@@ -255,13 +255,19 @@ export async function POST(
           );
 
           if (endResponse.ok) {
-            console.log(`✅ AI 피드백 세션 종료 완료: ${sessionId}`);
+            console.log(`✅ AI 피드백 세션 종료 API 호출 성공: ${sessionId}`);
+            
+            // API 호출이 성공했으면 업데이트된 세션 정보 가져오기
+            const endResult = await endResponse.json();
+            const updatedSession = endResult.session || session;
+            
+            console.log(`✅ AI 피드백 세션 종료 완료: ${sessionId}, 최종 상태: ${updatedSession.status}`);
 
             return NextResponse.json({
               success: true,
               message: responseMessage,
               sessionEnded: true,
-              session,
+              session: updatedSession, // 업데이트된 세션 사용
             });
           } else {
             console.error(

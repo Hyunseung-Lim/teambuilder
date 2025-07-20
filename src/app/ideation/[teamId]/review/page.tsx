@@ -186,6 +186,7 @@ export default function ReviewPage() {
             });
             
             const participantsList = Array.from(actualParticipants);
+            
             if (participantsList.length >= 2) {
               feedbackGiver = getAgentName(participantsList[0]);
               feedbackReceiver = getAgentName(participantsList[1]);
@@ -211,23 +212,6 @@ export default function ReviewPage() {
             }
           }
           
-          // message.sender를 피드백 제공자로 사용 (fallback)
-          if (!feedbackGiver && message.sender) {
-            feedbackGiver = getAgentName(message.sender);
-            
-            // 다른 참여자를 찾기
-            if (team?.members) {
-              for (const member of team.members) {
-                const memberName = member.isUser ? "나" : getAgentName(member.agentId || "");
-                const memberId = member.isUser ? "나" : member.agentId;
-                
-                if (memberId !== message.sender && memberName !== feedbackGiver) {
-                  feedbackReceiver = memberName;
-                  break;
-                }
-              }
-            }
-          }
         }
         
         // 로그 항목 생성
@@ -243,6 +227,7 @@ export default function ReviewPage() {
           if (messageCount > 0) {
             actionDescription += ` (${messageCount}개 메시지)`;
           }
+          
         } else {
           displayName = "피드백 세션";
           actionDescription = "AI 피드백 세션이 완료되었습니다.";
@@ -260,21 +245,65 @@ export default function ReviewPage() {
     return logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   };
 
+  // 사용자의 실제 이름을 가져오는 헬퍼 함수
+  const getUserDisplayName = (): string => {
+    if (team) {
+      const userMember = team.members.find((m) => m.isUser);
+      if (userMember?.userProfile?.name) {
+        return userMember.userProfile.name;
+      }
+    }
+    return "나";
+  };
+
   const getAgentName = (senderId: string): string => {
-    if (senderId === "나") return "나";
+    if (senderId === "나") {
+      return getUserDisplayName();
+    }
     
     // 먼저 agentNames에서 찾기
-    if (agentNames[senderId]) return agentNames[senderId];
+    if (agentNames[senderId]) {
+      return agentNames[senderId];
+    }
     
     // agentProfiles에서 직접 찾기
-    if (agentProfiles[senderId]?.name) return agentProfiles[senderId].name;
+    if (agentProfiles[senderId]?.name) {
+      return agentProfiles[senderId].name;
+    }
     
-    // 팀 멤버에서 찾기
+    // 팀 멤버에서 찾기 - agentId로 매칭
     if (team) {
       const member = team.members.find((m) => m.agentId === senderId);
       if (member && !member.isUser) {
+        // agentNames가 로드되지 않은 경우 agentId를 사용해서 이름 찾기
+        if (member.agentId && agentNames[member.agentId]) {
+          return agentNames[member.agentId];
+        }
         return `에이전트 ${senderId.slice(0, 8)}`;
       }
+    }
+    
+    // senderId가 이미 display name일 수 있으므로 역매핑 시도
+    if (team) {
+      // agentNames의 값들 중에서 senderId와 일치하는 것이 있는지 확인
+      for (const [, agentName] of Object.entries(agentNames)) {
+        if (agentName === senderId) {
+          return agentName; // 이미 display name이므로 그대로 반환
+        }
+      }
+      
+      // agentProfiles에서도 확인
+      for (const [, profile] of Object.entries(agentProfiles)) {
+        if (profile?.name === senderId) {
+          return profile.name;
+        }
+      }
+    }
+    
+    // senderId가 user display name인지 확인
+    const userDisplayName = getUserDisplayName();
+    if (senderId === userDisplayName) {
+      return userDisplayName;
     }
     
     return senderId;
@@ -402,34 +431,37 @@ export default function ReviewPage() {
             messageCount = payload.turnCount;
           }
           
-          // 피드백 제공자와 수신자 식별 (활동 타임라인과 동일한 로직)
-          if (payload.from && payload.to) {
-            feedbackGiver = payload.from;
-            feedbackReceiver = payload.to;
-          } else if (payload.sender && payload.receiver) {
-            feedbackGiver = payload.sender;
-            feedbackReceiver = payload.receiver;
-          } else if (payload.participants && Array.isArray(payload.participants)) {
-            // participants에서 첫 번째를 제공자로 간주
-            if (payload.participants.length >= 2) {
-              feedbackGiver = payload.participants[0];
-              feedbackReceiver = payload.participants[1];
+          // sessionMessages에서 실제 참여자 추출 시도
+          if (payload.sessionMessages && Array.isArray(payload.sessionMessages)) {
+            const actualParticipants = new Set<string>();
+            payload.sessionMessages.forEach((sessionMsg: any) => {
+              if (sessionMsg.sender && sessionMsg.type !== "system") {
+                actualParticipants.add(sessionMsg.sender);
+              }
+            });
+            
+            const participantsList = Array.from(actualParticipants);
+            if (participantsList.length >= 2) {
+              feedbackGiver = participantsList[0];
+              feedbackReceiver = participantsList[1];
+            } else if (participantsList.length === 1) {
+              feedbackGiver = participantsList[0];
             }
           }
           
-          // message.sender를 피드백 제공자로 사용 (fallback)
-          if (!feedbackGiver && message.sender) {
-            feedbackGiver = message.sender;
-            
-            // 다른 참여자를 찾기
-            if (team?.members) {
-              for (const member of team.members) {
-                const memberId = member.isUser ? "나" : member.agentId;
-                
-                if (memberId && memberId !== message.sender) {
-                  feedbackReceiver = memberId;
-                  break;
-                }
+          // sessionMessages가 없으면 기존 방식 사용
+          if (!feedbackGiver) {
+            if (payload.from && payload.to) {
+              feedbackGiver = payload.from;
+              feedbackReceiver = payload.to;
+            } else if (payload.sender && payload.receiver) {
+              feedbackGiver = payload.sender;
+              feedbackReceiver = payload.receiver;
+            } else if (payload.participants && Array.isArray(payload.participants)) {
+              // participants에서 첫 번째를 제공자로 간주
+              if (payload.participants.length >= 2) {
+                feedbackGiver = payload.participants[0];
+                feedbackReceiver = payload.participants[1];
               }
             }
           }
@@ -491,7 +523,7 @@ export default function ReviewPage() {
           // 모든 다른 팀 멤버에게 피드백을 제공했다고 가정
           team?.members.forEach(member => {
             const memberId = member.isUser ? "나" : member.agentId;
-            const memberName = member.isUser ? "나" : getAgentName(member.agentId || "");
+            const memberName = member.isUser ? getUserDisplayName() : getAgentName(member.agentId || "");
             
             // 피드백 제공자와 다른 멤버인 경우
             if (memberId && log.agentName !== memberName) {
@@ -518,19 +550,6 @@ export default function ReviewPage() {
       });
     }
     
-    // 여전히 데이터가 없으면 최소한의 테스트 데이터 생성
-    if (Object.keys(feedbackCounts).length === 0 && team?.members && team.members.length > 1) {
-      
-      // 첫 번째 에이전트가 두 번째 멤버에게 피드백을 제공했다고 가정
-      const firstAgent = team.members.find(m => !m.isUser)?.agentId;
-      const secondMember = team.members.find(m => m !== team.members.find(mem => !mem.isUser && mem.agentId === firstAgent));
-      const secondId = secondMember?.isUser ? "나" : secondMember?.agentId;
-      
-      if (firstAgent && secondId) {
-        feedbackCounts[`${firstAgent}->${secondId}`] = 3;
-      }
-    }
-    
     return feedbackCounts;
   };
 
@@ -548,22 +567,19 @@ export default function ReviewPage() {
           // sender가 mention에게 요청을 보낸 것
           const key = `${sender}->${mention}`;
           requestCounts[key] = (requestCounts[key] || 0) + 1;
-          
-          console.log(`요청 데이터: ${sender} -> ${mention} (카운트: ${requestCounts[key]})`);
         }
       }
     });
     
-    console.log("전체 요청 카운트:", requestCounts);
     return requestCounts;
   };
 
   const generateNetworkData = () => {
     if (!team) return { nodes: [], edges: [] };
     
-    const nodes = team.members.map((member, index) => ({
+    const nodes = team.members.map((member) => ({
       id: member.isUser ? "나" : member.agentId!,
-      name: member.isUser ? "나" : getAgentName(member.agentId || ""),
+      name: member.isUser ? getUserDisplayName() : getAgentName(member.agentId || ""),
       isUser: member.isUser,
       isLeader: member.isLeader,
       x: 0,
@@ -1153,10 +1169,47 @@ export default function ReviewPage() {
         const activityTime = new Date(activity.timestamp).getTime();
         
         // 먼저 feedback_session_summary 메시지에서 sessionId를 찾아 실제 대화 내용 가져오기
+        // 참여자 정보 추출 (activity.agentName에서 "A → B (N회)" 형태 파싱)
+        let activityGiver = "";
+        let activityReceiver = "";
+        if (activity.agentName.includes(" → ")) {
+          const parts = activity.agentName.split(" → ");
+          activityGiver = parts[0].trim();
+          activityReceiver = parts[1].replace(/\s*\(\d+회\)$/, '').trim();
+        }
+        
         const summaryMessage = chatMessages.find(message => {
           const messageTime = new Date(message.timestamp).getTime();
-          return Math.abs(messageTime - activityTime) < 10 * 60 * 1000 && 
-                 message.type === "feedback_session_summary";
+          const isInTimeWindow = Math.abs(messageTime - activityTime) < 10 * 60 * 1000;
+          const isCorrectType = message.type === "feedback_session_summary";
+          
+          if (!isInTimeWindow || !isCorrectType) return false;
+          
+          // 참여자 매칭 검증
+          if (message.payload && typeof message.payload === "object") {
+            const payload = message.payload as any;
+            
+            // sessionMessages에서 실제 참여자 추출
+            if (payload.sessionMessages && Array.isArray(payload.sessionMessages)) {
+              const actualParticipants = new Set<string>();
+              payload.sessionMessages.forEach((sessionMsg: any) => {
+                if (sessionMsg.sender && sessionMsg.type !== "system") {
+                  actualParticipants.add(sessionMsg.sender);
+                }
+              });
+              
+              const participantNames = Array.from(actualParticipants).map(id => getAgentName(id));
+              
+              // 활동 로그의 참여자들이 실제 세션 참여자와 일치하는지 확인
+              const hasActivityGiver = participantNames.includes(activityGiver);
+              const hasActivityReceiver = participantNames.includes(activityReceiver);
+              
+              
+              return hasActivityGiver && hasActivityReceiver;
+            }
+          }
+          
+          return true; // fallback: 시간 기반 매칭만 사용
         });
         
         if (summaryMessage && summaryMessage.payload && typeof summaryMessage.payload === "object") {
@@ -1209,7 +1262,6 @@ export default function ReviewPage() {
           
           // 참여자가 일치하는지 확인
           const messageSender = getAgentName(message.sender);
-          const messageReceiver = (message.payload as any)?.mention ? getAgentName((message.payload as any).mention) : "";
           
           // 피드백 세션 참여자 중 하나가 보낸 메시지인지 확인
           const isFromParticipant = messageSender === feedbackGiver || messageSender === feedbackReceiver;
@@ -1236,8 +1288,6 @@ export default function ReviewPage() {
         
         // 메시지가 없으면 훨씬 더 넓은 범위에서 찾기 (폴백)
         if (sortedMessages.length === 0) {
-          console.log(`피드백 세션 디버그: ${feedbackGiver} → ${feedbackReceiver}, 활동시간: ${activity.timestamp}`);
-          console.log(`전체 채팅 메시지 수: ${chatMessages.length}`);
           
           const fallbackMessages = chatMessages.filter(message => {
             const messageTime = new Date(message.timestamp).getTime();
@@ -1259,7 +1309,6 @@ export default function ReviewPage() {
             return isFromParticipant && notSummary && hasContent;
           });
           
-          console.log(`폴백으로 찾은 메시지 수: ${fallbackMessages.length}`);
           
           return fallbackMessages.sort((a, b) => 
             new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
@@ -1357,7 +1406,7 @@ export default function ReviewPage() {
                       <h5 className="font-medium text-gray-900 mb-3">생성된 아이디어</h5>
                       <div className="space-y-3">
                         {Object.entries((relatedContent as Idea).content)
-                          .filter(([key, value]) => value && value.toString().trim() !== '')
+                          .filter(([, value]) => value && value.toString().trim() !== '')
                           .map(([key, value]) => (
                             <div key={key}>
                               <div className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1">
@@ -1747,7 +1796,7 @@ export default function ReviewPage() {
 
                 // 아이디에이션 세션과 동일한 스타일로 렌더링
                 return Object.entries(contentObj)
-                  .filter(([key, value]) => value && value.toString().trim() !== '')
+                  .filter(([, value]) => value && value.toString().trim() !== '')
                   .map(([key, value]) => {
                     return (
                       <div key={key} className="space-y-2">
@@ -2269,7 +2318,7 @@ export default function ReviewPage() {
                       <div className="flex items-start justify-between mb-3">
                         <div className="flex items-center gap-2">
                           <h3 className="font-medium text-gray-900">
-                            {member.isUser ? "나" : getAgentName(member.agentId || "")}
+                            {member.isUser ? getUserDisplayName() : getAgentName(member.agentId || "")}
                           </h3>
                           {member.isLeader && (
                             <Crown className="h-4 w-4 text-yellow-600" />
@@ -2349,7 +2398,7 @@ export default function ReviewPage() {
                         <div className="grid grid-cols-2 gap-3">
                           {(() => {
                             const memberId = member.isUser ? "나" : member.agentId;
-                            const memberName = member.isUser ? "나" : getAgentName(member.agentId || "");
+                            const memberName = member.isUser ? getUserDisplayName() : getAgentName(member.agentId || "");
                             
                             // 활동 통계 계산
                             const ideaCount = ideas.filter(idea => idea.author === memberId).length;
@@ -2385,7 +2434,7 @@ export default function ReviewPage() {
                                 // participants 배열에서 현재 멤버 확인
                                 if (payload.participants && Array.isArray(payload.participants)) {
                                   // 각 참여자의 ID 확인
-                                  payload.participants.forEach((participant: any, index: number) => {
+                                  payload.participants.forEach((participant: any) => {
                                     // 참여자가 현재 멤버와 일치하는지 확인
                                     const participantId = typeof participant === 'string' ? participant : participant.id;
                                     const participantName = typeof participant === 'string' ? participant : participant.name;
@@ -2608,7 +2657,7 @@ export default function ReviewPage() {
                     return <p className="text-gray-500 text-center py-8">필터 조건에 맞는 아이디어가 없습니다.</p>;
                   }
                   
-                  return filteredAndSortedIdeas.map((idea, index) => {
+                  return filteredAndSortedIdeas.map((idea) => {
                     const averageRating = calculateAverageRating(idea);
                     // 전체 아이디어 목록에서의 원래 순번 계산
                     const originalIndex = ideas.findIndex(i => i.id === idea.id);

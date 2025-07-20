@@ -296,7 +296,32 @@ export default function AddIdeaModal({
             {/* 액션 버튼 */}
             <div className="flex gap-3 pt-4">
               <button
-                onClick={onSubmit}
+                onClick={() => {
+                  // 제출 시점에 직접 최신 데이터로 formData 업데이트
+                  const filteredBehavior = behaviorPairs.filter(p => p.key.trim() && p.value.trim());
+                  const filteredStructure = structurePairs.filter(p => p.key.trim() && p.value.trim());
+                  
+                  const behaviorJson = filteredBehavior.length > 0 ? JSON.stringify(filteredBehavior) : "";
+                  const structureJson = filteredStructure.length > 0 ? JSON.stringify(filteredStructure) : "";
+                  
+                  const finalFormData = {
+                    ...formData,
+                    behavior: behaviorJson,
+                    structure: structureJson,
+                  };
+                  
+                  console.log("🚀 [제출 직전] 최종 데이터:", {
+                    finalFormData,
+                    behaviorPairs: filteredBehavior,
+                    structurePairs: filteredStructure,
+                  });
+                  
+                  // 최신 데이터로 상위 컴포넌트 상태 업데이트
+                  onFormDataChange(finalFormData);
+                  
+                  // 바로 제출
+                  onSubmit();
+                }}
                 disabled={
                   !formData.object.trim() ||
                   !formData.function.trim() ||
