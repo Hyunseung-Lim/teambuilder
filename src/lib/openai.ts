@@ -565,14 +565,23 @@ export async function planNextAction(
     if (team && hasRole("피드백하기")) {
       console.log(`🎯 ${userProfile.name} 피드백 계획 단계 확인 시작`);
       const { canCreateFeedbackSession } = await import("@/lib/relationship-utils");
+      // 사용자와 다른 에이전트들을 모두 피드백 대상으로 고려
       const otherMembers = team.members.filter(
-        (member: any) => !member.isUser && member.agentId !== userProfile.id
+        (member: any) => {
+          if (member.isUser) {
+            return true; // 사용자 포함
+          } else {
+            return member.agentId !== userProfile.id; // 자신 제외한 다른 에이전트들
+          }
+        }
       );
       
       
       for (const member of otherMembers) {
-        const canCreate = canCreateFeedbackSession(userProfile.id, member.agentId!, team);
-        console.log(`🎯 ${userProfile.name} → ${member.name || member.agentId}: ${canCreate ? '✅ 가능' : '❌ 불가능'}`);
+        // 사용자인 경우 "나"를 ID로 사용, 에이전트인 경우 agentId 사용
+        const targetId = member.isUser ? "나" : member.agentId!;
+        const canCreate = canCreateFeedbackSession(userProfile.id, targetId, team);
+        console.log(`🎯 ${userProfile.name} → ${member.name || targetId}: ${canCreate ? '✅ 가능' : '❌ 불가능'}`);
         if (canCreate) {
           canGiveFeedback = true;
           break;
@@ -580,6 +589,36 @@ export async function planNextAction(
       }
       
       console.log(`📋 ${userProfile.name} 피드백 계획 결과: ${canGiveFeedback ? '✅ 가능' : '❌ 불가능'}`);
+    }
+
+    // 요청 가능 여부 확인
+    let canMakeRequestFlag = false;
+    if (team && hasRole("요청하기")) {
+      console.log(`🎯 ${userProfile.name} 요청 계획 단계 확인 시작`);
+      const { canMakeRequest } = await import("@/lib/relationship-utils");
+      // 사용자와 다른 에이전트들을 모두 요청 대상으로 고려
+      const otherMembers = team.members.filter(
+        (member: any) => {
+          if (member.isUser) {
+            return true; // 사용자 포함
+          } else {
+            return member.agentId !== userProfile.id; // 자신 제외한 다른 에이전트들
+          }
+        }
+      );
+      
+      for (const member of otherMembers) {
+        // 사용자인 경우 "나"를 ID로 사용, 에이전트인 경우 agentId 사용
+        const targetId = member.isUser ? "나" : member.agentId!;
+        const canRequest = canMakeRequest(userProfile.id, targetId, team);
+        console.log(`🎯 ${userProfile.name} → ${member.name || targetId}: ${canRequest ? '✅ 가능' : '❌ 불가능'}`);
+        if (canRequest) {
+          canMakeRequestFlag = true;
+          break;
+        }
+      }
+      
+      console.log(`📋 ${userProfile.name} 요청 계획 결과: ${canMakeRequestFlag ? '✅ 가능' : '❌ 불가능'}`);
     }
 
     // 팀 관계 정보를 위한 agentNameMap 생성
@@ -599,6 +638,7 @@ export async function planNextAction(
       ...teamContext,
       recentMessages: teamContext.recentMessages.slice(-15), // 더 많은 히스토리 제공
       canGiveFeedback, // 피드백 가능 여부 추가
+      canMakeRequest: canMakeRequestFlag, // 요청 가능 여부 추가
       relationships: team?.relationships || [], // 팀 관계 정보 추가
       agentNameMap, // agent ID를 이름으로 매핑
     };

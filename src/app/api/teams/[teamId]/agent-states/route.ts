@@ -201,12 +201,7 @@ export async function POST(
       requestInfo, // 요청 정보 필드 추가
     } = body;
 
-    console.log(`📋 에이전트 ${agentId} 상태 변경 요청:`, {
-      currentState,
-      taskType,
-      forceClear,
-      action, // action 필드 로깅 추가
-    });
+    console.log(`📋 에이전트 ${agentId} 상태 변경 요청`);
 
     // reset_all_agents 액션 처리
     if (action === "reset_all_agents") {

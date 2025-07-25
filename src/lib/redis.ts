@@ -666,8 +666,6 @@ export async function addChatMessage(
   teamId: string,
   message: Omit<ChatMessage, "id" | "timestamp">
 ): Promise<ChatMessage> {
-  console.log("채팅 메시지 추가 시작:", { teamId, message });
-
   // ID 생성
   const id = await redis.incr(keys.chatCounter(teamId));
 
@@ -677,16 +675,10 @@ export async function addChatMessage(
     ...message,
   };
 
-  console.log("생성된 채팅 메시지:", newMessage);
-
   // 안전한 JSON 직렬화
   try {
     const messageJson = JSON.stringify(newMessage);
-    console.log("직렬화된 채팅 메시지 JSON:", messageJson);
-
     await redis.rpush(keys.chatHistory(teamId), messageJson);
-    console.log("Redis에 채팅 메시지 저장 완료");
-
     return newMessage;
   } catch (error) {
     console.error("채팅 메시지 저장 중 오류:", error);

@@ -1319,6 +1319,8 @@ export function planningPrompt(
     sharedMentalModel?: string;
     relationships?: any[];
     agentNameMap?: { [agentId: string]: string };
+    canGiveFeedback?: boolean;
+    canMakeRequest?: boolean;
   },
   memory?: any
 ): { agentContext: string; mainPrompt: string } {
@@ -1469,15 +1471,22 @@ Available Actions (ONLY within your assigned roles):
     agentProfile.roles?.includes("아이디어 평가하기") ? "✅" : "❌"
   }
 3. "give_feedback" - Provide feedback to team members ${
-    agentProfile.roles?.includes("피드백하기") ? "✅" : "❌"
+    agentProfile.roles?.includes("피드백하기") ? 
+      (teamContext.canGiveFeedback ? "✅" : "❌ (역할 있음, 관계 없음)") : 
+      "❌ (역할 없음)"
   }
 4. "make_request" - Request work from other team members ${
-    agentProfile.roles?.includes("요청하기") ? "✅" : "❌"
+    agentProfile.roles?.includes("요청하기") ? 
+      (teamContext.canMakeRequest ? "✅" : "❌ (역할 있음, 관계 없음)") : 
+      "❌ (역할 없음)"
   }
 5. "wait" - Return to waiting state (always available)
 
 Decision Considerations:
 🔹 ROLE CONSTRAINT: You can ONLY perform actions within your assigned roles (marked with ✅)
+🔹 RELATIONSHIP CONSTRAINT: Feedback and requests are only possible if you have established relationships with team members
+${teamContext.canGiveFeedback === false ? "⚠️ You currently have no relationships that allow giving feedback" : ""}
+${teamContext.canMakeRequest === false ? "⚠️ You currently have no relationships that allow making requests" : ""}
 ${(() => {
   const hasIdeation = agentProfile.roles?.includes("아이디어 생성하기");
   const hasEvaluation = agentProfile.roles?.includes("아이디어 평가하기");

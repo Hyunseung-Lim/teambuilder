@@ -572,7 +572,17 @@ export async function POST(
                 keyInsights: summaryResult.keyInsights,
                 messageCount: actualMessages.length,
                 duration: Math.max(1, sessionDuration), // 최소 1분
-                sessionMessages: session.messages, // 실제 세션 메시지들 추가
+                sessionMessages: session.messages.map(msg => {
+                  // 메시지가 JSON 문자열인 경우 파싱
+                  if (typeof msg === 'string') {
+                    try {
+                      return JSON.parse(msg);
+                    } catch (e) {
+                      return msg;
+                    }
+                  }
+                  return msg;
+                }), // 실제 세션 메시지들을 파싱해서 추가
                 endedBy: session.endedBy, // 종료 주체 정보 추가
               },
             };

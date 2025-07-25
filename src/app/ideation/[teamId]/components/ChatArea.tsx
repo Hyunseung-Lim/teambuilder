@@ -245,7 +245,27 @@ export default function ChatArea({
                   return senderId;
                 };
 
-                const senderName = getSenderName(message.sender);
+                // 메시지에서 안전하게 sender 추출 (fallback for legacy data)
+                const getSafeSender = (msg: any): string => {
+                  // 일반적인 경우: 파싱된 객체
+                  if (msg && typeof msg === 'object' && msg.sender) {
+                    return msg.sender;
+                  }
+                  
+                  // Legacy 데이터: JSON 문자열 (드물게 발생)
+                  if (typeof msg === 'string') {
+                    try {
+                      const parsed = JSON.parse(msg);
+                      return parsed.sender || '';
+                    } catch (e) {
+                      return '';
+                    }
+                  }
+                  
+                  return '';
+                };
+                
+                // getSafeSender와 getSenderName 함수는 아래에서 직접 호출
 
                 if (message.type === "feedback_session_summary") {
                   // 피드백 세션 요약 메시지
@@ -537,9 +557,10 @@ export default function ChatArea({
                         className={`${messageStyle} max-w-xl px-8 py-3 rounded-full text-sm font-medium flex flex-col items-center gap-1 whitespace-pre-wrap text-center`}
                       >
                         <span>
-                          {senderName}
-                          {getKoreanParticle(senderName, "이", "가")}{" "}
-                          {messageContent}
+                          {(() => {
+                            const currentSenderName = getSenderName(getSafeSender(message));
+                            return currentSenderName + getKoreanParticle(currentSenderName, "이", "가") + " " + messageContent;
+                          })()}
                         </span>
                         {isIdeaCompletedMessage && (
                           <span
@@ -553,7 +574,7 @@ export default function ChatArea({
                               // 해당 작성자의 모든 아이디어 중에서 메시지 시간과 가장 가까운 것 찾기
                               const authorIdeas = ideas
                                 .filter(
-                                  (idea) => idea.author === message.sender
+                                  (idea) => idea.author === getSafeSender(message)
                                 )
                                 .map((idea) => ({
                                   ...idea,
@@ -588,7 +609,7 @@ export default function ChatArea({
                               ).getTime();
                               const authorIdeas = ideas
                                 .filter(
-                                  (idea) => idea.author === message.sender
+                                  (idea) => idea.author === getSafeSender(message)
                                 )
                                 .map((idea) => ({
                                   ...idea,
@@ -620,14 +641,14 @@ export default function ChatArea({
                                 .filter((idea) => {
                                   return idea.evaluations.some(
                                     (evaluation) =>
-                                      evaluation.evaluator === message.sender
+                                      evaluation.evaluator === getSafeSender(message)
                                   );
                                 })
                                 .map((idea) => {
                                   // 해당 평가자의 평가 시간 찾기
                                   const evaluation = idea.evaluations.find(
                                     (evaluation) =>
-                                      evaluation.evaluator === message.sender
+                                      evaluation.evaluator === getSafeSender(message)
                                   );
                                   return {
                                     ...idea,
@@ -670,13 +691,13 @@ export default function ChatArea({
                                 .filter((idea) => {
                                   return idea.evaluations.some(
                                     (evaluation) =>
-                                      evaluation.evaluator === message.sender
+                                      evaluation.evaluator === getSafeSender(message)
                                   );
                                 })
                                 .map((idea) => {
                                   const evaluation = idea.evaluations.find(
                                     (evaluation) =>
-                                      evaluation.evaluator === message.sender
+                                      evaluation.evaluator === getSafeSender(message)
                                   );
                                   return {
                                     ...idea,
@@ -704,7 +725,7 @@ export default function ChatArea({
                 }
 
                 // 일반 메시지
-                const isMyMessage = message.sender === "나";
+                const isMyMessage = getSafeSender(message) === "나";
 
                 return (
                   <div
@@ -720,7 +741,7 @@ export default function ChatArea({
                     >
                       {!isMyMessage && (
                         <div className="text-xs text-gray-500 mb-1 px-3">
-                          {senderName} • {formatTimestamp(message.timestamp)}
+                          {getSenderName(getSafeSender(message))} • {formatTimestamp(message.timestamp)}
                         </div>
                       )}
 

@@ -170,13 +170,7 @@ export async function processQueuedRequest(teamId: string, agentId: string): Pro
   const queuedRequest = await redis.rpop(queueKey);
 
   // 디버깅을 위한 상세 로깅
-  console.log(`🔍 큐 확인 결과:`, {
-    agentId,
-    queueKey,
-    queuedRequest,
-    queuedRequestType: typeof queuedRequest,
-    queuedRequestIsNull: queuedRequest === null,
-  });
+  console.log(`🔍 에이전트 ${agentId} 큐 확인 완료`);
 
   if (queuedRequest && queuedRequest !== null) {
     // 큐에 대기 중인 요청이 있으면 즉시 처리

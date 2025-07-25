@@ -76,28 +76,56 @@ export default function IdeaDetailModal({
 
   // JSON 문자열을 키-값 쌍 배열로 변환
   const parseJsonToPairs = (
-    jsonString: string
+    data: any
   ): Array<{ key: string; value: string }> => {
-    if (!jsonString || jsonString.trim() === "") {
+    // 이미 배열인 경우 (파싱된 상태)
+    if (Array.isArray(data)) {
+      const validPairs = data.filter(item => 
+        item && typeof item === 'object' && 'key' in item && 'value' in item
+      );
+      return validPairs.length > 0 ? validPairs : [{ key: "", value: "" }];
+    }
+    
+    // 이미 객체인 경우 (파싱된 상태)
+    if (data && typeof data === "object" && data !== null) {
+      return Object.entries(data).map(([key, value]) => ({
+        key: String(key),
+        value: String(value),
+      }));
+    }
+    
+    // 문자열 처리
+    if (!data || typeof data !== 'string' || data.trim() === "") {
       return [{ key: "", value: "" }];
     }
     
+    // 이중 이스케이프된 문자열 처리
+    let processedString = data;
+    if (data.includes('\\\\"')) {
+      try {
+        processedString = JSON.parse(data);
+      } catch (e) {
+        // 이중 파싱 실패 시 원본 사용
+      }
+    }
+    
     try {
-      const parsed = JSON.parse(jsonString);
+      const parsed = JSON.parse(processedString);
       if (Array.isArray(parsed)) {
-        // 배열인 경우 - 새로운 형태의 데이터
-        return parsed.length > 0 ? parsed : [{ key: "", value: "" }];
+        const validPairs = parsed.filter(item => 
+          item && typeof item === 'object' && 'key' in item && 'value' in item
+        );
+        return validPairs.length > 0 ? validPairs : [{ key: "", value: "" }];
       } else if (typeof parsed === "object" && parsed !== null) {
-        // 객체인 경우 - 기존 형태의 데이터
         return Object.entries(parsed).map(([key, value]) => ({
-          key,
+          key: String(key),
           value: String(value),
         }));
       }
     } catch (error) {
       // JSON 파싱 실패 시 원본 텍스트를 단일 쌍으로 처리
     }
-    return [{ key: "", value: jsonString }];
+    return [{ key: "", value: data }];
   };
 
   // 키-값 쌍 배열을 JSON 문자열로 변환
