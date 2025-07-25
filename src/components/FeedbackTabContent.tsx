@@ -125,6 +125,14 @@ export default function FeedbackTabContent({
               type: "system",
             };
             setMessages(prev => [...prev, endMessage]);
+            
+            // AI가 세션을 종료한 경우 탭 자동 닫기
+            if (result.session.endedBy === "ai") {
+              console.log("AI가 피드백 세션을 종료했습니다. 탭을 닫습니다.");
+              setTimeout(() => {
+                onClose();
+              }, 2000); // 종료 메시지를 보여준 후 2초 뒤에 탭 닫기
+            }
           }
         }
       }

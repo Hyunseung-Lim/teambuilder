@@ -145,6 +145,10 @@ export async function POST(
 
       console.log("✅ 모든 참가자가 피드백 세션 참여 가능한 상태");
 
+      // 사용자 실제 이름 가져오기 (ChatArea 패턴 사용)
+      const userMember = team.members.find(m => m.isUser);
+      const userName = userMember?.userProfile?.name || "나";
+
       // 에이전트 해결 공통 함수
       const resolveAgent = async (agentId: string) => {
         if (agentId === "나") {
@@ -195,7 +199,7 @@ export async function POST(
       const participants = [
         {
           id: initiatorId,
-          name: initiatorId === "나" ? "나" : "AI Agent",
+          name: initiatorId === "나" ? userName : "AI Agent",
           isUser: initiatorId === "나",
           joinedAt: new Date().toISOString(),
         },
@@ -203,7 +207,7 @@ export async function POST(
           id: resolvedTargetAgentId,
           name:
             resolvedTargetAgentId === "나"
-              ? "나"
+              ? userName
               : targetAgentData?.name || "Target Agent",
           isUser: resolvedTargetAgentId === "나",
           joinedAt: new Date().toISOString(),
