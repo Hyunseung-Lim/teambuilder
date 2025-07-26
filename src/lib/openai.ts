@@ -566,6 +566,8 @@ export async function planNextAction(
       console.log(`🎯 ${userProfile.name} 피드백 계획 단계 확인 시작`);
       console.log(`🔍 팀 관계 정보 전체 확인:`, JSON.stringify(team.relationships, null, 2));
       console.log(`🔍 팀 멤버 정보:`, team.members.map(m => ({isUser: m.isUser, agentId: m.agentId})));
+      console.log(`🔍 현재 에이전트 ID:`, userProfile.id);
+      console.log(`🔍 관계 배열 길이:`, team.relationships?.length || 0);
       const { canCreateFeedbackSession } = await import("@/lib/relationship-utils");
       // 피드백 대상 멤버 필터링: 사용자 + 다른 에이전트들 (자신 제외)
       const otherMembers = team.members.filter(
@@ -602,6 +604,20 @@ export async function planNextAction(
       }
       
       console.log(`📋 ${userProfile.name} 피드백 계획 결과: ${canGiveFeedback ? '✅ 가능' : '❌ 불가능'}`);
+      
+      // 피드백 불가능한 경우 상세 분석
+      if (!canGiveFeedback) {
+        console.log(`🔴 ${userProfile.name} 피드백 불가 상세:`);
+        console.log(`- 내 ID: ${userProfile.id}`);
+        console.log(`- 다른 멤버 수: ${otherMembers.length}`);
+        if (team?.relationships) {
+          console.log(`- 전체 관계 수: ${team.relationships.length}`);
+          const myRelations = team.relationships.filter((rel: any) => 
+            rel.from === userProfile.id || rel.to === userProfile.id
+          );
+          console.log(`- 내가 관련된 관계: ${myRelations.length}개`, myRelations);
+        }
+      }
     }
 
     // 요청 가능 여부 확인
