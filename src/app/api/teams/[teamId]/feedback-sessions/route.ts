@@ -576,17 +576,7 @@ export async function POST(
                 keyInsights: summaryResult.keyInsights,
                 messageCount: actualMessages.length,
                 duration: Math.max(1, sessionDuration), // 최소 1분
-                sessionMessages: session.messages.map(msg => {
-                  // 메시지가 JSON 문자열인 경우 파싱
-                  if (typeof msg === 'string') {
-                    try {
-                      return JSON.parse(msg);
-                    } catch (e) {
-                      return msg;
-                    }
-                  }
-                  return msg;
-                }), // 실제 세션 메시지들을 파싱해서 추가
+                sessionMessages: session.messages, // 이미 객체 배열이므로 직접 사용
                 endedBy: session.endedBy, // 종료 주체 정보 추가
               },
             };
@@ -756,10 +746,11 @@ export async function POST(
       // 메시지 전송
       const { sessionId, message, senderId } = body;
 
-      console.log("📨 피드백 세션 메시지 전송:", {
+      console.log("📨 [DEBUG] 피드백 세션 메시지 전송 요청:", {
         sessionId,
         message: message?.substring(0, 50) + "...",
         senderId,
+        요청본문: body,
       });
 
       const sessionData = await redis.get(`feedback_session:${sessionId}`);
@@ -782,15 +773,26 @@ export async function POST(
 
       // 새 메시지 추가
       const newMessage = {
-        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
         sender: senderId || "나",
         content: message,
         timestamp: new Date().toISOString(),
         type: "message" as const,
       };
 
+      console.log("🔍 [DEBUG] 새 메시지 객체 생성:", {
+        newMessage,
+        senderId입력값: senderId,
+        최종sender값: newMessage.sender,
+      });
+
       session.messages.push(newMessage);
       session.lastActivityAt = new Date().toISOString();
+
+      console.log("🔍 [DEBUG] 세션에 메시지 추가 후:", {
+        전체메시지수: session.messages.length,
+        마지막메시지: session.messages[session.messages.length - 1],
+      });
 
       await redis.set(
         `feedback_session:${sessionId}`,
@@ -798,7 +800,7 @@ export async function POST(
         { ex: 3600 * 24 }
       );
 
-      console.log(`✅ 메시지 저장 완료: ${sessionId}`);
+      console.log(`✅ [DEBUG] 메시지 저장 완료: ${sessionId}`);
 
       // 🔄 메시지 전송 후 발신자(사용자)의 피드백 세션 상태 유지 확인
       if (senderId === "나") {
@@ -992,6 +994,17 @@ export async function GET(
 
       const session =
         typeof sessionData === "string" ? JSON.parse(sessionData) : sessionData;
+
+      console.log("🔍 [DEBUG] 세션 조회 응답:", {
+        sessionId,
+        메시지수: session.messages?.length || 0,
+        메시지들: session.messages?.map((msg: any) => ({
+          id: msg.id,
+          sender: msg.sender,
+          content: msg.content?.substring(0, 30),
+          type: msg.type,
+        })) || [],
+      });
 
       return NextResponse.json({ success: true, session });
     }

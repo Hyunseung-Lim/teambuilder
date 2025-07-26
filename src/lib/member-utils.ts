@@ -13,19 +13,21 @@ export function findMemberById(team: Team, id: string): TeamMember | null {
     return team.members.find(m => m.isUser) || null;
   }
 
-  // 2. agentId 매치
-  const byAgentId = team.members.find(m => !m.isUser && m.agentId === id);
+  // 2. agentId 매치 (null 체크 포함)
+  const byAgentId = team.members.find(m => !m.isUser && m.agentId && m.agentId === id);
   if (byAgentId) return byAgentId;
 
-  // 3. 사용자 이름 매치 (userProfile.name)
-  const byUserName = team.members.find(m => m.isUser && m.userProfile?.name === id);
+  // 3. 사용자 이름 매치 (userProfile.name이 있는 경우만)
+  const byUserName = team.members.find(m => m.isUser && m.userProfile?.name && m.userProfile.name === id);
   if (byUserName) return byUserName;
 
-  // 4. 슬롯 ID 매치 (A, B, C, D 등)
+  // 4. 슬롯 ID 매치 (A, B, C, D 등) - 안전한 인덱스 체크
   if (id.match(/^[A-Z]$/)) {
     const memberIndex = id.charCodeAt(0) - 65; // A=0, B=1, C=2, D=3
     const aiMembers = team.members.filter(m => !m.isUser);
-    return aiMembers[memberIndex] || null;
+    if (memberIndex >= 0 && memberIndex < aiMembers.length) {
+      return aiMembers[memberIndex];
+    }
   }
 
   return null;
@@ -35,7 +37,18 @@ export function findMemberById(team: Team, id: string): TeamMember | null {
  * 멤버의 실제 ID를 반환 (관계 저장용)
  */
 export function getMemberActualId(member: TeamMember): string {
-  return member.isUser ? "나" : (member.agentId || "unknown");
+  if (member.isUser) {
+    return "나";
+  }
+  
+  // agentId가 없는 경우 슬롯 기반 임시 ID 생성
+  if (!member.agentId) {
+    // AI 멤버들 중에서 현재 멤버의 인덱스 찾기 (팀 컨텍스트 필요)
+    console.warn('Member has no agentId, using fallback ID generation');
+    return `temp_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+  }
+  
+  return member.agentId;
 }
 
 /**
@@ -114,17 +127,28 @@ export async function resolveMultipleAgentIds(agentIds: string[]): Promise<{ [ag
 export function createMemberIdMapping(teamMembers: any[]): { [slotId: string]: string } {
   const mapping: { [slotId: string]: string } = {};
   
+  // AI 멤버들을 먼저 필터링하여 인덱스 안정성 확보
+  const aiMembers = teamMembers.filter(m => !m.isUser);
+  
   teamMembers.forEach((member) => {
     if (member.isUser) {
       mapping["나"] = "나";
-      mapping[member.id] = "나"; // 슬롯 ID도 매핑
+      // 사용자 슬롯 ID는 "나"로만 매핑 (중복 매핑 방지)
+      if (member.id !== "나") {
+        mapping[member.id] = "나";
+      }
     } else {
-      const actualId = member.agentId || member.id;
-      mapping[member.id] = actualId; // 슬롯 ID -> 실제 ID
+      // agentId가 없는 경우 처리 개선
+      const actualId = member.agentId || `slot_${member.id}`;
       
-      // A, B, C, D 슬롯 매핑
+      // 슬롯 ID -> 실제 ID 매핑 (중복 방지)
+      if (member.id && member.id !== actualId) {
+        mapping[member.id] = actualId;
+      }
+      
+      // A, B, C, D 슬롯 매핑 (안정적인 인덱스 사용)
       const letters = ["A", "B", "C", "D", "E", "F"];
-      const aiMemberIndex = teamMembers.filter(m => !m.isUser).indexOf(member);
+      const aiMemberIndex = aiMembers.indexOf(member);
       if (aiMemberIndex >= 0 && aiMemberIndex < letters.length) {
         mapping[letters[aiMemberIndex]] = actualId;
       }

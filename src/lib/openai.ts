@@ -564,14 +564,16 @@ export async function planNextAction(
     let canGiveFeedback = false;
     if (team && hasRole("피드백하기")) {
       console.log(`🎯 ${userProfile.name} 피드백 계획 단계 확인 시작`);
+      console.log(`🔍 팀 관계 정보 전체 확인:`, JSON.stringify(team.relationships, null, 2));
+      console.log(`🔍 팀 멤버 정보:`, team.members.map(m => ({isUser: m.isUser, agentId: m.agentId})));
       const { canCreateFeedbackSession } = await import("@/lib/relationship-utils");
-      // 사용자와 다른 에이전트들을 모두 피드백 대상으로 고려
+      // 피드백 대상 멤버 필터링: 사용자 + 다른 에이전트들 (자신 제외)
       const otherMembers = team.members.filter(
         (member: any) => {
           if (member.isUser) {
             return true; // 사용자 포함
           } else {
-            return member.agentId !== userProfile.id; // 자신 제외한 다른 에이전트들
+            return member.agentId && member.agentId !== userProfile.id; // 자신 제외한 다른 에이전트들 (null 체크 추가)
           }
         }
       );
@@ -581,7 +583,18 @@ export async function planNextAction(
         // 사용자인 경우 "나"를 ID로 사용, 에이전트인 경우 agentId 사용
         const targetId = member.isUser ? "나" : member.agentId!;
         const canCreate = canCreateFeedbackSession(userProfile.id, targetId, team);
-        console.log(`🎯 ${userProfile.name} → ${member.name || targetId}: ${canCreate ? '✅ 가능' : '❌ 불가능'}`);
+        console.log(`🎯 피드백 관계 확인: ${userProfile.name}(${userProfile.id}) → ${member.name || targetId}(${targetId}): ${canCreate ? '✅ 가능' : '❌ 불가능'}`);
+        
+        // 관계 디버깅 정보 추가
+        if (!canCreate && !member.isUser) {
+          console.log(`🔍 관계 디버깅: ${userProfile.id} → ${targetId}`);
+          const relationship = team.relationships?.find((rel: any) => 
+            (rel.from === userProfile.id && rel.to === targetId) ||
+            (rel.from === targetId && rel.to === userProfile.id)
+          );
+          console.log(`🔍 찾은 관계:`, relationship || '관계 없음');
+        }
+        
         if (canCreate) {
           canGiveFeedback = true;
           break;
@@ -596,13 +609,13 @@ export async function planNextAction(
     if (team && hasRole("요청하기")) {
       console.log(`🎯 ${userProfile.name} 요청 계획 단계 확인 시작`);
       const { canMakeRequest } = await import("@/lib/relationship-utils");
-      // 사용자와 다른 에이전트들을 모두 요청 대상으로 고려
+      // 요청 대상 멤버 필터링: 사용자 + 다른 에이전트들 (자신 제외)
       const otherMembers = team.members.filter(
         (member: any) => {
           if (member.isUser) {
             return true; // 사용자 포함
           } else {
-            return member.agentId !== userProfile.id; // 자신 제외한 다른 에이전트들
+            return member.agentId && member.agentId !== userProfile.id; // 자신 제외한 다른 에이전트들 (null 체크 추가)
           }
         }
       );
@@ -611,7 +624,18 @@ export async function planNextAction(
         // 사용자인 경우 "나"를 ID로 사용, 에이전트인 경우 agentId 사용
         const targetId = member.isUser ? "나" : member.agentId!;
         const canRequest = canMakeRequest(userProfile.id, targetId, team);
-        console.log(`🎯 ${userProfile.name} → ${member.name || targetId}: ${canRequest ? '✅ 가능' : '❌ 불가능'}`);
+        console.log(`🎯 요청 관계 확인: ${userProfile.name}(${userProfile.id}) → ${member.name || targetId}(${targetId}): ${canRequest ? '✅ 가능' : '❌ 불가능'}`);
+        
+        // 관계 디버깅 정보 추가
+        if (!canRequest && !member.isUser) {
+          console.log(`🔍 관계 디버깅: ${userProfile.id} → ${targetId}`);
+          const relationship = team.relationships?.find((rel: any) => 
+            (rel.from === userProfile.id && rel.to === targetId) ||
+            (rel.from === targetId && rel.to === userProfile.id)
+          );
+          console.log(`🔍 찾은 관계:`, relationship || '관계 없음');
+        }
+        
         if (canRequest) {
           canMakeRequestFlag = true;
           break;

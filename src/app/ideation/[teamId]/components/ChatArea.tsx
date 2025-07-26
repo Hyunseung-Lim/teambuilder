@@ -1,14 +1,12 @@
 import { useRef, useEffect, useCallback } from "react";
 import { MessageCircle, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Team, AIAgent, ChatMessage, Idea } from "@/lib/types";
 import FeedbackTabContent from "@/components/FeedbackTabContent";
 import {
   isSystemMessagePayload,
   isChatMessagePayload,
-  isFeedbackSessionSummaryPayload,
 } from "../utils/typeGuards";
 import { formatTimestamp, getKoreanParticle } from "../utils/koreanUtils";
 import { canCreateFeedbackSession, canMakeRequest } from "@/lib/relationship-utils";
@@ -272,13 +270,15 @@ export default function ChatArea({
                   const summaryPayload = message.payload as any;
 
                   // AI끼리의 세션인지 확인 (사용자가 포함되지 않은 경우)
+                  // participants는 이름 배열이므로 user 이름으로 비교
+                  const userName = team?.members?.find(m => m.isUser)?.userProfile?.name || "사용자";
                   const isAIOnlySession = summaryPayload.participants?.every(
-                    (participant: string) => participant !== "나"
+                    (participant: string) => participant !== userName
                   );
 
-                  // 사용자가 참여한 세션인지 확인
+                  // 사용자가 참여한 세션인지 확인 (이름으로 비교)
                   const hasUserParticipant =
-                    summaryPayload.participants?.includes("나");
+                    summaryPayload.participants?.includes(userName);
 
                   // 종료 주체에 따른 메시지 생성
                   const getEndMessage = () => {
@@ -358,10 +358,12 @@ export default function ChatArea({
                                       return senderId;
                                     };
 
+                                    // sessionMsg.sender를 안전하게 추출
+                                    const safeSender = getSafeSender(sessionMsg);
                                     const senderDisplayName =
-                                      getSenderDisplayName(sessionMsg.sender);
-                                    const isFromUser =
-                                      sessionMsg.sender === "나";
+                                      getSenderDisplayName(safeSender);
+                                    const isFromUser = safeSender === "나";
+                                    
 
                                     // AI끼리의 세션인 경우 참가자별로 다른 스타일 적용
                                     let messageStyle =
@@ -498,14 +500,6 @@ export default function ChatArea({
 
                   const contentText = getContentText(message.payload);
 
-                  const isGeneratingMessage =
-                    typeof message.payload === "string"
-                      ? false
-                      : (isSystemMessagePayload(message.payload) ||
-                          isChatMessagePayload(message.payload)) &&
-                        (contentText.includes("생성중입니다") ||
-                          contentText.includes("생성하고 있습니다") ||
-                          contentText.includes("평가하고 있습니다"));
 
                   const isIdeaCompletedMessage =
                     typeof message.payload === "string"
@@ -725,7 +719,8 @@ export default function ChatArea({
                 }
 
                 // 일반 메시지
-                const isMyMessage = getSafeSender(message) === "나";
+                const safeSender = getSafeSender(message);
+                const isMyMessage = safeSender === "나";
 
                 return (
                   <div

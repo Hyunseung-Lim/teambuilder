@@ -82,17 +82,20 @@ export default function FeedbackTabContent({
 
       if (response.ok) {
         const result = await response.json();
+        
         if (result.session?.messages) {
           // 실제 대화 메시지만 필터링
           const chatMessages = result.session.messages
             .filter((msg: any) => msg.type === "message")
-            .map((msg: any) => ({
-              id: msg.id,
-              sender: msg.sender,
-              content: msg.content,
-              timestamp: msg.timestamp,
-              type: msg.type,
-            }));
+            .map((msg: any) => {
+              return {
+                id: msg.id,
+                sender: msg.sender,
+                content: msg.content,
+                timestamp: msg.timestamp,
+                type: msg.type,
+              };
+            });
 
           // 메시지 수가 변경된 경우에만 상태 업데이트
           if (chatMessages.length !== lastMessageCountRef.current) {
@@ -151,6 +154,8 @@ export default function FeedbackTabContent({
         timestamp: new Date().toISOString(),
         type: "message",
       };
+      
+      
       setMessages([initialMessage]);
       lastMessageCountRef.current = 1;
     }
@@ -184,6 +189,7 @@ export default function FeedbackTabContent({
       type: "message",
     };
 
+
     // 즉시 UI 업데이트
     setMessages((prev) => [...prev, userMessage]);
     setNewMessage("");
@@ -191,23 +197,29 @@ export default function FeedbackTabContent({
     setIsGenerating(true);
 
     try {
+      const requestBody = {
+        action: "send_message",
+        sessionId: tab.id,
+        message: userMessage.content,
+        senderId: "나",
+      };
+      
+      
       const response = await fetch(`/api/teams/${teamId}/feedback-sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "send_message",
-          sessionId: tab.id,
-          message: userMessage.content,
-          senderId: "나",
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (response.ok) {
-        console.log("메시지 전송 완료");
         // 1초 후 메시지 다시 로드
         setTimeout(loadMessages, 1000);
       } else {
-        console.error("메시지 전송 실패:", response.status);
+        const errorText = await response.text();
+        console.error("메시지 전송 실패:", {
+          status: response.status,
+          error: errorText,
+        });
         // 실패 시 메시지 제거
         setMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
         setIsGenerating(false);
@@ -273,6 +285,7 @@ export default function FeedbackTabContent({
       {/* 메시지 목록 */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message) => {
+          
           const isMyMessage = message.sender === "나";
           const isSystemMessage = message.sender === "시스템";
 
