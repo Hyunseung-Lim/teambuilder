@@ -565,7 +565,7 @@ export async function planNextAction(
     if (team && hasRole("피드백하기")) {
       console.log(`🎯 ${userProfile.name} 피드백 계획 단계 확인 시작`);
       console.log(`🔍 팀 관계 정보 전체 확인:`, JSON.stringify(team.relationships, null, 2));
-      console.log(`🔍 팀 멤버 정보:`, team.members.map(m => ({isUser: m.isUser, agentId: m.agentId})));
+      console.log(`🔍 팀 멤버 정보:`, team.members.map((m: any) => ({isUser: m.isUser, agentId: m.agentId})));
       console.log(`🔍 현재 에이전트 ID:`, userProfile.id);
       console.log(`🔍 관계 배열 길이:`, team.relationships?.length || 0);
       const { canCreateFeedbackSession } = await import("@/lib/relationship-utils");
